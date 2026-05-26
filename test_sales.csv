@@ -1,0 +1,19 @@
+month,product,sales,revenue,region
+2024-01,Widget A,150,7500,North
+2024-01,Widget B,220,11000,South
+2024-01,Widget C,95,4750,East
+2024-02,Widget A,175,8750,North
+2024-02,Widget B,198,9900,South
+2024-02,Widget C,120,6000,East
+2024-03,Widget A,210,10500,North
+2024-03,Widget B,245,12250,South
+2024-03,Widget C,88,4400,East
+2024-04,Widget A,195,9750,North
+2024-04,Widget B,267,13350,South
+2024-04,Widget C,142,7100,East
+2024-05,Widget A,230,11500,North
+2024-05,Widget B,289,14450,South
+2024-05,Widget C,165,8250,East
+2024-06,Widget A,255,12750,North
+2024-06,Widget B,312,15600,South
+2024-06,Widget C,178,8900,East

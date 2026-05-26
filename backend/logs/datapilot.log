@@ -1,0 +1,22 @@
+2026-05-26 21:27:42,937 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-26 21:27:45,460 [WARNING] datapilot.main: Ollama is offline — LLM features will be limited
+2026-05-26 21:27:45,461 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-26 21:32:00,348 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-26 21:35:59,311 [INFO] datapilot.data_store: Registered table 'file_a44c49fa' with 18 rows
+2026-05-26 21:38:03,623 [INFO] datapilot.main: Intent: 'insight' | files=['a44c49fa'] | msg='top 3 products by total revenue'
+2026-05-26 21:38:06,177 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-26 21:38:06,178 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-26 21:42:44,836 [INFO] datapilot.router: No keyword match — using LLM classification
+2026-05-26 21:42:47,401 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-26 21:42:47,402 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-26 21:42:47,403 [INFO] datapilot.router: LLM classified 'general' (confidence=0.00)
+2026-05-26 21:42:47,403 [INFO] datapilot.main: Intent: 'general' | files=['a44c49fa'] | msg='check this data for quality issues'
+2026-05-26 21:42:49,906 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-26 21:49:30,107 [INFO] datapilot.main: Intent: 'insight' | files=['a44c49fa'] | msg='top 3 products by total revenue'
+2026-05-26 21:49:32,619 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-26 21:49:32,620 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-26 21:50:02,189 [INFO] datapilot.router: No keyword match — using LLM classification
+2026-05-26 21:50:04,668 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-26 21:50:04,671 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-26 21:50:04,672 [INFO] datapilot.router: LLM classified 'general' (confidence=0.00)
+2026-05-26 21:50:04,672 [INFO] datapilot.main: Intent: 'general' | files=['a44c49fa'] | msg='check this data for quality issues'
