@@ -20,6 +20,10 @@ class DataStore:
 
     def register_dataframe(self, table_name: str, df: pd.DataFrame) -> None:
         """Register a Pandas DataFrame as a DuckDB view."""
+        try:
+            self.conn.unregister(table_name)
+        except Exception:
+            pass
         self.conn.register(table_name, df)
         logger.info(f"Registered table '{table_name}' with {len(df)} rows")
 

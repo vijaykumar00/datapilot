@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(() => {
   const backendHost = process.env.BACKEND_HOST || '127.0.0.1'
-  const backendPort = process.env.BACKEND_PORT || '8001'
+  const backendPort = process.env.BACKEND_PORT || '8002'
   const backendTarget = `http://${backendHost}:${backendPort}`
 
   return {
@@ -17,6 +17,7 @@ export default defineConfig(() => {
         '/health': backendTarget,
         '/ollama': backendTarget,
         '/provider': backendTarget,
+        '/export': backendTarget,
       }
     },
     optimizeDeps: {

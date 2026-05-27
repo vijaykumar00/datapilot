@@ -1,17 +1,29 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDataPilot } from '../hooks/useDataPilot'
 
 const PAGE_SIZE = 50
 
 export default function DataPreview() {
-  const { files, previewFileId, previewLoading, previewError } = useDataPilot()
+  const {
+    files,
+    previewFileId,
+    previewLoading,
+    previewError,
+    previewSaving,
+    exportFile,
+    loadPreviewFile,
+    savePreviewEdits,
+  } = useDataPilot()
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('asc')
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(0)
+  const [editMode, setEditMode] = useState(false)
+  const [draftEdits, setDraftEdits] = useState({})
 
   const file = files.find(f => f.file_id === previewFileId) || null
   const columns = file?.columns || []
+  const visibleColumns = columns.filter(col => col.name !== '_row_index')
   const rows = file?.sample_data || []
 
   const processed = useMemo(() => {
@@ -36,6 +48,14 @@ export default function DataPreview() {
   const totalPages = Math.ceil(processed.length / PAGE_SIZE)
   const pageRows = processed.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
+  const draftCount = Object.keys(draftEdits).length
+
+  useEffect(() => {
+    if (file?.file_id && rows.length > 0 && rows.some(row => row._row_index === undefined)) {
+      loadPreviewFile(file.file_id)
+    }
+  }, [file?.file_id, rows, loadPreviewFile])
+
   const handleSort = (col) => {
     if (sortCol === col) {
       setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
@@ -44,6 +64,40 @@ export default function DataPreview() {
       setSortDir('asc')
     }
     setPage(0)
+  }
+
+  const setCellDraft = (rowIndex, column, value) => {
+    const key = `${rowIndex}:${column}`
+    setDraftEdits(current => ({
+      ...current,
+      [key]: { row_index: rowIndex, column, value },
+    }))
+  }
+
+  const getCellValue = (row, columnName) => {
+    const key = `${row._row_index}:${columnName}`
+    return draftEdits[key]?.value ?? row[columnName] ?? ''
+  }
+
+  const handleSave = async () => {
+    const edits = Object.values(draftEdits)
+    const result = await savePreviewEdits(file.file_id, edits)
+    if (result.success) {
+      setDraftEdits({})
+      setEditMode(false)
+    }
+  }
+
+  const handleCancel = () => {
+    setDraftEdits({})
+    setEditMode(false)
+  }
+
+  const handleExport = async (format) => {
+    const result = await exportFile(file.file_id, format)
+    if (!result?.success) {
+      window.alert(result?.error || `Failed to export ${format.toUpperCase()}`)
+    }
   }
 
   if (previewLoading) {
@@ -82,19 +136,65 @@ export default function DataPreview() {
             {file.row_count?.toLocaleString()} rows · {file.column_count} columns
             {filter && ` · ${processed.length} matching`}
           </p>
+          {editMode && (
+            <p className="text-[11px] text-amber-400 mt-1">
+              Editing current loaded data. Export the file after changes if you want a saved copy.
+            </p>
+          )}
         </div>
-        <input
-          id="preview-filter"
-          type="text"
-          value={filter}
-          onChange={e => { setFilter(e.target.value); setPage(0) }}
-          placeholder="Filter rows..."
-          className="input-dark w-40 h-8 text-xs py-1.5"
-        />
+        <div className="flex items-center gap-2">
+          {editMode ? (
+            <>
+              <button
+                onClick={handleSave}
+                disabled={!draftCount || previewSaving}
+                className="btn-primary text-xs h-8 px-3 disabled:opacity-40"
+              >
+                {previewSaving ? 'Saving...' : `Save${draftCount ? ` (${draftCount})` : ''}`}
+              </button>
+              <button
+                onClick={handleCancel}
+                className="btn-ghost text-xs"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              id="edit-preview-btn"
+              onClick={() => setEditMode(true)}
+              className="btn-ghost text-xs"
+            >
+              Edit values
+            </button>
+          )}
+          <button
+            id="download-preview-csv"
+            onClick={() => handleExport('csv')}
+            className="btn-ghost text-xs"
+          >
+            Download CSV
+          </button>
+          <button
+            id="download-preview-xlsx"
+            onClick={() => handleExport('xlsx')}
+            className="btn-ghost text-xs"
+          >
+            Download XLSX
+          </button>
+          <input
+            id="preview-filter"
+            type="text"
+            value={filter}
+            onChange={e => { setFilter(e.target.value); setPage(0) }}
+            placeholder="Filter rows..."
+            className="input-dark w-40 h-8 text-xs py-1.5"
+          />
+        </div>
       </div>
 
       <div className="flex gap-2 px-5 py-2 overflow-x-auto border-b border-white/5 flex-shrink-0">
-        {columns.slice(0, 12).map(col => (
+        {visibleColumns.slice(0, 12).map(col => (
           <div
             key={col.name}
             className="flex-shrink-0 glass-sm px-2 py-1 text-[10px] text-slate-400 rounded-lg"
@@ -106,9 +206,9 @@ export default function DataPreview() {
             )}
           </div>
         ))}
-        {columns.length > 12 && (
+        {visibleColumns.length > 12 && (
           <span className="flex-shrink-0 text-[10px] text-slate-600 self-center">
-            +{columns.length - 12} more
+            +{visibleColumns.length - 12} more
           </span>
         )}
       </div>
@@ -123,7 +223,7 @@ export default function DataPreview() {
             <thead>
               <tr>
                 <th className="w-10 text-center text-slate-600">#</th>
-                {columns.map(col => (
+                {visibleColumns.map(col => (
                   <th
                     key={col.name}
                     className="cursor-pointer hover:text-brand-300 select-none"
@@ -142,17 +242,24 @@ export default function DataPreview() {
             </thead>
             <tbody>
               {pageRows.map((row, i) => (
-                <tr key={page * PAGE_SIZE + i}>
+                <tr key={row._row_index ?? `${page}-${i}`}>
                   <td className="text-center text-slate-600">{page * PAGE_SIZE + i + 1}</td>
-                  {columns.map(col => {
-                    const val = row[col.name]
+                  {visibleColumns.map(col => {
+                    const val = getCellValue(row, col.name)
                     const isNull = val === null || val === undefined || val === ''
                     return (
                       <td key={col.name} title={isNull ? 'null' : String(val)}>
-                        {isNull
-                          ? <span className="text-rose-500/50 italic text-[10px]">null</span>
-                          : String(val)
-                        }
+                        {editMode ? (
+                          <input
+                            value={String(val)}
+                            onChange={e => setCellDraft(row._row_index, col.name, e.target.value)}
+                            className="w-full bg-transparent border border-white/10 rounded px-2 py-1 text-xs text-slate-200"
+                          />
+                        ) : (
+                          isNull
+                            ? <span className="text-rose-500/50 italic text-[10px]">null</span>
+                            : String(val)
+                        )}
                       </td>
                     )
                   })}

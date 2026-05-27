@@ -183,20 +183,25 @@ class GeminiProvider(BaseLLMProvider):
         )
 
         try:
+            yielded = False
             async with httpx.AsyncClient(timeout=60) as client:
                 async with client.stream(
                     "POST", stream_url, json=payload,
                     params={"key": self._api_key, "alt": "sse"}
                 ) as resp:
+                    resp.raise_for_status()
                     async for line in resp.aiter_lines():
                         if line.startswith("data: "):
                             try:
                                 chunk = _json.loads(line[6:])
                                 text = chunk["candidates"][0]["content"]["parts"][0]["text"]
                                 if text:
+                                    yielded = True
                                     yield text
                             except Exception:
                                 pass
+            if not yielded:
+                raise RuntimeError("Gemini returned an empty streaming response.")
         except Exception as e:
             logger.error("Gemini stream error: %s", self._format_error(e))
             # Fallback to non-streaming

@@ -4,10 +4,12 @@ Routes: /upload, /chat/stream, /files, /files/{id}, /health, /ollama/status
 """
 
 import asyncio
+import io
 import json
 import logging
 import logging.handlers
 import os
+import re
 import socket
 from pathlib import Path
 from typing import AsyncGenerator
@@ -16,6 +18,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import pandas as pd
 
 # Logging setup (before any imports that log)
 import sys
@@ -129,6 +132,58 @@ class ChatRequest(BaseModel):
     conversation_history: list[dict] = []
 
 
+class ExportRowsRequest(BaseModel):
+    rows: list[dict]
+    filename: str | None = None
+
+
+class ExportReportRequest(BaseModel):
+    content: str
+    filename: str | None = None
+
+
+class CellEdit(BaseModel):
+    row_index: int
+    column: str
+    value: str | int | float | bool | None = None
+
+
+class UpdateCellsRequest(BaseModel):
+    edits: list[CellEdit]
+
+
+def _safe_export_name(name: str, fallback: str) -> str:
+    stem = Path(name).stem if name else fallback
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._")
+    return cleaned or fallback
+
+
+def _dataframe_to_bytes(df: pd.DataFrame, export_format: str) -> tuple[bytes, str, str]:
+    export_format = export_format.lower()
+    if export_format == "csv":
+        return (
+            df.to_csv(index=False).encode("utf-8"),
+            "text/csv; charset=utf-8",
+            "csv",
+        )
+    if export_format == "xlsx":
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="data", index=False)
+        return (
+            buffer.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "xlsx",
+        )
+    raise HTTPException(400, "Unsupported export format. Use csv or xlsx")
+
+
+def _bytes_download_response(payload: bytes, media_type: str, filename: str) -> StreamingResponse:
+    response = StreamingResponse(io.BytesIO(payload), media_type=media_type)
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
@@ -218,6 +273,55 @@ async def get_file_preview(file_id: str):
     return {"success": True, **preview}
 
 
+@app.patch("/files/{file_id}")
+async def update_file_cells(file_id: str, req: UpdateCellsRequest):
+    """Apply user edits to the loaded dataframe."""
+    try:
+        result = get_file_manager().apply_edits(
+            file_id,
+            [edit.model_dump() for edit in req.edits],
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    if result is None:
+        raise HTTPException(404, f"File '{file_id}' not found")
+    return result
+
+
+@app.get("/export/file/{file_id}")
+async def export_file_data(file_id: str, format: str = "csv"):
+    """Export the full uploaded dataset as CSV or XLSX."""
+    record = get_file_manager().get_record(file_id)
+    if record is None:
+        raise HTTPException(404, f"File '{file_id}' not found")
+    payload, media_type, ext = _dataframe_to_bytes(record.df, format)
+    filename = f"{_safe_export_name(record.filename, 'dataset')}.{ext}"
+    return _bytes_download_response(payload, media_type, filename)
+
+
+@app.post("/export/results")
+async def export_result_rows(req: ExportRowsRequest, format: str = "csv"):
+    """Export query or preview rows currently visible in the UI."""
+    if not req.rows:
+        raise HTTPException(400, "No rows provided for export")
+    df = pd.DataFrame(req.rows)
+    payload, media_type, ext = _dataframe_to_bytes(df, format)
+    filename = f"{_safe_export_name(req.filename or 'results', 'results')}.{ext}"
+    return _bytes_download_response(payload, media_type, filename)
+
+
+@app.post("/export/report")
+async def export_report(req: ExportReportRequest, format: str = "md"):
+    """Export a generated narrative/report as markdown or text."""
+    export_format = format.lower()
+    if export_format not in {"md", "txt"}:
+        raise HTTPException(400, "Unsupported report format. Use md or txt")
+    payload = req.content.encode("utf-8")
+    filename = f"{_safe_export_name(req.filename or 'report', 'report')}.{export_format}"
+    return _bytes_download_response(payload, "text/plain; charset=utf-8", filename)
+
+
 @app.delete("/files/{file_id}")
 async def delete_file(file_id: str):
     """Remove a file from memory."""
@@ -276,6 +380,12 @@ async def chat_stream(req: ChatRequest):
                 async for token in llm.stream(message, system=system):
                     response_text += token
                     yield _sse({"type": "text_chunk", "content": token, "is_final": False})
+                if not response_text.strip():
+                    response_text = (
+                        "I could not generate a response right now. The selected provider may be "
+                        "offline, out of quota, or returned an empty result. Try switching provider "
+                        "or asking a more specific data question."
+                    )
                 yield _sse({"type": "text", "content": response_text, "is_final": True})
                 return
 

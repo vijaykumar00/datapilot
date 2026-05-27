@@ -26,7 +26,9 @@ KEYWORD_RULES: list[tuple[str, list[str]]] = [
         "clean", "fix", "repair", "remove duplicate", "fill null", "fill missing",
         "handle null", "handle missing", "data quality", "outlier", "quality issue",
         "check for issue", "check the data", "check this data", "data problem",
-        "missing value", "null value", "bad data",
+        "missing value", "null value", "bad data", "remove null", "drop null",
+        "remove missing", "drop missing", "remove all null", "delete null",
+        "delete missing", "null records", "missing records",
     ]),
     ("crossfile", [
         "join", "merge", "combine", "both files", "all files", "across files",

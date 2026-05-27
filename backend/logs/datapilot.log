@@ -1356,3 +1356,571 @@ For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/St
 2026-05-27 15:59:00,915 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
 2026-05-27 15:59:30,931 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
 2026-05-27 15:59:32,771 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 16:57:51,965 [INFO] datapilot.data_store: Registered table 'file_3ffd4687' with 300 rows
+2026-05-27 16:57:51,972 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=3ffd4687, 300 rows
+2026-05-27 16:57:51,994 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 3ffd4687
+2026-05-27 16:58:24,422 [INFO] datapilot.main: Intent: 'insight' | files=['3ffd4687'] | msg='what data in this excel; give summury'
+2026-05-27 16:59:02,487 [INFO] datapilot.main: Intent: 'insight' | files=['3ffd4687'] | msg='give total benfits from the sale on which product'
+2026-05-27 17:00:40,629 [INFO] datapilot.data_store: Registered table 'file_0ab5b3ce' with 300 rows
+2026-05-27 17:00:40,629 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=0ab5b3ce, 300 rows
+2026-05-27 17:00:40,641 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 0ab5b3ce
+2026-05-27 17:00:52,447 [INFO] datapilot.main: Intent: 'summary' | files=['0ab5b3ce'] | msg='Give me an executive summary of this data'
+2026-05-27 17:00:53,469 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:01:11,652 [INFO] datapilot.main: Intent: 'forecast' | files=['0ab5b3ce'] | msg='Forecast the next 3 months'
+2026-05-27 17:01:11,804 [WARNING] datapilot.agent.forecast: Time-series forecast failed: Too few points for Holt-Winters — falling back to linear regression
+2026-05-27 17:07:15,376 [WARNING] datapilot.llm_client: Gemini online check failed: 
+2026-05-27 17:07:35,423 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:08:15,302 [WARNING] datapilot.llm_client: Gemini online check failed: 
+2026-05-27 17:08:32,779 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:08:35,293 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:09:05,298 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:13:18,605 [INFO] datapilot.main: Intent: 'summary' | files=['0ab5b3ce'] | msg='Give me an executive summary of this data'
+2026-05-27 17:13:20,026 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:13:45,002 [INFO] datapilot.main: Intent: 'clean' | files=['0ab5b3ce'] | msg='Check this data for quality issues'
+2026-05-27 17:20:44,922 [INFO] datapilot.llm_client: LLM provider switched to: ollama
+2026-05-27 17:20:44,922 [INFO] datapilot.llm_client: LLM client initialized: ollama
+2026-05-27 17:20:47,401 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:20:47,403 [INFO] datapilot.main: Provider switched to 'ollama', online=False
+2026-05-27 17:21:07,572 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:21:10,641 [INFO] datapilot.main: Intent: 'visualize' | files=['3ffd4687'] | msg='Generate charts'
+2026-05-27 17:21:13,152 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:21:13,152 [WARNING] datapilot.llm_client: Ollama offline or no model available - returning stub
+2026-05-27 17:21:35,266 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:21:37,572 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:21:39,125 [INFO] datapilot.main: Intent: 'forecast' | files=['3ffd4687'] | msg='Run forecasts and trend analysis'
+2026-05-27 17:21:39,345 [WARNING] datapilot.agent.forecast: Time-series forecast failed: Too few points for Holt-Winters — falling back to linear regression
+2026-05-27 17:21:49,070 [INFO] datapilot.main: Intent: 'clean' | files=['3ffd4687'] | msg='Get data cleaning insights'
+2026-05-27 17:22:03,999 [INFO] datapilot.main: Intent: 'report' | files=['3ffd4687'] | msg='produce report'
+2026-05-27 17:22:06,545 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:22:06,549 [WARNING] datapilot.llm_client: Ollama offline or no model available - returning stub
+2026-05-27 17:22:07,714 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:22:21,390 [INFO] datapilot.main: Intent: 'summary' | files=['3ffd4687'] | msg='Produce executive-style summaries/reports'
+2026-05-27 17:22:23,876 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:22:23,877 [WARNING] datapilot.llm_client: Ollama offline or no model available - returning stub
+2026-05-27 17:22:35,072 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:22:37,570 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:23:03,722 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:23:04,270 [INFO] datapilot.main: Intent: 'clean' | files=['0ab5b3ce'] | msg='Check this data for quality issues'
+2026-05-27 17:23:07,596 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:23:14,258 [INFO] datapilot.router: No keyword match — using LLM classification
+2026-05-27 17:23:16,892 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:23:16,896 [WARNING] datapilot.llm_client: Ollama offline or no model available - returning stub
+2026-05-27 17:23:16,896 [INFO] datapilot.router: LLM classified 'general' (confidence=0.00)
+2026-05-27 17:23:16,896 [INFO] datapilot.main: Intent: 'general' | files=['0ab5b3ce'] | msg='ascsa'
+2026-05-27 17:23:19,395 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:23:34,046 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:23:37,541 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:24:04,065 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:24:07,704 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:24:35,082 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:24:37,561 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:25:07,560 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:25:35,290 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:25:37,605 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:26:07,566 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:26:35,079 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:26:37,602 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:27:07,536 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:27:35,067 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:27:37,556 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:28:07,551 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:28:35,036 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:28:37,594 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:29:07,576 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:29:35,072 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:29:37,607 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:30:07,588 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:30:35,051 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:30:37,577 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:31:07,581 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:31:35,364 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:31:37,674 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:32:07,561 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:32:35,032 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:32:36,428 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:32:37,515 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:33:06,408 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:33:08,028 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:33:35,330 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:33:35,583 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:33:37,817 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:33:38,101 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:34:05,424 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:34:05,657 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:34:35,610 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:34:36,191 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 17:34:49,130 [INFO] datapilot.llm_client: LLM provider switched to: gemini
+2026-05-27 17:34:49,132 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 17:34:50,028 [INFO] datapilot.main: Provider switched to 'gemini', online=True
+2026-05-27 17:34:56,815 [INFO] datapilot.data_store: Registered table 'file_eabf0fc9' with 300 rows
+2026-05-27 17:34:56,815 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=eabf0fc9, 300 rows
+2026-05-27 17:34:56,834 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> eabf0fc9
+2026-05-27 17:34:59,522 [INFO] datapilot.main: Intent: 'summary' | files=['eabf0fc9'] | msg='Give me an executive summary of this data'
+2026-05-27 17:35:00,828 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:35:18,488 [INFO] datapilot.router: No keyword match — using LLM classification
+2026-05-27 17:35:19,423 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:35:19,423 [WARNING] datapilot.router: LLM classification parse error: Expecting value: line 1 column 2 (char 1) | raw='[Gemini error: Gemini quota exceeded or billing is not enabled for this API key.]'
+2026-05-27 17:35:19,427 [INFO] datapilot.main: Intent: 'general' | files=['eabf0fc9'] | msg='remove all  null records'
+2026-05-27 17:35:58,063 [INFO] datapilot.router: No keyword match — using LLM classification
+2026-05-27 17:35:59,261 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:35:59,261 [WARNING] datapilot.router: LLM classification parse error: Expecting value: line 1 column 2 (char 1) | raw='[Gemini error: Gemini quota exceeded or billing is not enabled for this API key.]'
+2026-05-27 17:35:59,271 [INFO] datapilot.main: Intent: 'general' | files=['eabf0fc9'] | msg='remove all null records'
+2026-05-27 17:39:02,079 [INFO] datapilot.data_store: Registered table 'file_fe135ef5' with 300 rows
+2026-05-27 17:39:02,079 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=fe135ef5, 300 rows
+2026-05-27 17:39:02,092 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> fe135ef5
+2026-05-27 17:39:05,278 [INFO] datapilot.main: Intent: 'summary' | files=['fe135ef5'] | msg='Give me an executive summary of this data'
+2026-05-27 17:39:06,250 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:39:35,332 [INFO] datapilot.main: Intent: 'clean' | files=['fe135ef5'] | msg='delete all null values records and provide new excel sheet w'
+2026-05-27 17:49:27,502 [INFO] datapilot.data_store: Registered table 'file_247fa1e4' with 300 rows
+2026-05-27 17:49:27,502 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=247fa1e4, 300 rows
+2026-05-27 17:49:27,521 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 247fa1e4
+2026-05-27 17:49:29,886 [INFO] datapilot.main: Intent: 'summary' | files=['247fa1e4'] | msg='Give me an executive summary of this data'
+2026-05-27 17:49:31,047 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:51:21,883 [INFO] datapilot.data_store: Registered table 'file_ab153a12' with 300 rows
+2026-05-27 17:51:21,883 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=ab153a12, 300 rows
+2026-05-27 17:51:21,894 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> ab153a12
+2026-05-27 17:51:22,962 [INFO] datapilot.main: Intent: 'summary' | files=['ab153a12'] | msg='Give me an executive summary of this data'
+2026-05-27 17:51:24,575 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:52:45,784 [INFO] datapilot.router: No keyword match — using LLM classification
+2026-05-27 17:52:46,797 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 17:52:46,797 [WARNING] datapilot.router: LLM classification parse error: Expecting value: line 1 column 2 (char 1) | raw='[Gemini error: Gemini quota exceeded or billing is not enabled for this API key.]'
+2026-05-27 17:52:46,798 [INFO] datapilot.main: Intent: 'general' | files=[] | msg='HI'
+2026-05-27 17:54:56,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:55:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:55:32,758 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:55:56,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:56:26,607 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:56:32,758 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:56:56,656 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:57:26,639 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:57:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:57:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:58:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:58:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:58:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:59:26,623 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:59:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 17:59:56,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:00:26,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:00:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:00:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:01:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:01:32,760 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:01:56,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:02:26,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:02:32,754 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:02:56,601 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:03:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:03:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:03:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:04:26,601 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:04:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:04:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:05:26,628 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:05:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:05:56,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:06:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:06:32,763 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:06:56,600 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:07:26,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:07:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:07:56,601 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:08:26,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:08:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:08:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:09:26,605 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:09:32,767 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:09:56,625 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:10:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:10:32,777 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:10:56,614 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:11:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:11:32,751 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:11:56,642 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:12:26,643 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:12:32,777 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:12:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:13:26,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:13:32,786 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:13:56,613 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:14:26,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:14:32,798 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:14:56,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:15:26,654 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:15:32,793 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:15:56,614 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:16:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:16:32,783 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:16:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:17:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:17:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:17:56,626 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:18:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:18:32,759 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:18:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:19:26,627 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:19:32,784 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:19:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:20:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:20:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:20:56,623 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:21:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:21:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:21:56,607 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:22:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:22:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:22:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:23:26,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:23:32,758 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:23:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:24:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:24:32,789 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:24:56,631 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:25:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:25:32,754 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:25:56,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:26:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:26:32,763 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:26:56,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:27:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:27:32,796 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:27:56,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:28:26,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:28:32,782 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:28:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:29:26,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:29:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:29:56,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:30:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:30:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:30:56,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:31:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:31:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:31:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:32:26,627 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:32:32,761 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:32:56,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:33:26,628 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:33:32,802 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:33:56,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:34:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:34:32,784 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:34:56,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:35:26,601 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:35:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:35:56,599 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:36:26,632 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:36:32,747 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:36:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:37:26,621 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:37:32,775 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:37:56,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:38:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:38:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:38:56,605 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:39:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:39:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:39:56,602 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:40:26,605 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:40:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:40:56,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:41:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:41:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:41:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:42:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:42:32,761 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:42:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:43:26,607 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:43:32,777 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:43:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:44:26,614 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:44:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:44:56,623 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:45:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:45:32,759 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:45:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:46:26,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:46:32,761 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:46:56,616 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:47:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:47:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:47:56,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:48:26,592 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:48:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:48:56,620 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:49:26,616 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:49:32,778 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:49:56,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:50:26,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:50:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:50:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:51:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:51:32,786 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:51:56,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:52:26,614 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:52:32,780 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:52:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:53:26,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:53:32,785 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:53:56,596 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:54:26,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:54:32,777 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:54:56,601 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:55:26,635 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:55:32,779 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:55:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:56:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:56:32,756 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:56:56,620 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:57:26,632 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:57:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:57:56,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:58:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:58:32,766 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:58:56,605 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:59:26,599 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:59:32,758 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 18:59:56,603 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:00:26,616 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:00:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:00:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:01:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:01:32,777 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:01:56,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:02:26,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:02:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:02:56,599 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:03:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:03:32,759 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:03:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:04:26,620 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:04:32,767 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:04:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:05:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:05:32,770 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:05:56,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:06:26,607 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:06:32,768 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:06:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:07:26,614 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:07:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:07:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:08:26,613 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:08:32,773 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:08:56,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:09:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:09:32,774 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:09:56,623 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:10:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:10:32,775 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:10:56,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:11:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:11:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:11:56,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:12:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:12:32,761 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:12:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:13:26,603 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:13:32,763 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:13:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:14:26,620 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:14:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:14:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:15:26,640 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:15:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:15:56,649 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:16:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:16:32,763 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:16:56,655 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:17:26,653 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:17:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:17:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:18:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:18:32,765 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:18:56,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:19:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:19:32,769 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:19:56,643 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:20:26,634 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:20:32,760 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:20:56,595 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:21:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:21:32,768 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:21:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:22:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:22:32,766 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:22:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:23:26,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:23:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:23:56,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:24:26,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:24:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:24:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:25:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:25:32,785 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:25:56,628 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:26:26,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:26:32,757 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:26:56,623 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:27:26,605 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:27:32,779 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:27:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:28:26,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:28:32,778 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:28:56,648 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:29:26,599 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:29:32,765 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:29:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:30:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:30:32,757 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:30:56,598 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:31:26,601 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:31:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:31:56,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:32:26,600 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:32:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:32:56,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:33:26,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:33:32,763 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:33:56,641 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:34:26,633 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:34:32,758 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:34:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:35:26,603 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:35:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:35:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:36:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:36:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:36:56,636 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:37:26,630 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:37:32,781 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:37:56,614 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:38:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:38:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:38:56,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:39:26,603 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:39:32,783 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:39:56,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:40:26,610 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:40:32,782 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:40:56,634 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:41:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:41:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:41:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:42:26,613 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:42:32,780 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:42:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:43:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:43:32,762 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:43:56,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:44:26,597 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:44:32,776 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:44:56,596 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:45:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:45:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:45:56,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:46:26,615 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:46:32,777 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:46:56,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:47:26,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:47:32,773 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:47:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:48:26,591 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:48:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:48:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:49:26,593 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:49:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:49:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:50:26,592 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:50:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:50:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:51:26,602 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:51:32,793 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:51:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:52:26,620 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:52:32,784 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:52:56,630 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:53:26,629 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:53:32,792 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:53:56,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:54:26,624 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:54:32,762 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:54:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:55:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:55:32,766 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:55:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:56:26,625 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:56:32,775 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:56:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:57:26,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:57:32,754 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:57:56,603 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:58:26,608 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:58:32,788 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:58:56,612 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:59:26,604 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:59:32,760 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 19:59:56,611 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:00:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:00:32,764 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:00:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:01:26,609 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:01:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:01:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:02:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:02:32,759 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:02:56,619 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:03:26,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:03:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:03:56,620 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:04:26,606 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:04:32,755 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:04:56,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:05:26,602 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:05:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:05:56,618 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:06:26,622 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:06:32,772 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:06:56,623 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:07:26,617 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:07:32,763 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:07:56,592 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 20:10:17,356 [INFO] datapilot.data_store: Registered table 'file_26f254ba' with 300 rows
+2026-05-27 20:10:17,356 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=26f254ba, 300 rows
+2026-05-27 20:10:17,374 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 26f254ba
+2026-05-27 20:10:19,443 [INFO] datapilot.main: Intent: 'summary' | files=['26f254ba'] | msg='Give me an executive summary of this data'
+2026-05-27 20:13:49,961 [INFO] datapilot.data_store: Registered table 'file_ad833595' with 300 rows
+2026-05-27 20:13:49,967 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=ad833595, 300 rows
+2026-05-27 20:13:49,979 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> ad833595
+2026-05-27 20:13:54,933 [INFO] datapilot.main: Intent: 'insight' | files=['ad833595'] | msg='Show me the top 10 rows by the main metric'
+2026-05-27 20:13:56,176 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 20:13:56,188 [WARNING] datapilot.agent.insight: Could not extract SQL. Raw LLM output: [Gemini error: Gemini quota exceeded or billing is not enabled for this API key.]
+2026-05-27 20:14:02,829 [INFO] datapilot.main: Intent: 'insight' | files=['ad833595'] | msg='Show me the top 10 rows by the main metric'
+2026-05-27 20:14:03,935 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 20:14:03,938 [WARNING] datapilot.agent.insight: Could not extract SQL. Raw LLM output: [Gemini error: Gemini quota exceeded or billing is not enabled for this API key.]
+2026-05-27 20:14:33,833 [INFO] datapilot.data_store: Registered table 'file_5ce4d7aa' with 300 rows
+2026-05-27 20:14:33,834 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=5ce4d7aa, 300 rows
+2026-05-27 20:14:33,843 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 5ce4d7aa
+2026-05-27 20:14:39,814 [INFO] datapilot.main: Intent: 'summary' | files=['5ce4d7aa'] | msg='Give me an executive summary of this data'
+2026-05-27 20:14:40,959 [ERROR] datapilot.llm_client: Gemini generate error: Gemini quota exceeded or billing is not enabled for this API key.
+2026-05-27 20:16:21,071 [INFO] datapilot.data_store: Registered table 'file_bf563edd' with 300 rows
+2026-05-27 20:16:21,073 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=bf563edd, 300 rows
+2026-05-27 20:16:21,078 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> bf563edd
+2026-05-27 20:23:02,482 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 20:23:02,483 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 20:23:03,046 [WARNING] datapilot.llm_client: Gemini online check failed: All connection attempts failed
+2026-05-27 20:23:03,062 [WARNING] datapilot.main: Provider 'gemini' is offline or missing API key
+2026-05-27 20:23:03,063 [INFO] datapilot.main: DataPilot API ready at http://127.0.0.1:8002
+2026-05-27 20:23:07,904 [WARNING] datapilot.llm_client: Gemini online check failed: All connection attempts failed
+2026-05-27 20:23:09,124 [WARNING] datapilot.llm_client: Gemini online check failed: All connection attempts failed
+2026-05-27 21:24:01,276 [INFO] datapilot.data_store: Registered table 'file_68d76725' with 300 rows
+2026-05-27 21:24:01,276 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=68d76725, 300 rows
+2026-05-27 21:24:01,319 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 68d76725
+2026-05-27 21:24:04,975 [INFO] datapilot.main: Intent: 'summary' | files=['68d76725'] | msg='Give me an executive summary of this data'
+2026-05-27 21:24:14,985 [ERROR] datapilot.agent.summary: summary agent timed out after 10s
+2026-05-27 21:24:45,633 [INFO] datapilot.main: Intent: 'insight' | files=['68d76725'] | msg='get only product name'
+2026-05-27 22:00:50,251 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 22:00:50,251 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 22:00:51,586 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 22:00:51,586 [INFO] datapilot.main: DataPilot API ready at http://127.0.0.1:8001
+2026-05-27 22:01:15,007 [INFO] datapilot.data_store: DuckDB in-memory store initialized

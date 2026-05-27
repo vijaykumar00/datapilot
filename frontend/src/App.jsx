@@ -97,7 +97,7 @@ export default function App() {
             v1.0 · 100% local · no API keys
           </p>
           <a
-            href="http://127.0.0.1:8001/docs"
+            href="http://127.0.0.1:8002/docs"
             target="_blank"
             rel="noreferrer"
             className="text-[10px] text-brand-600 hover:text-brand-400 transition-colors"

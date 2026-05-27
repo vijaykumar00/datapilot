@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from cachetools import LRUCache
 from fastapi import UploadFile
@@ -182,7 +183,8 @@ class FileManager:
 
         df = record.df.head(limit).copy()
         rows = df.fillna("").to_dict(orient="records")
-        for row in rows:
+        for idx, row in enumerate(rows):
+            row["_row_index"] = idx
             for key, value in row.items():
                 if hasattr(value, "item"):
                     row[key] = value.item()
@@ -206,6 +208,60 @@ class FileManager:
             "sample_data": rows,
             "metadata": record.metadata,
         }
+
+    def apply_edits(self, file_id: str, edits: list[dict[str, Any]]) -> dict[str, Any] | None:
+        record = self._cache.get(file_id)
+        if record is None:
+            return None
+
+        df = record.df.copy()
+        applied = 0
+        for edit in edits:
+            row_index = int(edit["row_index"])
+            column = edit["column"]
+            if column not in df.columns:
+                raise ValueError(f"Column '{column}' does not exist")
+            if row_index < 0 or row_index >= len(df):
+                raise ValueError(f"Row index {row_index} is out of range")
+
+            df.at[row_index, column] = self._coerce_value(df[column], edit.get("value"))
+            applied += 1
+
+        record.df = df
+        self._store.register_dataframe(record.table_name, df)
+        logger.info("Applied %s edit(s) to '%s'", applied, record.filename)
+        return {
+            "success": True,
+            "applied": applied,
+            "preview": self.get_preview_data(file_id),
+        }
+
+    def _coerce_value(self, series: pd.Series, raw_value: Any) -> Any:
+        if raw_value == "":
+            raw_value = None
+
+        if pd.api.types.is_integer_dtype(series.dtype):
+            if raw_value is None:
+                return np.nan
+            return int(float(raw_value))
+        if pd.api.types.is_float_dtype(series.dtype):
+            if raw_value is None:
+                return np.nan
+            return float(raw_value)
+        if pd.api.types.is_bool_dtype(series.dtype):
+            if raw_value is None:
+                return False
+            text = str(raw_value).strip().lower()
+            if text in {"true", "1", "yes", "y"}:
+                return True
+            if text in {"false", "0", "no", "n"}:
+                return False
+            raise ValueError(f"Invalid boolean value '{raw_value}'")
+        if pd.api.types.is_datetime64_any_dtype(series.dtype):
+            if raw_value is None:
+                return pd.NaT
+            return pd.to_datetime(raw_value)
+        return raw_value
 
     def list_files(self) -> list[dict[str, Any]]:
         return [

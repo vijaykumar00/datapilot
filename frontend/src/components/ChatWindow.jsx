@@ -88,6 +88,31 @@ function StatusBubble({ content }) {
 
 // ── Bot message ───────────────────────────────────────────────────────────
 function BotMessage({ msg, onAskFollowup }) {
+  const { exportRows, exportReport, files, setPreviewFile } = useDataPilot()
+  const handleExportRows = async (format) => {
+    const result = await exportRows(
+      msg.table_data,
+      msg.metadata?.filename || `${msg.type || 'results'}_results`,
+      format,
+    )
+    if (!result?.success) {
+      window.alert(result?.error || `Failed to export ${format.toUpperCase()}`)
+    }
+  }
+
+  const handleExportReport = async () => {
+    const result = await exportReport(
+      msg.content,
+      msg.metadata?.filename
+        ? `${msg.metadata.filename}_${msg.type}`
+        : `${msg.type || 'report'}`,
+      'md',
+    )
+    if (!result?.success) {
+      window.alert(result?.error || 'Failed to export report')
+    }
+  }
+
   if (msg.type === 'loading') return <SkeletonMessage />
   if (msg.type === 'status') return <StatusBubble content={msg.content} />
 
@@ -119,6 +144,43 @@ function BotMessage({ msg, onAskFollowup }) {
         {/* Table data */}
         {msg.table_data?.length > 0 && !msg.chart_data && (
           <InlineTable rows={msg.table_data} />
+        )}
+
+        {((msg.table_data?.length > 0) || msg.content) && (
+          <div className="flex flex-wrap gap-2 px-1">
+            {files[0]?.file_id && (
+              <button
+                className="btn-ghost text-xs"
+                onClick={() => setPreviewFile(files[0].file_id)}
+              >
+                Open editable preview
+              </button>
+            )}
+            {msg.table_data?.length > 0 && (
+              <>
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => handleExportRows('csv')}
+                >
+                  Download CSV
+                </button>
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => handleExportRows('xlsx')}
+                >
+                  Download XLSX
+                </button>
+              </>
+            )}
+            {msg.content && ['report', 'summary'].includes(msg.type) && (
+              <button
+                className="btn-ghost text-xs"
+                onClick={handleExportReport}
+              >
+                Export report
+              </button>
+            )}
+          </div>
         )}
 
         {/* Timestamp */}
