@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import ChatWindow from './components/ChatWindow'
 import DataPreview from './components/DataPreview'
 import FileUploader from './components/FileUploader'
+import ProviderSelector from './components/ProviderSelector'
 import { useDataPilot } from './hooks/useDataPilot'
 
 // ── Ollama status indicator ───────────────────────────────────────────────
-function OllamaStatus() {
-  const { ollamaStatus, checkOllama } = useDataPilot()
+function AIStatus() {
+  const { provider, providerOnline, checkOllama } = useDataPilot()
 
   useEffect(() => {
     checkOllama()
@@ -14,24 +15,17 @@ function OllamaStatus() {
     return () => clearInterval(interval)
   }, [])
 
-  const online = ollamaStatus?.online
-  const models = ollamaStatus?.models || []
-  const model = models[0] || null
+  const icons = { gemini: '\u2728', openai: '\uD83E\uDD16', claude: '\uD83C\uDFAD', ollama: '\uD83E\uDDCA' }
+  const labels = { gemini: 'Gemini', openai: 'OpenAI', claude: 'Claude', ollama: 'Ollama' }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg glass-sm text-xs">
-      <div className={`status-dot ${online === undefined ? 'status-warn' : online ? 'status-online' : 'status-offline'}`} />
+      <div className={`status-dot ${providerOnline === undefined ? 'status-warn' : providerOnline ? 'status-online' : 'status-offline'}`} />
       <span className="text-slate-400">
-        {online === undefined
-          ? 'Checking Ollama…'
-          : online
-            ? model || 'Ollama online'
-            : 'Ollama offline'}
+        {icons[provider] || '\uD83E\uDDA7'} {labels[provider] || provider}
       </span>
-      {online && (
-        <span className="text-[10px] text-emerald-500/70 font-mono">
-          {models.length} model{models.length !== 1 ? 's' : ''}
-        </span>
+      {providerOnline && (
+        <span className="text-[10px] text-emerald-500/70 font-mono">ready</span>
       )}
     </div>
   )
@@ -86,9 +80,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* Ollama status */}
-        <div className="px-3 pt-3 pb-1">
-          <OllamaStatus />
+        {/* AI status + provider selector */}
+        <div className="px-3 pt-3 pb-1 space-y-1.5">
+          <AIStatus />
+          <ProviderSelector />
         </div>
 
         {/* File uploader */}
@@ -102,7 +97,7 @@ export default function App() {
             v1.0 · 100% local · no API keys
           </p>
           <a
-            href="http://localhost:8000/docs"
+            href="http://127.0.0.1:8001/docs"
             target="_blank"
             rel="noreferrer"
             className="text-[10px] text-brand-600 hover:text-brand-400 transition-colors"

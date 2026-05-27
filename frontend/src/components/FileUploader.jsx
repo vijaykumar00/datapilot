@@ -12,7 +12,7 @@ function FileCard({ file, onRemove, onPreview, isActive, onToggle }) {
   return (
     <div
       className={`file-pill ${isActive ? 'file-pill-active' : 'file-pill-inactive'} group`}
-      onClick={onToggle}
+      onClick={() => { onToggle(); onPreview(file.file_id) }}
     >
       <span className="text-base">{icon}</span>
       <div className="flex-1 min-w-0">

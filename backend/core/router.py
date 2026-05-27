@@ -35,7 +35,8 @@ KEYWORD_RULES: list[tuple[str, list[str]]] = [
     ("summary", [
         "summarize", "summary", "overview", "executive", "explain why",
         "key insight", "main finding", "business summary", "tell me about",
-        "what does this data", "describe this",
+        "what does this data", "describe this", "sheet", "sheets",
+        "worksheet", "worksheets", "tab", "tabs",
     ]),
     ("report", [
         "report", "full analysis", "complete analysis", "generate report",

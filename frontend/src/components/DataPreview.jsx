@@ -4,27 +4,16 @@ import { useDataPilot } from '../hooks/useDataPilot'
 const PAGE_SIZE = 50
 
 export default function DataPreview() {
-  const { files, previewFileId } = useDataPilot()
+  const { files, previewFileId, previewLoading, previewError } = useDataPilot()
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('asc')
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(0)
 
-  const file = files.find(f => f.file_id === previewFileId)
+  const file = files.find(f => f.file_id === previewFileId) || null
+  const columns = file?.columns || []
+  const rows = file?.sample_data || []
 
-  if (!file) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8 gap-4">
-        <div className="text-4xl">👁️</div>
-        <p className="text-slate-400 text-sm">Select a file from the sidebar to preview its data</p>
-      </div>
-    )
-  }
-
-  const columns = file.columns || []
-  const rows = file.sample_data || []
-
-  // Filter + sort (client-side on sample data)
   const processed = useMemo(() => {
     let result = [...rows]
     if (filter) {
@@ -49,7 +38,7 @@ export default function DataPreview() {
 
   const handleSort = (col) => {
     if (sortCol === col) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setSortCol(col)
       setSortDir('asc')
@@ -57,9 +46,35 @@ export default function DataPreview() {
     setPage(0)
   }
 
+  if (previewLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-8 gap-4">
+        <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-slate-400 text-sm">Loading preview data...</p>
+      </div>
+    )
+  }
+
+  if (previewError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-8 gap-4">
+        <div className="text-4xl">!</div>
+        <p className="text-rose-400 text-sm">{previewError}</p>
+      </div>
+    )
+  }
+
+  if (!file) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-8 gap-4">
+        <div className="text-4xl">Preview</div>
+        <p className="text-slate-400 text-sm">Select a file from the sidebar to preview its data</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 flex-shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-slate-200">{file.filename}</h3>
@@ -73,20 +88,21 @@ export default function DataPreview() {
           type="text"
           value={filter}
           onChange={e => { setFilter(e.target.value); setPage(0) }}
-          placeholder="Filter rows…"
+          placeholder="Filter rows..."
           className="input-dark w-40 h-8 text-xs py-1.5"
         />
       </div>
 
-      {/* Column info strip */}
       <div className="flex gap-2 px-5 py-2 overflow-x-auto border-b border-white/5 flex-shrink-0">
         {columns.slice(0, 12).map(col => (
-          <div key={col.name}
-            className="flex-shrink-0 glass-sm px-2 py-1 text-[10px] text-slate-400 rounded-lg">
+          <div
+            key={col.name}
+            className="flex-shrink-0 glass-sm px-2 py-1 text-[10px] text-slate-400 rounded-lg"
+          >
             <span className="font-mono text-brand-400">{col.name}</span>
             <span className="text-slate-600 ml-1">({col.dtype})</span>
             {col.null_count > 0 && (
-              <span className="ml-1 text-amber-500/70">·{col.null_count}✗</span>
+              <span className="ml-1 text-amber-500/70">·{col.null_count}×</span>
             )}
           </div>
         ))}
@@ -97,7 +113,6 @@ export default function DataPreview() {
         )}
       </div>
 
-      {/* Table */}
       <div className="flex-1 overflow-auto">
         {pageRows.length === 0 ? (
           <div className="flex items-center justify-center h-full text-slate-500 text-sm">
@@ -148,7 +163,6 @@ export default function DataPreview() {
         )}
       </div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-5 py-2 border-t border-white/5 flex-shrink-0">
           <span className="text-xs text-slate-500">

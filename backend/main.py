@@ -8,6 +8,7 @@ import json
 import logging
 import logging.handlers
 import os
+import socket
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -17,19 +18,25 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 # Logging setup (before any imports that log)
+import sys
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.stream.reconfigure(encoding="utf-8", errors="replace")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.StreamHandler(),
+        _stream_handler,
         logging.handlers.RotatingFileHandler(
-            LOG_DIR / "datapilot.log", maxBytes=5_000_000, backupCount=3
+            LOG_DIR / "datapilot.log", maxBytes=5_000_000, backupCount=3,
+            encoding="utf-8",
         ),
     ],
 )
 logger = logging.getLogger("datapilot.main")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 from agents.clean_agent import CleanAgent
 from agents.crossfile_agent import CrossFileAgent
@@ -40,8 +47,48 @@ from agents.summary_agent import SummaryAgent
 from agents.viz_agent import VizAgent
 from core.data_store import get_store
 from core.file_manager import get_file_manager
-from core.llm_client import get_llm_client
+from core.llm_client import get_llm_client, get_active_provider, set_active_provider
 from core.router import classify
+
+
+def _get_backend_host() -> str:
+    return os.getenv("BACKEND_HOST", "127.0.0.1")
+
+
+def _get_backend_port() -> int:
+    raw = os.getenv("BACKEND_PORT", "8001")
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid BACKEND_PORT '%s', falling back to 8001", raw)
+        return 8001
+
+
+def _can_bind(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def _resolve_backend_port(host: str, preferred_port: int) -> int:
+    if _can_bind(host, preferred_port):
+        return preferred_port
+    for port in range(preferred_port + 1, preferred_port + 20):
+        if _can_bind(host, port):
+            logger.warning(
+                "Port %s is unavailable on %s, using %s instead",
+                preferred_port,
+                host,
+                port,
+            )
+            return port
+    raise RuntimeError(
+        f"Could not find an available port starting from {preferred_port} on {host}"
+    )
 
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -91,8 +138,36 @@ async def health():
     return {
         "status": "ok",
         "ollama": ollama_up,
+        "provider": get_active_provider(),
         "files_loaded": len(get_file_manager().list_files()),
     }
+
+
+@app.get("/provider")
+async def get_provider():
+    """Get current LLM provider and its status."""
+    provider = get_active_provider()
+    llm = get_llm_client()
+    online = await llm.is_online()
+    return {"provider": provider, "online": online}
+
+
+class ProviderRequest(BaseModel):
+    provider: str
+    api_key: str | None = None
+
+
+@app.post("/provider")
+async def switch_provider(req: ProviderRequest):
+    """Switch LLM provider at runtime (no restart needed)."""
+    valid = {"gemini", "openai", "claude", "ollama"}
+    if req.provider not in valid:
+        raise HTTPException(400, f"Invalid provider. Choose from: {', '.join(valid)}")
+    set_active_provider(req.provider, req.api_key)
+    llm = get_llm_client()
+    online = await llm.is_online()
+    logger.info(f"Provider switched to '{req.provider}', online={online}")
+    return {"success": True, "provider": req.provider, "online": online}
 
 
 @app.get("/ollama/status")
@@ -118,7 +193,7 @@ async def upload_file(file: UploadFile = File(...)):
     manager = get_file_manager()
     try:
         result = await manager.process_upload(file)
-        logger.info(f"Upload successful: {file.filename} → {result['file_id']}")
+        logger.info(f"Upload successful: {file.filename} -> {result['file_id']}")
         return {"success": True, **result}
     except ValueError as e:
         logger.warning(f"Upload validation failed: {e}")
@@ -132,6 +207,15 @@ async def upload_file(file: UploadFile = File(...)):
 async def list_files():
     """List all currently loaded files."""
     return {"files": get_file_manager().list_files()}
+
+
+@app.get("/files/{file_id}")
+async def get_file_preview(file_id: str):
+    """Return preview rows and metadata for one loaded file."""
+    preview = get_file_manager().get_preview_data(file_id)
+    if preview is None:
+        raise HTTPException(404, f"File '{file_id}' not found")
+    return {"success": True, **preview}
 
 
 @app.delete("/files/{file_id}")
@@ -242,16 +326,22 @@ def _sse(data: dict) -> str:
 @app.on_event("startup")
 async def startup_event():
     logger.info("DataPilot API starting up...")
+    provider = get_active_provider()
     llm = get_llm_client()
     online = await llm.is_online()
     if online:
-        model = await llm._get_best_model()
-        logger.info(f"Ollama online — using model: {model}")
+        logger.info(f"Provider '{provider}' is online and ready")
     else:
-        logger.warning("Ollama is offline — LLM features will be limited")
-    logger.info("DataPilot API ready at http://localhost:8000")
+        logger.warning(f"Provider '{provider}' is offline or missing API key")
+    logger.info(
+        "DataPilot API ready at http://%s:%s",
+        _get_backend_host(),
+        _get_backend_port(),
+    )
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    host = _get_backend_host()
+    port = _resolve_backend_port(host, _get_backend_port())
+    uvicorn.run("main:app", host=host, port=port, reload=True)

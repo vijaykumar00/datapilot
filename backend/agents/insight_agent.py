@@ -84,17 +84,38 @@ class InsightAgent(BaseAgent):
         )
 
         # Generate SQL
+        import re
         raw = await self.llm.generate(prompt, system=SQL_SYSTEM, json_mode=True)
+
+        sql = ""
+        explanation = ""
+
+        # Strip markdown code fences (Gemini/Claude often wrap output in ```json...```)
+        clean = re.sub(r"```(?:json|sql)?\s*", "", raw).replace("```", "").strip()
+
+        # Try JSON parse first
         try:
-            parsed = json.loads(raw)
+            parsed = json.loads(clean)
             sql = parsed.get("sql", "").strip()
             explanation = parsed.get("explanation", "")
         except (json.JSONDecodeError, AttributeError):
-            # Fallback: try to extract raw SQL if JSON parsing fails
-            sql = raw.strip()
-            explanation = ""
+            # Try extracting JSON object with sql key from anywhere in the text
+            json_match = re.search(r'\{[^{}]*"sql"\s*:\s*"([^"]+)"[^{}]*\}', clean, re.DOTALL)
+            if json_match:
+                try:
+                    parsed = json.loads(json_match.group(0))
+                    sql = parsed.get("sql", "").strip()
+                    explanation = parsed.get("explanation", "")
+                except Exception:
+                    sql = json_match.group(1).strip()
+            else:
+                # Last resort: find a SELECT statement directly in the text
+                sel_match = re.search(r"(SELECT\s+.+)", clean, re.IGNORECASE | re.DOTALL)
+                if sel_match:
+                    sql = sel_match.group(1).strip().rstrip(";")
 
-        if not sql or not sql.upper().startswith("SELECT"):
+        if not sql or not sql.upper().lstrip().startswith("SELECT"):
+            logger.warning(f"Could not extract SQL. Raw LLM output: {raw[:300]}")
             return AgentResponse.error_response(
                 f"Could not generate a valid SQL query for: '{query}'", "insight"
             )

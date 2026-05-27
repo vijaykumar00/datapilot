@@ -1,18 +1,20 @@
 import { create } from 'zustand'
 
-const API_BASE = ''  // proxied via Vite
+const API_BASE = ''
 
 export const useDataPilot = create((set, get) => ({
-  // ── State ──────────────────────────────────────────────────────────────
-  files: [],               // [{file_id, filename, row_count, column_count, columns, uploaded_at}]
-  activeFileIds: [],       // file_ids selected for current chat
-  messages: [],            // [{id, role, content, type, chart_data, table_data, metadata, ts}]
+  files: [],
+  activeFileIds: [],
+  messages: [],
   isStreaming: false,
-  ollamaStatus: null,      // {online, models}
-  activeTab: 'chat',       // 'chat' | 'preview'
+  ollamaStatus: null,
+  activeTab: 'chat',
   previewFileId: null,
+  previewLoading: false,
+  previewError: null,
+  provider: 'gemini',
+  providerOnline: false,
 
-  // ── File actions ────────────────────────────────────────────────────────
   uploadFile: async (file) => {
     const form = new FormData()
     form.append('file', file)
@@ -22,10 +24,38 @@ export const useDataPilot = create((set, get) => ({
       set(s => ({
         files: [...s.files, data],
         activeFileIds: [...s.activeFileIds, data.file_id],
+        previewFileId: s.previewFileId ?? data.file_id,
       }))
       return { success: true, data }
     }
     return { success: false, error: data.error }
+  },
+
+  loadPreviewFile: async (fileId) => {
+    set({ previewLoading: true, previewError: null })
+    try {
+      const resp = await fetch(`${API_BASE}/files/${fileId}`)
+      const data = await resp.json()
+      if (!resp.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load preview')
+      }
+
+      set(s => ({
+        files: s.files.map(f => (f.file_id === fileId ? { ...f, ...data } : f)),
+        previewFileId: fileId,
+        previewLoading: false,
+        previewError: null,
+      }))
+
+      return { success: true, data }
+    } catch (err) {
+      set({
+        previewFileId: fileId,
+        previewLoading: false,
+        previewError: err.message,
+      })
+      return { success: false, error: err.message }
+    }
   },
 
   removeFile: async (fileId) => {
@@ -34,6 +64,7 @@ export const useDataPilot = create((set, get) => ({
       files: s.files.filter(f => f.file_id !== fileId),
       activeFileIds: s.activeFileIds.filter(id => id !== fileId),
       previewFileId: s.previewFileId === fileId ? null : s.previewFileId,
+      previewError: s.previewFileId === fileId ? null : s.previewError,
     }))
   },
 
@@ -45,11 +76,57 @@ export const useDataPilot = create((set, get) => ({
     }))
   },
 
-  setPreviewFile: (fileId) => set({ previewFileId: fileId, activeTab: 'preview' }),
+  setPreviewFile: async (fileId) => {
+    set({ activeTab: 'preview' })
+    const existing = get().files.find(f => f.file_id === fileId)
+    if (existing?.sample_data?.length) {
+      set({ previewFileId: fileId, previewError: null, previewLoading: false })
+      return { success: true, data: existing }
+    }
+    return get().loadPreviewFile(fileId)
+  },
 
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  setActiveTab: async (tab) => {
+    set({ activeTab: tab })
+    if (tab === 'preview') {
+      const { previewFileId, files, setPreviewFile } = get()
+      const targetId = previewFileId || files[0]?.file_id
+      if (targetId) {
+        await setPreviewFile(targetId)
+      }
+    }
+  },
 
-  // ── Chat actions ────────────────────────────────────────────────────────
+  checkProvider: async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/provider`)
+      const data = await resp.json()
+      set({ provider: data.provider, providerOnline: data.online })
+    } catch {
+      set({ providerOnline: false })
+    }
+  },
+
+  switchProvider: async (providerId, apiKey) => {
+    try {
+      const body = { provider: providerId }
+      if (apiKey) body.api_key = apiKey
+      const resp = await fetch(`${API_BASE}/provider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set({ provider: data.provider, providerOnline: data.online })
+      }
+      return data
+    } catch (err) {
+      console.error('Provider switch failed:', err)
+      return { success: false }
+    }
+  },
+
   sendMessage: async (text) => {
     const { activeFileIds, messages } = get()
 
@@ -106,7 +183,6 @@ export const useDataPilot = create((set, get) => ({
             const event = JSON.parse(line.slice(6))
 
             if (event.type === 'text_chunk') {
-              // Streaming tokens
               set(s => ({
                 messages: s.messages.map(m =>
                   m.id === botMsgId
@@ -115,7 +191,6 @@ export const useDataPilot = create((set, get) => ({
                 ),
               }))
             } else if (event.is_final) {
-              // Final message with full data
               set(s => ({
                 messages: s.messages.map(m =>
                   m.id === botMsgId
@@ -150,14 +225,17 @@ export const useDataPilot = create((set, get) => ({
 
   clearMessages: () => set({ messages: [] }),
 
-  // ── Ollama status ───────────────────────────────────────────────────────
   checkOllama: async () => {
     try {
-      const resp = await fetch(`${API_BASE}/ollama/status`)
+      const resp = await fetch(`${API_BASE}/provider`)
       const data = await resp.json()
-      set({ ollamaStatus: data })
+      set({
+        provider: data.provider,
+        providerOnline: data.online,
+        ollamaStatus: { online: data.online, models: [] },
+      })
     } catch {
-      set({ ollamaStatus: { online: false, models: [] } })
+      set({ ollamaStatus: { online: false, models: [] }, providerOnline: false })
     }
   },
 }))

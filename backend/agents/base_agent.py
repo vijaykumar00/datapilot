@@ -51,6 +51,7 @@ class BaseAgent(ABC):
     """Abstract agent. Subclasses implement _execute()."""
 
     agent_type: str = "base"
+    timeout_seconds: int = AGENT_TIMEOUT
 
     def __init__(self, llm_client=None, data_store=None, file_manager=None):
         self.llm = llm_client
@@ -68,10 +69,10 @@ class BaseAgent(ABC):
         try:
             return await asyncio.wait_for(
                 self._execute(query, file_ids, context or []),
-                timeout=AGENT_TIMEOUT,
+                timeout=self.timeout_seconds,
             )
         except asyncio.TimeoutError:
-            msg = f"{self.agent_type} agent timed out after {AGENT_TIMEOUT}s"
+            msg = f"{self.agent_type} agent timed out after {self.timeout_seconds}s"
             self.logger.error(msg)
             return AgentResponse.error_response(msg, self.agent_type)
         except Exception as e:

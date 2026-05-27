@@ -20,3 +20,1339 @@
 2026-05-26 21:50:04,671 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
 2026-05-26 21:50:04,672 [INFO] datapilot.router: LLM classified 'general' (confidence=0.00)
 2026-05-26 21:50:04,672 [INFO] datapilot.main: Intent: 'general' | files=['a44c49fa'] | msg='check this data for quality issues'
+2026-05-27 09:44:42,534 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 09:44:45,356 [WARNING] datapilot.main: Ollama is offline — LLM features will be limited
+2026-05-27 09:44:45,357 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 09:45:10,680 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 09:45:38,465 [INFO] datapilot.data_store: Registered table 'file_92bb417b' with 18 rows
+2026-05-27 09:45:43,062 [INFO] datapilot.main: Intent: 'clean' | files=['92bb417b'] | msg='check this data for quality issues'
+2026-05-27 09:45:45,167 [INFO] datapilot.main: Intent: 'forecast' | files=['92bb417b'] | msg='forecast the next 3 months'
+2026-05-27 09:46:16,709 [INFO] datapilot.main: Intent: 'visualize' | files=['92bb417b'] | msg='show me a bar chart of revenue by product'
+2026-05-27 09:46:19,245 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 09:46:19,246 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-27 09:46:23,383 [INFO] datapilot.main: Intent: 'summary' | files=['92bb417b'] | msg='summarize this data'
+2026-05-27 09:46:26,000 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 09:46:26,005 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-27 09:52:50,236 [INFO] datapilot.data_store: Registered table 'file_ba41e543' with 18 rows
+2026-05-27 09:52:54,344 [INFO] datapilot.main: Intent: 'clean' | files=['ba41e543'] | msg='check this data for quality issues'
+2026-05-27 09:52:56,395 [INFO] datapilot.main: Intent: 'forecast' | files=['ba41e543'] | msg='forecast the next 3 months'
+2026-05-27 09:52:58,656 [INFO] datapilot.main: Intent: 'visualize' | files=['ba41e543'] | msg='show me a bar chart of revenue by product'
+2026-05-27 09:53:01,502 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 09:53:01,504 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-27 09:53:03,616 [INFO] datapilot.main: Intent: 'summary' | files=['ba41e543'] | msg='summarize this data'
+2026-05-27 09:53:06,281 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 09:53:06,283 [WARNING] datapilot.llm_client: Ollama offline or no model available — returning stub
+2026-05-27 10:40:41,060 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 10:40:43,616 [WARNING] datapilot.main: Ollama is offline — LLM features will be limited
+2026-05-27 10:40:43,617 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 10:43:09,460 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 10:43:11,969 [WARNING] datapilot.main: Ollama is offline â€” LLM features will be limited
+2026-05-27 10:43:11,970 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 11:13:02,838 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 11:13:05,427 [WARNING] datapilot.main: Ollama is offline â€” LLM features will be limited
+2026-05-27 11:13:05,429 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 11:40:07,628 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 11:40:10,149 [WARNING] datapilot.main: Ollama is offline â€” LLM features will be limited
+2026-05-27 11:40:10,151 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 11:51:51,270 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 11:51:51,270 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 11:51:57,085 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 11:51:57,085 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:31,464 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:31,466 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:33,717 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:33,718 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:36,255 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:36,256 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:38,561 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:38,562 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:40,503 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:40,503 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:42,533 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:42,534 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:45,852 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:45,852 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:45:48,068 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:45:48,068 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:05,848 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:05,849 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:08,236 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:08,236 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:09,854 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:09,854 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:21,791 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:21,792 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:24,015 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:24,016 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:26,079 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:26,079 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:27,793 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:27,794 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:46:33,845 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:46:33,848 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:47:26,958 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:47:26,958 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:47:49,435 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:47:49,435 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:47:49,436 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 14:47:49,437 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 14:49:25,813 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 14:49:29,991 [INFO] datapilot.data_store: Registered table 'file_8d4524dd' with 18 rows
+2026-05-27 14:49:29,992 [INFO] datapilot.file_manager: Processed 'test_sales.csv' -> file_id=8d4524dd, 18 rows
+2026-05-27 14:49:30,002 [INFO] datapilot.main: Upload successful: test_sales.csv -> 8d4524dd
+2026-05-27 14:49:32,090 [INFO] datapilot.main: Intent: 'insight' | files=['8d4524dd'] | msg='which product has the highest total revenue?'
+2026-05-27 14:49:34,993 [ERROR] datapilot.llm_client: Gemini generate error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. 
+* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.0-flash
+* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash
+* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash
+Please retry in 24.981457106s. [links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_input_token_count"
+  quota_id: "GenerateContentInputTokensPerModelPerMinute-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+}
+violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+}
+violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+}
+, retry_delay {
+  seconds: 24
+}
+]
+2026-05-27 14:50:30,638 [INFO] datapilot.data_store: Registered table 'file_3d9adced' with 18 rows
+2026-05-27 14:50:30,639 [INFO] datapilot.file_manager: Processed 'test_sales.csv' -> file_id=3d9adced, 18 rows
+2026-05-27 14:50:30,641 [INFO] datapilot.main: Upload successful: test_sales.csv -> 3d9adced
+2026-05-27 14:50:32,693 [INFO] datapilot.main: Intent: 'insight' | files=['3d9adced'] | msg='which product has the highest total revenue?'
+2026-05-27 14:50:32,885 [ERROR] datapilot.llm_client: Gemini generate error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. 
+* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.0-flash
+* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash
+* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash
+Please retry in 27.077222248s. [links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_input_token_count"
+  quota_id: "GenerateContentInputTokensPerModelPerMinute-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+}
+violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+}
+violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+}
+, retry_delay {
+  seconds: 27
+}
+]
+2026-05-27 14:55:12,467 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:55:12,468 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:55:12,468 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 14:55:12,468 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 14:55:49,089 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 14:55:53,245 [INFO] datapilot.data_store: Registered table 'file_fa93f299' with 18 rows
+2026-05-27 14:55:53,246 [INFO] datapilot.file_manager: Processed 'test_sales.csv' -> file_id=fa93f299, 18 rows
+2026-05-27 14:55:53,251 [INFO] datapilot.main: Upload successful: test_sales.csv -> fa93f299
+2026-05-27 14:55:55,323 [INFO] datapilot.main: Intent: 'insight' | files=['fa93f299'] | msg='which product has the highest total revenue?'
+2026-05-27 14:55:56,002 [INFO] httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4 "HTTP/1.1 429 Too Many Requests"
+2026-05-27 14:55:56,004 [ERROR] datapilot.llm_client: Gemini generate error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
+2026-05-27 14:55:56,005 [WARNING] datapilot.agent.insight: Could not extract SQL. Raw LLM output: 
+2026-05-27 14:56:13,892 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:56:13,892 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:56:13,893 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 14:56:13,893 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 14:56:27,227 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:56:27,227 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:56:27,227 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 14:56:27,227 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 14:56:51,845 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 14:56:55,979 [INFO] datapilot.data_store: Registered table 'file_6f58f7f7' with 18 rows
+2026-05-27 14:56:55,979 [INFO] datapilot.file_manager: Processed 'test_sales.csv' -> file_id=6f58f7f7, 18 rows
+2026-05-27 14:56:55,985 [INFO] datapilot.main: Upload successful: test_sales.csv -> 6f58f7f7
+2026-05-27 14:56:58,062 [INFO] datapilot.main: Intent: 'insight' | files=['6f58f7f7'] | msg='which product has the highest total revenue?'
+2026-05-27 14:56:59,019 [INFO] httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4 "HTTP/1.1 404 Not Found"
+2026-05-27 14:56:59,022 [ERROR] datapilot.llm_client: Gemini generate error: Client error '404 Not Found' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2026-05-27 14:56:59,024 [WARNING] datapilot.agent.insight: Could not extract SQL. Raw LLM output: 
+2026-05-27 14:57:48,922 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:57:48,923 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:57:48,923 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 14:57:48,923 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 14:58:08,749 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 14:58:12,891 [INFO] datapilot.data_store: Registered table 'file_4d0c3abe' with 18 rows
+2026-05-27 14:58:12,891 [INFO] datapilot.file_manager: Processed 'test_sales.csv' -> file_id=4d0c3abe, 18 rows
+2026-05-27 14:58:12,895 [INFO] datapilot.main: Upload successful: test_sales.csv -> 4d0c3abe
+2026-05-27 14:58:14,947 [INFO] datapilot.main: Intent: 'insight' | files=['4d0c3abe'] | msg='which product has the highest total revenue?'
+2026-05-27 14:58:15,994 [INFO] httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4 "HTTP/1.1 404 Not Found"
+2026-05-27 14:58:15,996 [WARNING] datapilot.llm_client: Gemini model 'gemini-1.5-flash-latest' not found, trying next...
+2026-05-27 14:58:16,205 [INFO] httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4 "HTTP/1.1 404 Not Found"
+2026-05-27 14:58:16,207 [WARNING] datapilot.llm_client: Gemini model 'gemini-1.5-pro-latest' not found, trying next...
+2026-05-27 14:58:16,529 [INFO] httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4 "HTTP/1.1 404 Not Found"
+2026-05-27 14:58:16,531 [WARNING] datapilot.llm_client: Gemini model 'gemini-pro' not found, trying next...
+2026-05-27 14:58:16,531 [ERROR] datapilot.llm_client: Gemini generate error: No working Gemini model found. Tried: ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-pro']
+2026-05-27 14:58:16,532 [WARNING] datapilot.agent.insight: Could not extract SQL. Raw LLM output: 
+2026-05-27 14:59:17,883 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 14:59:17,883 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 14:59:17,883 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 14:59:17,883 [INFO] datapilot.main: DataPilot API ready at http://localhost:8000
+2026-05-27 14:59:39,807 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 14:59:43,941 [INFO] datapilot.data_store: Registered table 'file_5c98e24e' with 18 rows
+2026-05-27 14:59:43,942 [INFO] datapilot.file_manager: Processed 'test_sales.csv' -> file_id=5c98e24e, 18 rows
+2026-05-27 14:59:43,953 [INFO] datapilot.main: Upload successful: test_sales.csv -> 5c98e24e
+2026-05-27 14:59:46,006 [INFO] datapilot.main: Intent: 'insight' | files=['5c98e24e'] | msg='which product has the highest total revenue?'
+2026-05-27 14:59:48,605 [INFO] httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4 "HTTP/1.1 200 OK"
+2026-05-27 15:09:10,937 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 15:09:10,937 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 15:09:11,011 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:11,371 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:12,292 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:12,651 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:13,009 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:13,366 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:13,393 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 15:09:13,394 [INFO] datapilot.main: DataPilot API ready at http://127.0.0.1:8001
+2026-05-27 15:09:13,725 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:14,080 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:14,431 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:14,783 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:15,145 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:15,502 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:15,858 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:16,271 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:16,679 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:17,084 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:17,489 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:17,895 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:18,252 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:18,710 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:19,114 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:19,470 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:19,885 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:20,288 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:20,653 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:21,056 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:21,463 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:21,875 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:22,284 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:22,687 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:23,098 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:23,501 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:23,917 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:24,331 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:24,737 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:25,153 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:25,561 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:25,976 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:26,388 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:26,754 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:27,158 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:27,566 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:27,981 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:28,391 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:28,796 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:29,163 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:29,617 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:29,979 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:30,395 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:30,805 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:31,167 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:31,582 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:31,998 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:32,361 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:32,772 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:33,175 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:33,578 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:34,034 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:34,395 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:34,804 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:35,214 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:35,627 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:36,040 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:36,455 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:36,862 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:37,266 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:37,673 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:38,083 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:38,498 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:38,906 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:39,309 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:39,666 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:40,082 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:40,538 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:41,152 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:42,059 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:42,429 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:42,850 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:43,261 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:43,664 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:44,089 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:44,449 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:44,863 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:45,269 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:45,671 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:46,111 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:46,481 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:46,903 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:47,257 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:47,661 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:48,066 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:48,468 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:48,871 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:49,236 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:49,637 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:50,048 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:50,470 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:50,881 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:51,290 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:51,692 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:52,052 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:52,457 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:52,862 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:53,266 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:53,668 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:54,020 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:54,424 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:54,828 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:55,236 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:55,640 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:55,992 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:56,407 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:56,811 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:57,214 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:57,617 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:58,018 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:58,470 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:58,987 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:59,502 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:09:59,908 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:00,312 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:00,716 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:01,119 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:01,530 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:01,889 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:02,304 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:02,710 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:03,126 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:03,489 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:03,894 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:04,297 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:04,751 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:05,112 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:05,524 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:05,934 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:06,299 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:06,704 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:07,070 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:07,473 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:07,882 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:08,297 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:08,699 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:09,111 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:09,463 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:09,872 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:10,327 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:10,684 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:11,138 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:11,503 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:11,916 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:12,279 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:12,685 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:13,101 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:13,511 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:13,914 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:14,322 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:14,739 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:14,843 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 15:10:14,844 [INFO] datapilot.router: No keyword match â€” using LLM classification
+2026-05-27 15:10:15,092 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:15,451 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:15,804 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:16,172 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:16,538 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:16,897 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:17,255 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:17,444 [INFO] datapilot.router: LLM classified 'general' (confidence=0.90)
+2026-05-27 15:10:17,444 [INFO] datapilot.main: Intent: 'general' | files=[] | msg='hi'
+2026-05-27 15:10:17,621 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:17,988 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:18,350 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:18,703 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:19,065 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:19,468 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:19,880 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:20,288 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:20,697 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:21,062 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:21,474 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:21,885 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:22,299 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:22,708 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:23,067 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:23,478 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:23,891 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:24,253 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:24,656 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:25,059 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:25,470 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:25,879 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:26,288 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:26,691 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:27,093 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:27,459 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:27,913 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:28,320 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:28,726 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:29,084 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:29,492 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:29,904 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:30,303 [INFO] datapilot.llm_client: LLM provider switched to: ollama
+2026-05-27 15:10:30,304 [INFO] datapilot.llm_client: LLM client initialized: ollama
+2026-05-27 15:10:30,311 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:30,715 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:31,126 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:31,533 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:31,893 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:32,304 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:32,714 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:32,790 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 15:10:32,794 [INFO] datapilot.main: Provider switched to 'ollama', online=False
+2026-05-27 15:10:33,070 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:33,424 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:33,786 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:34,139 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:34,493 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:34,903 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:35,256 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:35,664 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:36,083 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:36,442 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:36,897 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:37,305 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:37,672 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:38,126 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:38,537 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:38,902 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:39,322 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:39,733 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:40,135 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:40,539 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:40,906 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:41,319 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:41,737 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:42,139 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:42,549 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:42,971 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:43,332 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:43,750 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:44,163 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:44,570 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:44,980 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:45,076 [WARNING] datapilot.llm_client: Could not list Ollama models: All connection attempts failed
+2026-05-27 15:10:45,344 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:45,703 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:46,063 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:46,426 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:46,790 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:47,144 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:47,547 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:47,958 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:48,319 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:48,734 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:49,139 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:49,548 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:49,950 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:50,352 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:50,758 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:51,168 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:51,573 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:51,984 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:52,341 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:52,746 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:53,152 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:53,559 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:53,966 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:54,371 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:54,778 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:55,183 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:55,591 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:56,005 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:56,411 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:56,815 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:57,224 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:57,632 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:58,053 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:58,419 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:58,836 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:59,246 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:10:59,653 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:00,017 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:00,420 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:00,650 [INFO] datapilot.llm_client: LLM provider switched to: gemini
+2026-05-27 15:11:00,650 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 15:11:00,777 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:01,134 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:01,273 [INFO] datapilot.main: Provider switched to 'gemini', online=True
+2026-05-27 15:11:01,486 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:01,843 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:02,208 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:02,569 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:02,938 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:03,301 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:03,655 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:04,010 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:04,372 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:04,787 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:05,198 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:05,601 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:06,009 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:06,417 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:06,775 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:07,177 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:07,578 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:07,985 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:08,392 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:08,749 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:09,154 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:09,571 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:09,978 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:10,384 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:10,796 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:11,211 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:11,574 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:11,977 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:12,379 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:12,792 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:13,198 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:13,556 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:13,969 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:14,340 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:14,760 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:15,162 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:15,572 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:15,985 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:16,394 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:16,806 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:17,166 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:17,575 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:17,984 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:18,390 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:18,805 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:19,221 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:19,634 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:20,001 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:20,410 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:20,819 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:21,232 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:21,590 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:21,994 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:22,401 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:22,806 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:23,215 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:23,618 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:23,985 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:24,449 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:24,806 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:25,212 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:25,615 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:26,017 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:26,425 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:26,832 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:27,235 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:27,643 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:28,049 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:28,455 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:28,819 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:29,280 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:29,646 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:30,058 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:30,474 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:30,884 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:31,293 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:31,698 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:32,101 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:32,503 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:32,915 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:33,293 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:33,798 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:34,164 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:34,605 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:34,989 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:35,397 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:35,755 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:36,159 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:36,575 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:36,935 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:37,339 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:37,690 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:38,151 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:38,507 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:38,912 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:39,317 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:39,730 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:40,135 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:40,537 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:40,939 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:41,291 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:41,695 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:42,103 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:42,507 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:42,909 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:43,264 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:43,768 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:44,179 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:44,542 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:44,949 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:45,352 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:45,754 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:46,163 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:46,521 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:46,930 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:47,338 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:47,752 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:48,122 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:48,528 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:48,981 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:49,385 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:49,743 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:50,146 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:50,553 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:50,916 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:51,324 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:51,737 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:52,147 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:52,553 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:52,969 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:53,342 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:53,757 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:54,163 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:54,523 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:54,928 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:55,339 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:55,743 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:56,154 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:56,556 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:56,914 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:57,319 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:57,682 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:58,088 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:58,490 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:58,894 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:59,298 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:11:59,654 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:00,061 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:00,465 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:00,875 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:01,228 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:01,635 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:02,042 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:02,452 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:02,854 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:03,210 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:03,614 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:04,023 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:04,395 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:04,797 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:05,206 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:05,621 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:06,024 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:06,435 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:06,800 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:07,204 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:07,657 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:08,064 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:08,430 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:08,835 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:09,244 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:09,652 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:10,055 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:10,464 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:10,816 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:11,226 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:11,636 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:12,042 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:12,464 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:12,823 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:13,277 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:13,648 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:14,051 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:14,456 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:14,820 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:15,232 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:15,634 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:16,043 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:16,447 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:16,850 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:17,253 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:17,617 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:18,019 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:18,433 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:18,839 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:19,247 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:19,652 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:20,060 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:20,464 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:20,927 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:21,285 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:21,698 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:22,105 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:22,510 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:22,928 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:23,343 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:23,761 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:24,173 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:24,591 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:24,999 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:25,411 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:25,789 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:26,202 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:26,606 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:27,011 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:27,422 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:27,830 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:28,195 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:28,608 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:29,011 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:29,417 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:29,822 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:30,231 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:30,636 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:31,038 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:31,414 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:31,774 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:32,177 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:32,590 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:32,996 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:33,401 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:33,808 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:34,223 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:34,602 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:35,017 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:35,431 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:35,836 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:36,241 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:36,654 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:37,065 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:37,469 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:37,873 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:38,284 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:38,700 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:39,054 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:39,471 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:39,879 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:40,287 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:40,654 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:41,065 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:41,480 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:41,840 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:42,253 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:42,670 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:43,033 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:43,439 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:43,856 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:44,216 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:44,624 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:45,028 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:45,449 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:45,817 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:46,226 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:46,638 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:47,045 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:47,450 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:47,853 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:48,260 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:48,627 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:49,029 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:49,433 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:49,841 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:50,195 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:50,603 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:51,006 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:51,409 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:51,821 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:52,225 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:52,578 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:52,986 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:53,342 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:53,746 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:54,154 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:54,561 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:54,919 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:55,321 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:55,727 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:56,135 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:56,492 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:56,894 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:57,309 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:57,663 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:58,067 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:58,520 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:58,876 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:59,290 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:12:59,701 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:00,112 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:00,523 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:00,926 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:01,286 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:01,689 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:02,108 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:02,522 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:02,932 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:03,302 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:03,715 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:04,123 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:04,537 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:04,959 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:05,362 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:05,772 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:06,174 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:06,589 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:06,955 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:07,373 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:07,780 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:08,196 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:08,600 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:08,960 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:09,370 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:09,785 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:10,199 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:10,612 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:11,017 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:11,430 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:11,849 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:12,259 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:12,616 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:13,023 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:13,426 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:13,845 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:14,200 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:14,606 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:15,009 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:15,412 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:15,826 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:16,245 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:16,609 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:17,023 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:17,437 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:17,848 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:18,251 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:18,661 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:19,073 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:19,426 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:19,847 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:20,264 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:20,669 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:21,085 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:21,449 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:21,852 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:22,254 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:22,664 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:23,024 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:23,428 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:23,841 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:24,259 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:24,626 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:25,037 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:25,454 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:25,858 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:26,272 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:26,688 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:27,051 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:27,465 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:27,871 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:28,296 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:28,699 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:29,115 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:29,528 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:29,939 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:30,349 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:30,712 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:31,114 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:31,569 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:31,922 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:32,329 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:32,738 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:33,106 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:33,565 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:33,969 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:34,373 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:34,784 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:35,196 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:35,603 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:35,956 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:36,413 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:36,820 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:37,188 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:37,597 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:38,001 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:38,366 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:38,876 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:39,231 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:39,686 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:40,051 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:40,464 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:40,878 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:41,285 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:41,638 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:42,052 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:42,456 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:42,869 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:43,232 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:43,650 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:44,056 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:44,473 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:44,846 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:45,255 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:45,664 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:46,068 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:46,476 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:46,878 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:47,283 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:47,697 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:48,106 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:48,510 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:48,917 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:49,329 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:49,737 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:50,139 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:50,549 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:50,970 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:51,339 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:51,742 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:52,153 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:52,559 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:52,974 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:53,387 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:53,791 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:54,197 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:54,564 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:54,979 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:55,397 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:55,800 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:56,211 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:56,614 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:56,981 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:57,388 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:57,799 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:58,213 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:58,620 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:59,032 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:59,399 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:13:59,803 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:00,215 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:00,621 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:01,027 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:01,433 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:01,839 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:02,249 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:02,654 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:03,060 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:03,471 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:03,883 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:04,349 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:04,756 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:05,309 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:05,671 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:06,039 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:06,398 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:06,758 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:07,116 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:07,477 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:07,845 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:08,261 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:08,669 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:09,082 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:09,446 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:09,866 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:10,227 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:10,636 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:11,043 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:11,448 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:11,861 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:12,278 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:12,683 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:13,090 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:13,447 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:13,906 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:14,273 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:14,676 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:15,090 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:15,495 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:15,954 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:16,365 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:16,778 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:17,133 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:17,543 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:17,954 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:18,321 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:18,781 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:19,164 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:19,569 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:19,988 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:20,367 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:20,778 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:21,185 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:21,641 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:22,046 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:22,399 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:22,808 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:23,222 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:23,636 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:23,993 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:24,417 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:24,829 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:25,245 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:25,653 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:26,012 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:26,426 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:26,837 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:27,241 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:27,652 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:28,058 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:28,556 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:29,118 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:29,473 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:29,886 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:30,344 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:30,750 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:31,152 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:31,503 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:31,906 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:32,312 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:32,718 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:33,126 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:33,537 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:33,943 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:34,359 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:34,715 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:35,133 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:35,540 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:35,952 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:36,357 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:36,768 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:37,181 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:37,584 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:37,943 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:38,347 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:38,758 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:39,172 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:39,581 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:39,992 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:40,350 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:40,760 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:41,174 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:41,538 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:41,955 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:42,321 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:42,732 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:43,137 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:43,547 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:43,959 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:44,365 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:44,773 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:45,176 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:45,549 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:45,958 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:46,373 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:46,778 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:47,151 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:47,559 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:47,963 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:48,380 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:48,784 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:49,199 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:49,564 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:49,972 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:50,378 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:50,796 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:51,209 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:51,617 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:52,025 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:52,389 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:52,804 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:53,215 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:53,626 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:54,040 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:54,453 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:54,817 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:55,234 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:55,643 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:56,051 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:56,459 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:56,868 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:57,276 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:57,687 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:58,090 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:58,452 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:58,865 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:59,277 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:14:59,683 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:00,091 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:00,500 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:00,864 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:01,275 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:01,731 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:02,136 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:02,545 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:02,953 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:03,365 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:03,772 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:04,138 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:04,542 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:04,959 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:05,362 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:05,774 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:06,186 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:06,597 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:06,950 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:07,358 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:07,763 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:08,168 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:08,579 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:08,995 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:09,354 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:09,768 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:10,185 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:10,597 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:11,005 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:11,409 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:11,812 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:12,217 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:12,596 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:13,006 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:13,423 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:13,832 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:14,247 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:14,651 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:15,015 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:15,426 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:15,842 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:16,249 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:16,614 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:17,029 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:17,432 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:17,843 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:18,247 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:18,652 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:19,057 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:19,473 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:19,880 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:20,286 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:20,653 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:21,069 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:21,476 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:21,884 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:22,292 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:22,707 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:23,071 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:23,532 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:23,936 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:24,350 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:24,707 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:25,119 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:25,521 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:25,932 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:26,349 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:26,755 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:27,160 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:27,571 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:27,976 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:28,379 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:28,737 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:29,148 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:29,558 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:29,972 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:30,376 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:30,792 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:31,208 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:31,619 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:31,983 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:32,386 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:32,792 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:33,208 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:33,625 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:33,984 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:34,386 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:34,738 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:35,148 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:35,557 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:35,973 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:36,335 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:36,753 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:37,156 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:37,568 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:37,976 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:38,386 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:38,801 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:39,215 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:39,581 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:39,984 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:40,385 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:40,795 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:41,148 [INFO] watchfiles.main: 1 change detected
+2026-05-27 15:15:45,780 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 15:15:45,780 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 15:15:46,613 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 15:15:46,613 [INFO] datapilot.main: DataPilot API ready at http://127.0.0.1:8001
+2026-05-27 15:16:49,911 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 15:16:50,357 [INFO] datapilot.data_store: Registered table 'file_56524f73' with 300 rows
+2026-05-27 15:16:50,357 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=56524f73, 300 rows
+2026-05-27 15:16:50,357 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 56524f73
+2026-05-27 15:17:20,437 [INFO] datapilot.data_store: Registered table 'file_785d346d' with 300 rows
+2026-05-27 15:17:20,438 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=785d346d, 300 rows
+2026-05-27 15:17:20,442 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 785d346d
+2026-05-27 15:17:33,034 [INFO] datapilot.router: No keyword match â€” using LLM classification
+2026-05-27 15:17:35,622 [INFO] datapilot.router: LLM classified 'summary' (confidence=0.80)
+2026-05-27 15:17:35,622 [INFO] datapilot.main: Intent: 'summary' | files=['785d346d'] | msg='What sheets are available in this uploaded Excel file?'
+2026-05-27 15:17:35,638 [ERROR] datapilot.agent.summary: summary agent failed: GeminiProvider.generate() got an unexpected keyword argument 'temperature'
+Traceback (most recent call last):
+  File "C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\agents\base_agent.py", line 69, in run
+    return await asyncio.wait_for(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\tasks.py", line 489, in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+  File "C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\agents\summary_agent.py", line 46, in _execute
+    narrative = await self.llm.generate(prompt, system=SUMMARY_SYSTEM, temperature=0.3)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: GeminiProvider.generate() got an unexpected keyword argument 'temperature'
+2026-05-27 15:20:37,546 [INFO] datapilot.router: No keyword match â€” using LLM classification
+2026-05-27 15:20:41,822 [INFO] datapilot.router: LLM classified 'general' (confidence=0.90)
+2026-05-27 15:20:41,822 [INFO] datapilot.main: Intent: 'general' | files=['785d346d'] | msg='What sheets are available in this uploaded Excel file?'
+2026-05-27 15:21:09,602 [INFO] datapilot.main: Intent: 'summary' | files=['785d346d'] | msg='Give me a summary of the uploaded datasets.'
+2026-05-27 15:21:09,614 [ERROR] datapilot.agent.summary: summary agent failed: GeminiProvider.generate() got an unexpected keyword argument 'temperature'
+Traceback (most recent call last):
+  File "C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\agents\base_agent.py", line 69, in run
+    return await asyncio.wait_for(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\tasks.py", line 489, in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+  File "C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\agents\summary_agent.py", line 46, in _execute
+    narrative = await self.llm.generate(prompt, system=SUMMARY_SYSTEM, temperature=0.3)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: GeminiProvider.generate() got an unexpected keyword argument 'temperature'
+2026-05-27 15:21:22,148 [INFO] datapilot.main: DataPilot API starting up...
+2026-05-27 15:21:22,148 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-05-27 15:21:23,198 [INFO] datapilot.main: Provider 'gemini' is online and ready
+2026-05-27 15:21:23,198 [INFO] datapilot.main: DataPilot API ready at http://127.0.0.1:8001
+2026-05-27 15:21:37,723 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-05-27 15:21:38,005 [INFO] datapilot.data_store: Registered table 'file_217825e5' with 300 rows
+2026-05-27 15:21:38,005 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=217825e5, 300 rows
+2026-05-27 15:21:38,012 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 217825e5
+2026-05-27 15:21:40,785 [INFO] datapilot.main: Intent: 'summary' | files=['217825e5'] | msg='Give me a summary of the uploaded datasets.'
+2026-05-27 15:21:50,789 [ERROR] datapilot.agent.summary: summary agent timed out after 10s
+2026-05-27 15:27:24,875 [INFO] datapilot.main: Intent: 'summary' | files=['217825e5'] | msg='Give me a summary of the uploaded datasets.'
+2026-05-27 15:27:26,896 [ERROR] datapilot.llm_client: Gemini generate error: Server error '503 Service Unavailable' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503
+2026-05-27 15:27:53,666 [INFO] datapilot.router: No keyword match â€” using LLM classification
+2026-05-27 15:27:55,637 [INFO] datapilot.router: LLM classified 'general' (confidence=1.00)
+2026-05-27 15:27:55,638 [INFO] datapilot.main: Intent: 'general' | files=['217825e5'] | msg='What sheets are available in this uploaded Excel file?'
+2026-05-27 15:28:25,035 [INFO] datapilot.main: Intent: 'insight' | files=['217825e5'] | msg='What are the total sales by region?'
+2026-05-27 15:28:51,984 [INFO] datapilot.main: Intent: 'insight' | files=['217825e5'] | msg='Which salesperson generated the highest revenue?'
+2026-05-27 15:29:54,241 [INFO] datapilot.main: Intent: 'forecast' | files=['217825e5'] | msg='Show monthly sales trends.'
+2026-05-27 15:29:54,286 [WARNING] datapilot.agent.forecast: Time-series forecast failed: Too few points for Holt-Winters â€” falling back to linear regression
+2026-05-27 15:30:34,321 [INFO] datapilot.main: Intent: 'insight' | files=['217825e5'] | msg='Which products are performing best?'
+2026-05-27 15:30:36,042 [ERROR] datapilot.llm_client: Gemini generate error: Server error '503 Service Unavailable' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503
+2026-05-27 15:30:36,043 [WARNING] datapilot.agent.insight: Could not extract SQL. Raw LLM output: [Gemini error: Server error '503 Service Unavailable' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503]
+2026-05-27 15:30:45,536 [INFO] datapilot.main: Intent: 'insight' | files=['217825e5'] | msg='Which products are performing best?'
+2026-05-27 15:31:39,311 [INFO] datapilot.router: No keyword match â€” using LLM classification
+2026-05-27 15:31:41,199 [INFO] datapilot.router: LLM classified 'general' (confidence=1.00)
+2026-05-27 15:31:41,200 [INFO] datapilot.main: Intent: 'general' | files=['217825e5'] | msg='hi'
+2026-05-27 15:32:08,121 [INFO] datapilot.main: Intent: 'insight' | files=['217825e5'] | msg='which model you are using'
+2026-05-27 15:32:18,148 [ERROR] datapilot.agent.insight: insight agent timed out after 10s
+2026-05-27 15:32:38,385 [INFO] datapilot.main: Intent: 'insight' | files=['217825e5'] | msg='which model you are using'
+2026-05-27 15:32:56,410 [INFO] datapilot.main: Intent: 'summary' | files=['217825e5'] | msg='Give me an executive summary of this data'
+2026-05-27 15:33:06,422 [ERROR] datapilot.agent.summary: summary agent timed out after 10s
+2026-05-27 15:35:04,977 [INFO] datapilot.main: Intent: 'summary' | files=['217825e5'] | msg='Give me an executive summary of this data\'
+2026-05-27 15:35:14,966 [ERROR] datapilot.agent.summary: summary agent timed out after 10s
+2026-05-27 15:35:21,898 [INFO] datapilot.main: Intent: 'summary' | files=['217825e5'] | msg='Give me an executive summary of this data'
+2026-05-27 15:35:23,841 [ERROR] datapilot.llm_client: Gemini generate error: Server error '503 Service Unavailable' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyAgFIOEHKllHEq7CZrqvDB57hqcUs-XsQ4'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503
+2026-05-27 15:38:33,939 [INFO] datapilot.data_store: Registered table 'file_d59294f7' with 300 rows
+2026-05-27 15:38:33,939 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=d59294f7, 300 rows
+2026-05-27 15:38:33,939 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> d59294f7
+2026-05-27 15:38:52,303 [INFO] datapilot.data_store: Registered table 'file_f0f45ef7' with 300 rows
+2026-05-27 15:38:52,303 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=f0f45ef7, 300 rows
+2026-05-27 15:38:52,303 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> f0f45ef7
+2026-05-27 15:44:04,577 [INFO] datapilot.data_store: Registered table 'file_7affb690' with 300 rows
+2026-05-27 15:44:04,578 [INFO] datapilot.file_manager: Processed 'DataPilot_Test_Dataset.xlsx' -> file_id=7affb690, 300 rows
+2026-05-27 15:44:04,583 [INFO] datapilot.main: Upload successful: DataPilot_Test_Dataset.xlsx -> 7affb690
+2026-05-27 15:53:30,931 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:53:32,762 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:54:00,922 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:54:30,918 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:54:32,825 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:55:00,936 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:55:30,932 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:55:32,748 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:56:00,931 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:56:30,921 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:56:32,792 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:57:00,907 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:57:30,917 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:57:32,742 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:58:00,925 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:58:30,938 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:58:32,789 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:59:00,915 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:59:30,931 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed
+2026-05-27 15:59:32,771 [WARNING] datapilot.llm_client: Gemini online check failed: [Errno 11001] getaddrinfo failed

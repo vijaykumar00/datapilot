@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 title DataPilot Startup
+set BACKEND_HOST=127.0.0.1
+set BACKEND_PORT=8001
 
 echo.
 echo  ====================================================
@@ -109,8 +111,8 @@ if not exist "!FRONTEND_DIR!\node_modules" (
 
 :: ── Start backend ─────────────────────────────────────────────────────────
 echo.
-echo [INFO] Starting FastAPI backend on http://localhost:8000 ...
-start "DataPilot Backend" cmd /k "cd /d !BACKEND_DIR! && !VENV_PYTHON! -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+echo [INFO] Starting FastAPI backend on http://!BACKEND_HOST!:!BACKEND_PORT! ...
+start "DataPilot Backend" cmd /k "cd /d !BACKEND_DIR! && set BACKEND_HOST=!BACKEND_HOST! && set BACKEND_PORT=!BACKEND_PORT! && !VENV_PYTHON! main.py"
 
 :: Wait for backend to start
 echo [INFO] Waiting for backend to start...
@@ -131,8 +133,8 @@ echo  ====================================================
 echo   DataPilot is running!
 echo.
 echo   Frontend : http://localhost:5173
-echo   Backend  : http://localhost:8000
-echo   API docs : http://localhost:8000/docs
+echo   Backend  : http://!BACKEND_HOST!:!BACKEND_PORT!
+echo   API docs : http://!BACKEND_HOST!:!BACKEND_PORT!/docs
 echo  ====================================================
 echo.
 echo  Close the Backend and Frontend windows to stop.
