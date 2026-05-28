@@ -1,164 +1,146 @@
-# 🧭 DataPilot — Local AI Data Assistant
+# DataPilot 🧭
 
-> **Local-first · Zero cloud · Zero API keys · Blazing fast**
-
-DataPilot is an AI-powered CSV and Excel analysis assistant that runs entirely on your machine. Upload data, ask questions in plain English, get charts, forecasts, summaries, and data cleaning reports — all powered by a local LLM via Ollama.
+> **Local-first AI data analysis assistant** — Upload CSV/Excel, ask questions, get insights, export results.
 
 ---
 
 ## ✨ Features
 
-| Feature | Description |
+| Feature | Status |
 |---|---|
-| 💬 **Natural language Q&A** | Ask anything — gets converted to DuckDB SQL |
-| 📊 **Interactive charts** | Auto-detects best chart type, renders with Plotly |
-| 🔮 **Forecasting** | Holt-Winters + linear regression with confidence intervals |
-| 🧹 **Data cleaning** | Detects nulls, duplicates, type mismatches, outliers |
-| 📋 **Executive summaries** | LLM-generated business reports |
-| 🔗 **Multi-file joins** | Query across multiple uploaded files |
-| ⚡ **Sub-second queries** | DuckDB in-process SQL — no external DB needed |
-| 🔒 **100% local** | Nothing leaves your machine |
+| Upload CSV / Excel (multi-sheet) | ✅ |
+| Sheet selection & switching | ✅ |
+| AI chat (Gemini / OpenAI / Claude / Ollama) | ✅ |
+| Data preview & inline editing | ✅ |
+| Visualizations (charts) | ✅ |
+| Executive summaries & reports | ✅ |
+| Forecasting | ✅ |
+| Cross-file analysis | ✅ |
+| Export results as CSV / XLSX | ✅ |
+| Export reports as Markdown | ✅ |
+| Chat session persistence (localStorage) | ✅ |
+| File persistence (survives backend restarts) | ✅ |
+| File rename & delete | ✅ |
+| Step-by-step UI guide | ✅ |
 
 ---
 
-## 🚀 Quick Start (Windows)
+## 🚀 Quick Start
 
-### Prerequisites
-- **Python 3.11+** — `winget install Python.Python.3.11`
-- **Node.js 18+** — `winget install OpenJS.NodeJS.LTS`
-- **Ollama** (optional but recommended) — https://ollama.ai
-
-### Run in one command
-```batch
-start.bat
-```
-
-This will:
-1. Check for Python and Ollama
-2. Create a Python virtual environment
-3. Install all dependencies
-4. Start FastAPI on `http://localhost:8000`
-5. Start Vite on `http://localhost:5173`
-6. Open your browser automatically
-
----
-
-## 🧠 LLM Setup (Ollama)
+### 1. Start the backend
 
 ```bash
-# Install Ollama from https://ollama.ai, then:
-ollama serve              # Start the Ollama server
-ollama pull phi3:mini     # Fastest — 2GB RAM (recommended for start)
-ollama pull mistral:7b    # Better quality — 5GB RAM
-ollama pull llama3.1:8b   # Best quality — 8GB RAM
-```
-
-DataPilot automatically picks the best available model. If Ollama is offline, basic SQL query features still work (no natural language generation).
-
----
-
-## 📁 Project Structure
-
-```
-datapilot/
-├── backend/                  # FastAPI Python server
-│   ├── main.py               # Entry point, routes, SSE streaming
-│   ├── agents/               # One file per AI capability
-│   │   ├── base_agent.py     # Abstract base with 10s timeout
-│   │   ├── insight_agent.py  # NL → SQL → results
-│   │   ├── clean_agent.py    # Data quality detection
-│   │   ├── viz_agent.py      # Chart generation (Plotly JSON)
-│   │   ├── forecast_agent.py # Time-series + linear regression
-│   │   ├── summary_agent.py  # Executive summaries
-│   │   ├── report_agent.py   # Full data reports
-│   │   └── crossfile_agent.py# Multi-file SQL joins
-│   ├── core/
-│   │   ├── file_manager.py   # Upload, parse, LRU cache
-│   │   ├── llm_client.py     # Ollama wrapper (streaming, fallback)
-│   │   ├── data_store.py     # DuckDB in-process store
-│   │   └── router.py         # Intent classification
-│   └── requirements.txt
-├── frontend/                 # React + Vite
-│   └── src/
-│       ├── App.jsx           # Main layout
-│       ├── components/
-│       │   ├── ChatWindow.jsx    # Chat UI with SSE streaming
-│       │   ├── FileUploader.jsx  # Drag-and-drop uploader
-│       │   ├── ChartRenderer.jsx # Plotly charts
-│       │   └── DataPreview.jsx   # Sortable data table
-│       └── hooks/
-│           └── useDataPilot.js   # Zustand state store
-├── docker-compose.yml        # Full containerized setup
-├── start.bat                 # Windows one-click launcher
-└── README.md
-```
-
----
-
-## 🔌 API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Health check + Ollama status |
-| `GET` | `/ollama/status` | Available models list |
-| `POST` | `/upload` | Upload CSV/Excel file |
-| `GET` | `/files` | List loaded files |
-| `DELETE` | `/files/{id}` | Remove a file |
-| `POST` | `/chat/stream` | SSE streaming chat |
-
-Full interactive docs: **http://localhost:8000/docs**
-
----
-
-## ⚡ Performance
-
-| Operation | Target | Method |
-|---|---|---|
-| File upload + parse | < 3s (10MB) | Pandas chunked reading |
-| SQL query | < 1s | DuckDB in-process |
-| Chart generation | < 2s | Plotly JSON (no images) |
-| LLM first token | < 500ms | SSE streaming |
-| Forecast (1000 rows) | < 5s | statsmodels |
-
----
-
-## 🐳 Docker (Optional)
-
-```bash
-docker-compose up -d
-```
-
----
-
-## 📈 Phase 2 Roadmap
-
-- [ ] Swap Ollama → Gemini/Claude API for cloud mode
-- [ ] PostgreSQL for persistent file storage
-- [ ] User authentication
-- [ ] Deploy to Railway/Render (backend) + Vercel (frontend)
-- [ ] Excel export of query results
-- [ ] Scheduled reports via email
-
----
-
-## 🛠️ Dev Setup (manual)
-
-```bash
-# Backend
 cd backend
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate        # Windows
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
 
-# Frontend (separate terminal)
+# Add your Gemini API key to backend/.env
+# GEMINI_API_KEY=your_key_here
+
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### 2. Start the frontend
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
+Open **http://localhost:5173** (or 5174 if 5173 is busy).
+
 ---
 
-## 📄 License
+## 📋 Usage
 
-MIT — free to use, modify, and deploy.
+```
+1. Upload    → Drag & drop a CSV or Excel file into the sidebar
+2. Sheet     → If Excel has multiple sheets, pick one from the sheet pills
+3. Ask       → Type a question in the chat (e.g. "top 10 products by revenue")
+4. Export    → Click "Download CSV" or "Download XLSX" under any result table
+               Click "Export report" for summaries
+```
+
+---
+
+## 🔌 API Reference
+
+The backend exposes a REST API at `http://localhost:8000`.
+Interactive docs: `http://localhost:8000/docs`
+
+### Core endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/upload` | Upload CSV or Excel file |
+| `GET` | `/files` | List loaded files |
+| `GET` | `/files/{id}` | Preview file data |
+| `DELETE` | `/files/{id}` | Remove file |
+| `POST` | `/files/{id}/rename` | Rename a file |
+| `GET` | `/files/{id}/sheets` | List Excel sheets |
+| `POST` | `/files/{id}/sheet` | Switch active sheet |
+| `POST` | `/chat/stream` | SSE streaming chat |
+| `GET` | `/export/file/{id}` | Download full dataset |
+| `POST` | `/export/results` | Export query results |
+| `POST` | `/export/report` | Export narrative report |
+| `GET` | `/provider` | Current AI provider |
+| `POST` | `/provider` | Switch AI provider |
+| `DELETE` | `/session/{id}` | Clear chat session |
+
+---
+
+## 🔑 AI Providers
+
+Set in `backend/.env`:
+
+```env
+# Gemini (default — free tier at aistudio.google.com)
+GEMINI_API_KEY=your_key
+GEMINI_MODEL=models/gemini-2.5-flash
+
+# OpenAI (optional)
+OPENAI_API_KEY=your_key
+
+# Claude (optional)
+ANTHROPIC_API_KEY=your_key
+
+# Ollama local (optional — run ollama separately)
+OLLAMA_MODEL=llama3.2
+```
+
+Switch providers at runtime via the UI sidebar — no restart needed.
+
+---
+
+## 🗂️ Project Structure
+
+```
+datapilot/
+├── backend/
+│   ├── main.py              # FastAPI app + all routes
+│   ├── core/
+│   │   ├── file_manager.py  # Upload, parse, persist, sheet switching
+│   │   ├── data_store.py    # DuckDB query engine
+│   │   ├── llm_client.py    # Multi-provider LLM factory
+│   │   ├── session_store.py # Chat session history (in-memory, TTL 24h)
+│   │   └── router.py        # Intent classifier
+│   ├── agents/              # Insight, Viz, Forecast, Clean, Summary, Report, CrossFile
+│   └── uploads/             # Persisted uploaded files (auto-reloaded on restart)
+└── frontend/
+    ├── src/
+    │   ├── App.jsx
+    │   ├── components/
+    │   │   ├── ChatWindow.jsx
+    │   │   ├── DataPreview.jsx
+    │   │   ├── FileUploader.jsx   # With inline rename + SheetSelector
+    │   │   ├── SheetSelector.jsx
+    │   │   ├── StepIndicator.jsx
+    │   │   ├── ProviderSelector.jsx
+    │   │   └── ChartRenderer.jsx
+    │   └── hooks/
+    │       └── useDataPilot.js    # Zustand store + localStorage persistence
+    └── vite.config.js
+```

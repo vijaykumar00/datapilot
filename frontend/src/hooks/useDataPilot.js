@@ -1,12 +1,47 @@
 import { create } from 'zustand'
 
+// ── Session & persistence helpers ─────────────────────────────────────────────
+function getOrCreateSessionId() {
+  const key = 'datapilot_session_id'
+  let id = localStorage.getItem(key)
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    localStorage.setItem(key, id)
+  }
+  return id
+}
+
+function loadPersistedMessages() {
+  try {
+    const raw = localStorage.getItem('datapilot_messages')
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function persistMessages(messages) {
+  try {
+    // Only keep last 100 messages; strip large table_data to save space
+    const slim = messages.slice(-100).map(m => ({
+      ...m,
+      table_data: m.table_data?.length > 50 ? m.table_data.slice(0, 50) : m.table_data,
+    }))
+    localStorage.setItem('datapilot_messages', JSON.stringify(slim))
+  } catch {
+    // quota exceeded – clear old messages
+    localStorage.removeItem('datapilot_messages')
+  }
+}
+
 const browserWindow = typeof window !== 'undefined' ? window : null
 const API_HOST = browserWindow?.location?.hostname || '127.0.0.1'
-const API_PORT = browserWindow?.__DATAPILOT_API_PORT__ || '8002'
+const API_PORT = browserWindow?.__DATAPILOT_API_PORT__ || '8001'
 const API_BASES = [
+  '',
   `http://${API_HOST}:${API_PORT}`,
   `http://${API_HOST}:8001`,
-  '',
+  `http://${API_HOST}:8000`,
 ]
 
 async function apiFetch(path, options = {}) {
@@ -121,7 +156,7 @@ function hasEditablePreviewData(file) {
 export const useDataPilot = create((set, get) => ({
   files: [],
   activeFileIds: [],
-  messages: [],
+  messages: loadPersistedMessages(),
   isStreaming: false,
   ollamaStatus: null,
   activeTab: 'chat',
@@ -131,6 +166,15 @@ export const useDataPilot = create((set, get) => ({
   previewSaving: false,
   provider: 'gemini',
   providerOnline: false,
+  sessionId: getOrCreateSessionId(),
+  sessions: [],
+  sessionsLoading: false,
+  workspaceMode: 'chat',
+  reasoningMode: false,
+  attachmentList: [],
+  templates: [],
+  templatesLoading: false,
+  templatesError: null,
 
   uploadFile: async (file) => {
     const form = new FormData()
@@ -294,6 +338,111 @@ export const useDataPilot = create((set, get) => ({
     }
   },
 
+  getTransformPreview: async (fileId, query) => {
+    try {
+      const resp = await apiFetch(`/files/${fileId}/transform/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      })
+      const data = await resp.json()
+      if (!resp.ok) {
+        throw new Error(data.error || 'Failed to generate transformation preview')
+      }
+      return data
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  applyStagedTransform: async (fileId, transformationId) => {
+    try {
+      const resp = await apiFetch(`/files/${fileId}/transform/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transformation_id: transformationId }),
+      })
+      const data = await resp.json()
+      if (!resp.ok || !data.success) {
+        throw new Error(data.error || 'Failed to apply transformation')
+      }
+      set(s => ({
+        files: s.files.map(f => (
+          f.file_id === fileId
+            ? { ...f, ...(data.preview || {}) }
+            : f
+        )),
+      }))
+      return data
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  undoLastTransform: async (fileId) => {
+    try {
+      const resp = await apiFetch(`/files/${fileId}/transform/undo`, {
+        method: 'POST',
+      })
+      const data = await resp.json()
+      if (!resp.ok || !data.success) {
+        throw new Error(data.error || 'Failed to undo last transformation')
+      }
+      set(s => ({
+        files: s.files.map(f => (
+          f.file_id === fileId
+            ? { ...f, ...(data.preview || {}) }
+            : f
+        )),
+      }))
+      return data
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  generateBespokeReport: async (options) => {
+    try {
+      const resp = await apiFetch('/report/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options),
+      })
+      const data = await resp.json()
+      if (!resp.ok) {
+        throw new Error(data.error || 'Failed to generate report')
+      }
+      return data
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  exportBespokeReport: async (options) => {
+    try {
+      const resp = await apiFetch('/report/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options),
+      })
+      if (!resp.ok) {
+        let message = 'Export failed'
+        try {
+          const data = await resp.json()
+          message = data.error || message
+        } catch (_) {}
+        throw new Error(message)
+      }
+      const blob = await resp.blob()
+      const ext = options.format || 'pdf'
+      const filename = `${options.title || 'report'}.${ext}`
+      downloadBlob(blob, filename)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
   removeFile: async (fileId) => {
     await apiFetch(`/files/${fileId}`, { method: 'DELETE' })
     set(s => ({
@@ -383,7 +532,11 @@ export const useDataPilot = create((set, get) => ({
       ts: new Date().toISOString(),
     }
 
-    set(s => ({ messages: [...s.messages, userMsg, botMsg], isStreaming: true }))
+    set(s => {
+      const newMessages = [...s.messages, userMsg, botMsg]
+      persistMessages(newMessages)
+      return { messages: newMessages, isStreaming: true }
+    })
 
     try {
       const historyForApi = messages.slice(-10).map(m => ({
@@ -398,6 +551,7 @@ export const useDataPilot = create((set, get) => ({
           message: text,
           file_ids: activeFileIds,
           conversation_history: historyForApi,
+          session_id: get().sessionId,
         }),
       })
 
@@ -427,8 +581,8 @@ export const useDataPilot = create((set, get) => ({
                 ),
               }))
             } else if (event.is_final) {
-              set(s => ({
-                messages: s.messages.map(m =>
+              set(s => {
+                const newMessages = s.messages.map(m =>
                   m.id === botMsgId
                     ? {
                         ...m,
@@ -440,26 +594,85 @@ export const useDataPilot = create((set, get) => ({
                         error: event.error || null,
                       }
                     : m
-                ),
-                isStreaming: false,
-              }))
+                )
+                persistMessages(newMessages)
+                return { messages: newMessages, isStreaming: false }
+              })
             }
           } catch (_) {}
         }
       }
     } catch (err) {
-      set(s => ({
-        messages: s.messages.map(m =>
+      set(s => {
+        const newMessages = s.messages.map(m =>
           m.id === botMsgId
             ? { ...m, content: `Failed to connect to backend: ${err.message}`, type: 'error' }
             : m
-        ),
-        isStreaming: false,
-      }))
+        )
+        persistMessages(newMessages)
+        return { messages: newMessages, isStreaming: false }
+      })
     }
   },
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: async () => {
+    const { sessionId } = get()
+    set({ messages: [] })
+    persistMessages([])
+    if (sessionId) {
+      try { await apiFetch(`/session/${sessionId}`, { method: 'DELETE' }) } catch (_) {}
+    }
+  },
+
+  switchSheet: async (fileId, sheetName) => {
+    try {
+      const resp = await apiFetch(`/files/${fileId}/sheet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheet: sheetName }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          files: s.files.map(f =>
+            f.file_id === fileId
+              ? { ...f, ...data, metadata: { ...f.metadata, active_sheet: sheetName } }
+              : f
+          ),
+        }))
+        // Refresh preview if this file is active
+        if (get().previewFileId === fileId) {
+          await get().loadPreviewFile(fileId)
+        }
+        return { success: true }
+      }
+      return { success: false, error: data.detail || 'Sheet switch failed' }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  renameFile: async (fileId, newName) => {
+    try {
+      const resp = await apiFetch(`/files/${fileId}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: newName }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          files: s.files.map(f =>
+            f.file_id === fileId ? { ...f, filename: data.filename } : f
+          ),
+        }))
+        return { success: true }
+      }
+      return { success: false, error: data.detail || 'Rename failed' }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
 
   checkOllama: async () => {
     try {
@@ -472,6 +685,248 @@ export const useDataPilot = create((set, get) => ({
       })
     } catch {
       set({ ollamaStatus: { online: false, models: [] }, providerOnline: false })
+    }
+  },
+
+  loadSessions: async () => {
+    set({ sessionsLoading: true })
+    try {
+      const resp = await apiFetch('/sessions')
+      const data = await resp.json()
+      if (data.success) {
+        set({ sessions: data.sessions })
+        const currentId = get().sessionId
+        const exists = data.sessions.some(s => s.session_id === currentId)
+        if (!exists && currentId) {
+          await apiFetch('/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: currentId, name: 'Active Session' }),
+          })
+          const reloadResp = await apiFetch('/sessions')
+          const reloadData = await reloadResp.json()
+          if (reloadData.success) {
+            set({ sessions: reloadData.sessions })
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load sessions:', err)
+    } finally {
+      set({ sessionsLoading: false })
+    }
+  },
+
+  createSession: async (name) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const defaultName = name || `Analysis Session ${new Date().toLocaleDateString()}`
+    try {
+      const resp = await apiFetch('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: newId, name: defaultName }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        localStorage.setItem('datapilot_session_id', newId)
+        set(s => ({
+          sessionId: newId,
+          messages: [],
+          sessions: [data.session, ...s.sessions],
+        }))
+        persistMessages([])
+        return { success: true, sessionId: newId }
+      }
+    } catch (err) {
+      console.error('Failed to create session:', err)
+    }
+    return { success: false }
+  },
+
+  switchSession: async (targetSessionId) => {
+    set({ sessionId: targetSessionId, previewLoading: true })
+    localStorage.setItem('datapilot_session_id', targetSessionId)
+    try {
+      const resp = await apiFetch(`/sessions/${targetSessionId}/messages`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ messages: data.messages })
+        persistMessages(data.messages)
+      }
+    } catch (err) {
+      console.error('Failed to switch session:', err)
+    } finally {
+      set({ previewLoading: false })
+    }
+  },
+
+  renameSession: async (targetSessionId, newName) => {
+    try {
+      const resp = await apiFetch(`/sessions/${targetSessionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          sessions: s.sessions.map(sess =>
+            sess.session_id === targetSessionId ? { ...sess, name: newName } : sess
+          ),
+        }))
+        return { success: true }
+      }
+    } catch (err) {
+      console.error('Failed to rename session:', err)
+    }
+    return { success: false }
+  },
+
+  togglePinSession: async (targetSessionId, currentPinned) => {
+    const newPinned = !currentPinned
+    try {
+      const resp = await apiFetch(`/sessions/${targetSessionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: newPinned }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        const reloadResp = await apiFetch('/sessions')
+        const reloadData = await reloadResp.json()
+        if (reloadData.success) {
+          set({ sessions: reloadData.sessions })
+        }
+        return { success: true }
+      }
+    } catch (err) {
+      console.error('Failed to toggle pin:', err)
+    }
+    return { success: false }
+  },
+
+  deleteSession: async (targetSessionId) => {
+    try {
+      const resp = await apiFetch(`/sessions/${targetSessionId}`, {
+        method: 'DELETE',
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          sessions: s.sessions.filter(sess => sess.session_id !== targetSessionId),
+        }))
+        if (get().sessionId === targetSessionId) {
+          const remaining = get().sessions
+          if (remaining.length > 0) {
+            await get().switchSession(remaining[0].session_id)
+          } else {
+            await get().createSession()
+          }
+        }
+        return { success: true }
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err)
+    }
+    return { success: false }
+  },
+
+  setWorkspaceMode: (mode) => set({ workspaceMode: mode }),
+  setReasoningMode: (enabled) => set({ reasoningMode: enabled }),
+  setAttachmentList: (attachments) => set({ attachmentList: attachments }),
+
+  loadTemplates: async () => {
+    set({ templatesLoading: true, templatesError: null })
+    try {
+      const resp = await apiFetch('/templates')
+      const data = await resp.json()
+      if (data.success) {
+        set({ templates: data.templates, templatesLoading: false })
+        return { success: true, templates: data.templates }
+      }
+      throw new Error(data.error || 'Failed to load templates')
+    } catch (err) {
+      set({ templatesError: err.message, templatesLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  saveCustomTemplate: async (options) => {
+    try {
+      const resp = await apiFetch('/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({ templates: [...s.templates, data.template] }))
+        return { success: true, template: data.template }
+      }
+      throw new Error(data.error || 'Failed to save template')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  duplicateTemplate: async (templateId) => {
+    try {
+      const resp = await apiFetch(`/templates/${templateId}/duplicate`, {
+        method: 'POST',
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({ templates: [...s.templates, data.template] }))
+        return { success: true, template: data.template }
+      }
+      throw new Error(data.error || 'Failed to duplicate template')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  deleteTemplate: async (templateId) => {
+    try {
+      const resp = await apiFetch(`/templates/${templateId}`, {
+        method: 'DELETE',
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({ templates: s.templates.filter(t => t.template_id !== templateId) }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Failed to delete template')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  runTemplateOnDataset: async (fileId, templateId, overrides = null) => {
+    try {
+      const resp = await apiFetch(`/files/${fileId}/transform/template/${templateId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapping_overrides: overrides }),
+      })
+      
+      const data = await resp.json()
+      if (resp.status === 422) {
+        return { success: false, error_type: 'column_mapping_required', ...data }
+      }
+      
+      if (!resp.ok) {
+        throw new Error(data.error || 'Failed to execute template')
+      }
+      
+      if (data.status === 'completed' && data.preview) {
+        set(s => ({
+          files: s.files.map(f => (f.file_id === fileId ? { ...f, ...data.preview } : f)),
+        }))
+      }
+      
+      return data
+    } catch (err) {
+      return { success: false, error: err.message }
     }
   },
 }))

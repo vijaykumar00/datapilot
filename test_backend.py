@@ -5,7 +5,7 @@ Uses only ASCII output to avoid Windows cp1252 encoding issues.
 """
 import json, sys, urllib.request, uuid
 
-BASE = "http://localhost:8000"
+BASE = "http://localhost:8001"
 
 def get(path):
     with urllib.request.urlopen(f"{BASE}{path}", timeout=10) as r:

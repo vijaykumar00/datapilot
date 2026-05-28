@@ -165,13 +165,22 @@ class VizAgent(BaseAgent):
         # Step 1: Fast keyword detection
         chart_info = _auto_detect_chart(query, df)
 
-        # Step 2: If Ollama available, refine with LLM for better accuracy
+        # Step 2: If Ollama/LLM available, refine with LLM for better accuracy
         if self.llm:
-            columns_list = list(df.columns)
+            columns_meta = record.metadata.get("semantic_map", {})
+            cols_with_semantics = []
+            for col in df.columns:
+                meta = columns_meta.get(str(col))
+                if meta:
+                    desc = f"- {col} (Label: '{meta.get('label')}', Type: {meta.get('semantic_type')}, Meaning: '{meta.get('inferred_meaning')}', Aliases: {meta.get('aliases', [])})"
+                else:
+                    desc = f"- {col}"
+                cols_with_semantics.append(desc)
+
             sample = df.head(3).to_dict(orient="records")
             prompt = (
                 f"User query: {query}\n"
-                f"Available columns: {columns_list}\n"
+                f"Available columns with semantic business intelligence mappings:\n" + "\n".join(cols_with_semantics) + "\n\n"
                 f"Data sample: {sample}\n"
                 f"Row count: {len(df)}"
             )
