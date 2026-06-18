@@ -6,15 +6,144 @@ Uses few-shot prompting for reliable SQL generation.
 import hashlib
 import json
 import logging
+import re
 import time
 
 from agents.base_agent import AgentResponse, BaseAgent
+from core.error_intelligence import diagnose_sql_error, diagnose_empty_result, format_for_user
 
 logger = logging.getLogger("datapilot.agent.insight")
 
 # Simple 5-minute query cache: {hash: (result, timestamp)}
 _query_cache: dict[str, tuple[AgentResponse, float]] = {}
 CACHE_TTL = 300  # 5 minutes
+
+
+def _build_sql_explain(sql: str, explanation: str, row_count: int, table_name: str) -> dict:
+    """Parse SQL into a structured explain block for the frontend ExplainPanel."""
+    sql_upper = sql.upper()
+    sections = []
+
+    # 1. Query Intent
+    if explanation:
+        sections.append({
+            "label": "Query Intent",
+            "icon": "🎯",
+            "content": explanation
+        })
+
+    # 2. SELECT clause — extract column/expression list
+    select_match = re.search(r"SELECT\s+(.+?)\s+FROM", sql, re.IGNORECASE | re.DOTALL)
+    if select_match:
+        fields_raw = select_match.group(1).strip()
+        # Split on top-level commas (not inside parens)
+        fields = []
+        depth = 0
+        current = []
+        for ch in fields_raw:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if ch == "," and depth == 0:
+                fields.append("".join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        if current:
+            fields.append("".join(current).strip())
+
+        field_lines = []
+        for f in fields:
+            f = f.strip()
+            alias_match = re.search(r"\bAS\b\s+(\S+)$", f, re.IGNORECASE)
+            alias = alias_match.group(1).strip('"') if alias_match else None
+            agg_match = re.match(r"(COUNT|SUM|AVG|MIN|MAX|ROUND)\s*\(", f, re.IGNORECASE)
+            if agg_match:
+                agg = agg_match.group(1).upper()
+                label = f"→ {agg}({alias or '?'}) — aggregation"
+            elif alias:
+                label = f"→ {f.split('AS')[0].strip()} as {alias}"
+            else:
+                label = f"→ {f}"
+            field_lines.append(label)
+
+        sections.append({
+            "label": "Fields Selected",
+            "icon": "📋",
+            "content": field_lines
+        })
+
+    # 3. FROM clause
+    from_match = re.search(r"FROM\s+(\S+)", sql, re.IGNORECASE)
+    if from_match:
+        sections.append({
+            "label": "Data Source",
+            "icon": "🗄️",
+            "content": f"Scanning table `{from_match.group(1)}`"
+        })
+
+    # 4. WHERE clause
+    where_match = re.search(r"WHERE\s+(.+?)(?:GROUP\s+BY|ORDER\s+BY|LIMIT|$)", sql, re.IGNORECASE | re.DOTALL)
+    if where_match:
+        sections.append({
+            "label": "Row Filters",
+            "icon": "🔍",
+            "content": where_match.group(1).strip()
+        })
+
+    # 5. GROUP BY clause
+    group_match = re.search(r"GROUP\s+BY\s+(.+?)(?:ORDER\s+BY|LIMIT|HAVING|$)", sql, re.IGNORECASE | re.DOTALL)
+    if group_match:
+        sections.append({
+            "label": "Grouping",
+            "icon": "📦",
+            "content": f"Results grouped by: {group_match.group(1).strip()}"
+        })
+
+    # 6. ORDER BY clause
+    order_match = re.search(r"ORDER\s+BY\s+(.+?)(?:LIMIT|$)", sql, re.IGNORECASE | re.DOTALL)
+    if order_match:
+        sections.append({
+            "label": "Sorting",
+            "icon": "⬇️",
+            "content": f"Ordered by: {order_match.group(1).strip()}"
+        })
+
+    # 7. LIMIT clause
+    limit_match = re.search(r"LIMIT\s+(\d+)", sql, re.IGNORECASE)
+    if limit_match:
+        sections.append({
+            "label": "Row Limit",
+            "icon": "✂️",
+            "content": f"Capped at {limit_match.group(1)} rows for safety"
+        })
+
+    # 8. Execution result
+    sections.append({
+        "label": "Execution Result",
+        "icon": "✅",
+        "content": f"{row_count} row{'s' if row_count != 1 else ''} returned from `{table_name}`"
+    })
+
+    # 9. Column usage
+    col_refs = re.findall(r'"?([a-zA-Z_][a-zA-Z0-9_]*)"?', sql)
+    sql_keywords = {"SELECT", "FROM", "WHERE", "GROUP", "BY", "ORDER", "LIMIT", "AS",
+                    "AND", "OR", "NOT", "NULL", "IS", "IN", "LIKE", "BETWEEN", "DESC",
+                    "ASC", "COUNT", "SUM", "AVG", "MIN", "MAX", "ROUND", "DISTINCT", "TRUE", "FALSE"}
+    user_cols = sorted(set(c for c in col_refs if c.upper() not in sql_keywords and not c.isdigit()))
+    if user_cols:
+        sections.append({
+            "label": "Columns Referenced",
+            "icon": "🏷️",
+            "content": user_cols
+        })
+
+    return {
+        "type": "sql",
+        "sql": sql,
+        "sections": sections
+    }
 
 SQL_SYSTEM = """You are a SQL expert. Generate a single DuckDB SQL SELECT query for the user's question.
 
@@ -84,7 +213,6 @@ class InsightAgent(BaseAgent):
         )
 
         # Generate SQL
-        import re
         raw = await self.llm.generate(prompt, system=SQL_SYSTEM, json_mode=True)
 
         sql = ""
@@ -124,16 +252,26 @@ class InsightAgent(BaseAgent):
         try:
             results = self.store.execute(sql)
         except Exception as e:
+            intelligent_err = diagnose_sql_error(e, sql, df)
             return AgentResponse.error_response(
-                f"SQL execution failed: {e}\nGenerated SQL: `{sql}`", "insight"
+                format_for_user(intelligent_err), "insight", intelligent_error=intelligent_err
+            )
+
+        # Zero-row result — provide context-rich explanation
+        row_count = len(results)
+        if row_count == 0:
+            empty_err = diagnose_empty_result(sql, df, query)
+            return AgentResponse.error_response(
+                format_for_user(empty_err), "insight", intelligent_error=empty_err
             )
 
         # Format response
-        row_count = len(results)
         content_lines = [f"**Query:** `{sql}`\n"]
         if explanation:
             content_lines.append(f"*{explanation}*\n")
         content_lines.append(f"**{row_count} row(s) returned.**")
+
+        explain = _build_sql_explain(sql, explanation, row_count, table_name)
 
         response = AgentResponse(
             type="insight",
@@ -141,9 +279,11 @@ class InsightAgent(BaseAgent):
             table_data=results,
             metadata={
                 "sql": sql,
+                "explanation": explanation,
                 "row_count": row_count,
                 "table_name": table_name,
                 "cached": False,
+                "explain": explain,
             },
         )
 

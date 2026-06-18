@@ -1,38 +1,27 @@
 import { create } from 'zustand'
+import { indexedDBHelper } from '../utils/indexedDBHelper'
 
 // ── Session & persistence helpers ─────────────────────────────────────────────
-function getOrCreateSessionId() {
-  const key = 'datapilot_session_id'
-  let id = localStorage.getItem(key)
-  if (!id) {
-    id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    localStorage.setItem(key, id)
-  }
-  return id
+async function loadPersistedMessages(sessionId) {
+  if (!sessionId) return []
+  const msgs = await indexedDBHelper.get(`messages_${sessionId}`)
+  return msgs || []
 }
 
-function loadPersistedMessages() {
-  try {
-    const raw = localStorage.getItem('datapilot_messages')
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function persistMessages(messages) {
+async function persistMessages(sessionId, messages) {
+  if (!sessionId) return
   try {
     // Only keep last 100 messages; strip large table_data to save space
     const slim = messages.slice(-100).map(m => ({
       ...m,
       table_data: m.table_data?.length > 50 ? m.table_data.slice(0, 50) : m.table_data,
     }))
-    localStorage.setItem('datapilot_messages', JSON.stringify(slim))
-  } catch {
-    // quota exceeded – clear old messages
-    localStorage.removeItem('datapilot_messages')
+    await indexedDBHelper.set(`messages_${sessionId}`, slim)
+  } catch (err) {
+    console.error('Failed to persist messages:', err)
   }
 }
+
 
 const browserWindow = typeof window !== 'undefined' ? window : null
 const API_HOST = browserWindow?.location?.hostname || '127.0.0.1'
@@ -156,7 +145,8 @@ function hasEditablePreviewData(file) {
 export const useDataPilot = create((set, get) => ({
   files: [],
   activeFileIds: [],
-  messages: loadPersistedMessages(),
+  activeFileId: null,
+  messages: [],
   isStreaming: false,
   ollamaStatus: null,
   activeTab: 'chat',
@@ -166,15 +156,32 @@ export const useDataPilot = create((set, get) => ({
   previewSaving: false,
   provider: 'gemini',
   providerOnline: false,
-  sessionId: getOrCreateSessionId(),
+  sessionId: typeof window !== 'undefined' ? localStorage.getItem('datapilot_session_id') || '' : '',
   sessions: [],
   sessionsLoading: false,
+
   workspaceMode: 'chat',
   reasoningMode: false,
   attachmentList: [],
   templates: [],
   templatesLoading: false,
   templatesError: null,
+  suggestions: [],
+  savedAnalyses: [],
+  savedAnalysesLoading: false,
+  schemaWarnings: [],
+
+  reports: [],
+  reportsLoading: false,
+  reportVersions: [],
+  reportVersionsLoading: false,
+  historyMessages: [],
+  historyTotal: 0,
+  historyLoading: false,
+  datasetsList: [],
+  datasetsLoading: false,
+
+  setActiveFileId: (fileId) => set({ activeFileId: fileId }),
 
   uploadFile: async (file) => {
     const form = new FormData()
@@ -182,14 +189,170 @@ export const useDataPilot = create((set, get) => ({
     const resp = await apiFetch('/upload', { method: 'POST', body: form })
     const data = await resp.json()
     if (data.success) {
-      set(s => ({
-        files: [...s.files, data],
-        activeFileIds: [...s.activeFileIds, data.file_id],
-        previewFileId: s.previewFileId ?? data.file_id,
-      }))
+      // Build greeting message to inject into chat
+      const greetingMsg = data.greeting
+        ? {
+            id: Date.now(),
+            role: 'bot',
+            content: data.greeting,
+            type: 'text',
+            ts: new Date().toISOString(),
+            metadata: { type: 'greeting', file_id: data.file_id },
+          }
+        : null
+
+      set(s => {
+        const newMessages = greetingMsg
+          ? [...s.messages, greetingMsg]
+          : s.messages
+        if (greetingMsg) persistMessages(s.sessionId, newMessages)
+        return {
+          files: [...s.files, data],
+          activeFileIds: [...s.activeFileIds, data.file_id],
+          activeFileId: s.activeFileId ?? data.file_id,
+          previewFileId: s.previewFileId ?? data.file_id,
+          suggestions: data.suggestions || [],
+          schemaWarnings: data.schema_warnings || [],
+          messages: newMessages,
+          activeTab: 'chat',   // Switch to chat so user sees the greeting
+        }
+      })
       return { success: true, data }
     }
     return { success: false, error: data.error }
+  },
+
+  dismissSuggestion: (id) => {
+    set(s => ({ suggestions: s.suggestions.filter(sg => sg.id !== id) }))
+  },
+
+  clearSuggestions: () => {
+    set({ suggestions: [] })
+  },
+
+  dismissSchemaWarning: (key) => {
+    // key = code + affected_column (see SchemaWarnings.jsx)
+    set(s => ({
+      schemaWarnings: s.schemaWarnings.filter(
+        w => (w.code + (w.affected_column || '')) !== key
+      ),
+    }))
+  },
+
+  // ── Saved Analyses ────────────────────────────────────────────────────────
+  loadSavedAnalyses: async (sessionId, fileId) => {
+    set({ savedAnalysesLoading: true })
+    try {
+      const params = new URLSearchParams()
+      if (sessionId) params.set('session_id', sessionId)
+      if (fileId) params.set('file_id', fileId)
+      const resp = await apiFetch(`/analyses?${params.toString()}`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ savedAnalyses: data.analyses || [], savedAnalysesLoading: false })
+        return { success: true, analyses: data.analyses }
+      }
+      throw new Error(data.error || 'Failed to load analyses')
+    } catch (err) {
+      set({ savedAnalysesLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  saveAnalysis: async (msg, title, type, tags = []) => {
+    const { sessionId, files } = get()
+    const activeFile = files[0]
+    try {
+      const body = {
+        session_id: sessionId,
+        title,
+        query: msg.userQuery || '',
+        response: msg.content || '',
+        type: type || msg.type || 'insight',
+        chart_data: msg.chart_data || null,
+        table_data: msg.table_data || null,
+        metadata: msg.metadata || {},
+        file_id: activeFile?.file_id || null,
+        filename: activeFile?.filename || null,
+        tags,
+      }
+      const resp = await apiFetch('/analyses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({ savedAnalyses: [data.analysis, ...s.savedAnalyses] }))
+        return { success: true, analysis: data.analysis }
+      }
+      throw new Error(data.error || 'Save failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  replayAnalysis: async (analysis) => {
+    // Re-fire original query as a fresh AI message
+    const { sendMessage } = get()
+    if (analysis?.query) {
+      await sendMessage(analysis.query)
+    }
+  },
+
+  restoreAnalysis: (analysis) => {
+    // Inject cached response into chat without hitting the AI
+    const restoredMsg = {
+      id: Date.now(),
+      role: 'bot',
+      content: analysis.response,
+      type: analysis.type === 'chart' ? 'chart' : 'text',
+      chart_data: analysis.chart_data || null,
+      table_data: analysis.table_data || null,
+      metadata: {
+        ...(analysis.metadata || {}),
+        restored_from: analysis.analysis_id,
+        restore_title: analysis.title,
+      },
+      ts: new Date().toISOString(),
+    }
+    set(s => {
+      const newMessages = [...s.messages, restoredMsg]
+      persistMessages(s.sessionId, newMessages)
+      return { messages: newMessages, activeTab: 'chat' }
+    })
+  },
+
+  starAnalysis: async (analysisId, starred) => {
+    try {
+      const resp = await apiFetch(`/analyses/${analysisId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starred }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          savedAnalyses: s.savedAnalyses
+            .map(a => a.analysis_id === analysisId ? { ...a, starred } : a)
+            .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0)),
+        }))
+        return { success: true }
+      }
+    } catch (err) {
+      console.error('Failed to star analysis:', err)
+    }
+    return { success: false }
+  },
+
+  deleteSavedAnalysis: async (analysisId) => {
+    try {
+      await apiFetch(`/analyses/${analysisId}`, { method: 'DELETE' })
+      set(s => ({ savedAnalyses: s.savedAnalyses.filter(a => a.analysis_id !== analysisId) }))
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
   },
 
   exportFile: async (fileId, format = 'csv') => {
@@ -534,7 +697,7 @@ export const useDataPilot = create((set, get) => ({
 
     set(s => {
       const newMessages = [...s.messages, userMsg, botMsg]
-      persistMessages(newMessages)
+      persistMessages(s.sessionId, newMessages)
       return { messages: newMessages, isStreaming: true }
     })
 
@@ -595,7 +758,7 @@ export const useDataPilot = create((set, get) => ({
                       }
                     : m
                 )
-                persistMessages(newMessages)
+                persistMessages(s.sessionId, newMessages)
                 return { messages: newMessages, isStreaming: false }
               })
             }
@@ -609,7 +772,7 @@ export const useDataPilot = create((set, get) => ({
             ? { ...m, content: `Failed to connect to backend: ${err.message}`, type: 'error' }
             : m
         )
-        persistMessages(newMessages)
+        persistMessages(s.sessionId, newMessages)
         return { messages: newMessages, isStreaming: false }
       })
     }
@@ -618,8 +781,8 @@ export const useDataPilot = create((set, get) => ({
   clearMessages: async () => {
     const { sessionId } = get()
     set({ messages: [] })
-    persistMessages([])
     if (sessionId) {
+      await indexedDBHelper.delete(`messages_${sessionId}`)
       try { await apiFetch(`/session/${sessionId}`, { method: 'DELETE' }) } catch (_) {}
     }
   },
@@ -697,16 +860,18 @@ export const useDataPilot = create((set, get) => ({
         set({ sessions: data.sessions })
         const currentId = get().sessionId
         const exists = data.sessions.some(s => s.session_id === currentId)
-        if (!exists && currentId) {
-          await apiFetch('/sessions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: currentId, name: 'Active Session' }),
-          })
-          const reloadResp = await apiFetch('/sessions')
-          const reloadData = await reloadResp.json()
-          if (reloadData.success) {
-            set({ sessions: reloadData.sessions })
+        if (exists && currentId) {
+          const msgs = await loadPersistedMessages(currentId)
+          set({ messages: msgs })
+        } else {
+          if (data.sessions.length > 0) {
+            const firstSess = data.sessions[0].session_id
+            set({ sessionId: firstSess })
+            localStorage.setItem('datapilot_session_id', firstSess)
+            const msgs = await loadPersistedMessages(firstSess)
+            set({ messages: msgs })
+          } else {
+            await get().createSession()
           }
         }
       }
@@ -718,24 +883,24 @@ export const useDataPilot = create((set, get) => ({
   },
 
   createSession: async (name) => {
-    const newId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const defaultName = name || `Analysis Session ${new Date().toLocaleDateString()}`
     try {
       const resp = await apiFetch('/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: newId, name: defaultName }),
+        body: JSON.stringify({ name: defaultName }),
       })
       const data = await resp.json()
       if (data.success) {
-        localStorage.setItem('datapilot_session_id', newId)
+        const serverSessionId = data.session.session_id
+        localStorage.setItem('datapilot_session_id', serverSessionId)
         set(s => ({
-          sessionId: newId,
+          sessionId: serverSessionId,
           messages: [],
           sessions: [data.session, ...s.sessions],
         }))
-        persistMessages([])
-        return { success: true, sessionId: newId }
+        await persistMessages(serverSessionId, [])
+        return { success: true, sessionId: serverSessionId }
       }
     } catch (err) {
       console.error('Failed to create session:', err)
@@ -747,11 +912,16 @@ export const useDataPilot = create((set, get) => ({
     set({ sessionId: targetSessionId, previewLoading: true })
     localStorage.setItem('datapilot_session_id', targetSessionId)
     try {
-      const resp = await apiFetch(`/sessions/${targetSessionId}/messages`)
-      const data = await resp.json()
-      if (data.success) {
-        set({ messages: data.messages })
-        persistMessages(data.messages)
+      const localMsgs = await loadPersistedMessages(targetSessionId)
+      if (localMsgs && localMsgs.length > 0) {
+        set({ messages: localMsgs })
+      } else {
+        const resp = await apiFetch(`/sessions/${targetSessionId}/messages`)
+        const data = await resp.json()
+        if (data.success) {
+          set({ messages: data.messages })
+          await persistMessages(targetSessionId, data.messages)
+        }
       }
     } catch (err) {
       console.error('Failed to switch session:', err)
@@ -925,6 +1095,301 @@ export const useDataPilot = create((set, get) => ({
       }
       
       return data
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  // ── Reports CRUD ────────────────────────────────────────────────────────────
+  loadReports: async (filters = {}) => {
+    set({ reportsLoading: true })
+    try {
+      const params = new URLSearchParams()
+      if (filters.session_id) params.set('session_id', filters.session_id)
+      if (filters.file_id) params.set('file_id', filters.file_id)
+      if (filters.starred) params.set('starred', 'true')
+      if (filters.report_type) params.set('report_type', filters.report_type)
+      if (filters.limit) params.set('limit', filters.limit)
+      const resp = await apiFetch(`/reports?${params.toString()}`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ reports: data.reports, reportsLoading: false })
+        return { success: true, reports: data.reports }
+      }
+      throw new Error(data.error || 'Failed to load reports')
+    } catch (err) {
+      set({ reportsLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  saveReport: async (reportData) => {
+    try {
+      const resp = await apiFetch('/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reportData),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({ reports: [data.report, ...s.reports] }))
+        return { success: true, report: data.report }
+      }
+      throw new Error(data.error || 'Save failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  updateReport: async (reportId, updates) => {
+    try {
+      const resp = await apiFetch(`/reports/${reportId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          reports: s.reports.map(r => r.report_id === reportId ? { ...r, ...updates } : r)
+        }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Update failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  deleteReport: async (reportId) => {
+    try {
+      const resp = await apiFetch(`/reports/${reportId}`, { method: 'DELETE' })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({ reports: s.reports.filter(r => r.report_id !== reportId) }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Delete failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  loadReportVersions: async (reportId) => {
+    set({ reportVersionsLoading: true })
+    try {
+      const resp = await apiFetch(`/reports/${reportId}/versions`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ reportVersions: data.versions, reportVersionsLoading: false })
+        return { success: true, versions: data.versions }
+      }
+      throw new Error(data.error || 'Failed to load versions')
+    } catch (err) {
+      set({ reportVersionsLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  createReportVersion: async (reportId, versionData) => {
+    try {
+      const resp = await apiFetch(`/reports/${reportId}/version`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(versionData),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          reports: s.reports.map(r => r.report_id === reportId ? { ...r, ...data.report } : r)
+        }))
+        return { success: true, report: data.report }
+      }
+      throw new Error(data.error || 'Create version failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  // ── Query History CRUD ──────────────────────────────────────────────────────
+  loadHistory: async (limit = 50, offset = 0) => {
+    set({ historyLoading: true })
+    try {
+      const params = new URLSearchParams()
+      params.set('limit', limit)
+      params.set('offset', offset)
+      const resp = await apiFetch(`/history?${params.toString()}`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ historyMessages: data.messages, historyTotal: data.total, historyLoading: false })
+        return { success: true, messages: data.messages, total: data.total }
+      }
+      throw new Error(data.error || 'Failed to load history')
+    } catch (err) {
+      set({ historyLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  searchHistory: async (q, limit = 20) => {
+    set({ historyLoading: true })
+    try {
+      const params = new URLSearchParams()
+      params.set('q', q)
+      params.set('limit', limit)
+      const resp = await apiFetch(`/history/search?${params.toString()}`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ historyMessages: data.messages, historyLoading: false })
+        return { success: true, messages: data.messages }
+      }
+      throw new Error(data.error || 'Search failed')
+    } catch (err) {
+      set({ historyLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  deleteHistoryItem: async (messageId) => {
+    try {
+      const resp = await apiFetch(`/history/${messageId}`, { method: 'DELETE' })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          historyMessages: s.historyMessages.filter(m => m.id !== messageId),
+          historyTotal: Math.max(0, s.historyTotal - 1),
+        }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Delete failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  togglePinHistoryItem: async (messageId) => {
+    try {
+      const resp = await apiFetch(`/history/${messageId}/pin`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          historyMessages: s.historyMessages.map(m => {
+            if (m.id === messageId) {
+              const meta = m.metadata || {}
+              return { ...m, metadata: { ...meta, pinned: !meta.pinned } }
+            }
+            return m
+          })
+        }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Pin failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  // ── Dataset Management CRUD ─────────────────────────────────────────────────
+  loadDatasets: async (filters = {}) => {
+    set({ datasetsLoading: true })
+    try {
+      const params = new URLSearchParams()
+      if (filters.archived) params.set('archived', 'true')
+      if (filters.session_id) params.set('session_id', filters.session_id)
+      if (filters.tag) params.set('tag', filters.tag)
+      const resp = await apiFetch(`/datasets?${params.toString()}`)
+      const data = await resp.json()
+      if (data.success) {
+        set({ datasetsList: data.datasets, datasetsLoading: false })
+        return { success: true, datasets: data.datasets }
+      }
+      throw new Error(data.error || 'Failed to load datasets')
+    } catch (err) {
+      set({ datasetsLoading: false })
+      return { success: false, error: err.message }
+    }
+  },
+
+  updateDataset: async (datasetId, updates) => {
+    try {
+      const resp = await apiFetch(`/datasets/${datasetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          datasetsList: s.datasetsList.map(d => d.dataset_id === datasetId ? { ...d, ...updates } : d),
+          files: s.files.map(f => {
+            if (f.file_id === datasetId && updates.display_name) {
+              return { ...f, filename: updates.display_name }
+            }
+            return f
+          })
+        }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Update failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  archiveDataset: async (datasetId) => {
+    try {
+      const resp = await apiFetch(`/datasets/${datasetId}/archive`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          datasetsList: s.datasetsList.map(d => d.dataset_id === datasetId ? { ...d, archived: 1 } : d),
+          files: s.files.filter(f => f.file_id !== datasetId)
+        }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Archive failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  restoreDataset: async (datasetId) => {
+    try {
+      const resp = await apiFetch(`/datasets/${datasetId}/restore`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          datasetsList: s.datasetsList.map(d => d.dataset_id === datasetId ? { ...d, archived: 0 } : d)
+        }))
+        const detailResp = await apiFetch(`/datasets/${datasetId}`)
+        const detailData = await detailResp.json()
+        if (detailData.success) {
+          set(s => ({
+            files: [...s.files, detailData.dataset]
+          }))
+        }
+        return { success: true }
+      }
+      throw new Error(data.error || 'Restore failed')
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  },
+
+  deleteDataset: async (datasetId) => {
+    try {
+      const resp = await apiFetch(`/files/${datasetId}`, { method: 'DELETE' })
+      const data = await resp.json()
+      if (data.success) {
+        set(s => ({
+          datasetsList: s.datasetsList.filter(d => d.dataset_id !== datasetId),
+          files: s.files.filter(f => f.file_id !== datasetId),
+          activeFileIds: s.activeFileIds.filter(id => id !== datasetId),
+          previewFileId: s.previewFileId === datasetId ? null : s.previewFileId,
+        }))
+        return { success: true }
+      }
+      throw new Error(data.error || 'Delete failed')
     } catch (err) {
       return { success: false, error: err.message }
     }

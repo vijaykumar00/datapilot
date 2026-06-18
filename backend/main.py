@@ -12,14 +12,21 @@ import os
 import re
 import socket
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 import pandas as pd
+import time
+import traceback as tb
+from core.db import log_api_error
+import core.report_store as report_store
+import core.report_dto as report_dto
+import core.dataset_store as dataset_store
+
 
 # Logging setup (before any imports that log)
 import sys
@@ -53,7 +60,9 @@ from core.data_store import get_store
 from core.file_manager import get_file_manager, UPLOAD_DIR
 from core.llm_client import get_llm_client, get_active_provider, set_active_provider
 from core.router import classify
+from core.suggestion_engine import generate_suggestions, build_greeting
 import core.session_store as session_store
+import core.analysis_store as analysis_store
 
 
 def _get_backend_host() -> str:
@@ -102,20 +111,83 @@ app = FastAPI(
     version="1.0.0",
 )
 
+from collections import defaultdict
+
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173")
+allowed_origins = [orig.strip() for orig in allowed_origins_str.split(",") if orig.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://127.0.0.1:5175",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global Request Size Limit Middleware (50MB cap)
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        if int(content_length) > 50 * 1024 * 1024:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Payload too large. Maximum size allowed is 50MB."}
+            )
+    return await call_next(request)
+
+# Rate Limiting Middleware (IP-based, in-memory sliding window, max 100 req/min)
+RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_MAX_REQUESTS = 100
+request_history = defaultdict(list)
+
+@app.middleware("http")
+async def rate_limiting_middleware(request: Request, call_next):
+    if request.url.path in ("/health", "/uploads"):
+        return await call_next(request)
+        
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    
+    # Clean old requests
+    request_history[ip] = [ts for ts in request_history[ip] if now - ts < RATE_LIMIT_WINDOW_SECONDS]
+    
+    if len(request_history[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."}
+        )
+    
+    request_history[ip].append(now)
+    return await call_next(request)
+
+# Structured Error Logging Middleware
+@app.middleware("http")
+async def error_logging_middleware(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as exc:
+        request_id = request.headers.get("x-request-id", f"req_{os.urandom(4).hex()}")
+        # Log to db/error_logs
+        log_api_error(
+            request_id=request_id,
+            endpoint=str(request.url.path),
+            error_type=exc.__class__.__name__,
+            message=str(exc),
+            traceback=tb.format_exc(),
+            user_id="default_user",
+            workspace_id="default_workspace"
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Internal Server Error",
+                "message": "An unexpected error occurred. It has been logged.",
+                "request_id": request_id
+            }
+        )
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
@@ -165,7 +237,7 @@ class UpdateCellsRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    session_id: str
+    session_id: str | None = None
     name: str | None = None
 
 
@@ -217,6 +289,26 @@ class TemplateCreateRequest(BaseModel):
 
 class TemplateRunRequest(BaseModel):
     mapping_overrides: dict[str, str] | None = None
+
+
+class SaveAnalysisRequest(BaseModel):
+    session_id: str
+    title: str
+    query: str
+    response: str
+    type: str = "insight"
+    chart_data: dict | None = None
+    table_data: list[dict] | None = None
+    metadata: dict | None = None
+    file_id: str | None = None
+    filename: str | None = None
+    tags: list[str] = []
+
+
+class UpdateAnalysisRequest(BaseModel):
+    title: str | None = None
+    tags: list[str] | None = None
+    starred: bool | None = None
 
 
 
@@ -312,12 +404,33 @@ async def ollama_status():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Upload and parse a CSV or Excel file."""
+    """Upload and parse a CSV or Excel file. Returns file summary + AI suggestions."""
     manager = get_file_manager()
     try:
-        result = await manager.process_upload(file)
+        result = await manager.process_upload(file, workspace_id="default_workspace", user_id="default_user")
         logger.info(f"Upload successful: {file.filename} -> {result['file_id']}")
-        return {"success": True, **result}
+
+        # Generate smart suggestions from profiled metadata
+        record = manager.get_record(result["file_id"])
+        suggestions = []
+        greeting = ""
+        if record is not None:
+            try:
+                suggestions = generate_suggestions(
+                    record.df,
+                    filename=record.filename,
+                    metadata=record.metadata,
+                )
+                greeting = build_greeting(
+                    filename=record.filename,
+                    row_count=len(record.df),
+                    col_count=len(record.df.columns),
+                    suggestions=suggestions,
+                )
+            except Exception as e:
+                logger.warning(f"Suggestion generation failed: {e}")
+
+        return {"success": True, **result, "suggestions": suggestions, "greeting": greeting}
     except ValueError as e:
         logger.warning(f"Upload validation failed: {e}")
         return {"success": False, "error": str(e)}
@@ -332,6 +445,31 @@ async def list_files():
     return {"files": get_file_manager().list_files()}
 
 
+@app.get("/files/{file_id}/suggestions")
+async def get_file_suggestions(file_id: str):
+    """Return fresh AI suggestions for a loaded file (re-computed on demand)."""
+    manager = get_file_manager()
+    record = manager.get_record(file_id)
+    if record is None:
+        raise HTTPException(404, f"File '{file_id}' not found")
+    try:
+        suggestions = generate_suggestions(
+            record.df,
+            filename=record.filename,
+            metadata=record.metadata,
+        )
+        greeting = build_greeting(
+            filename=record.filename,
+            row_count=len(record.df),
+            col_count=len(record.df.columns),
+            suggestions=suggestions,
+        )
+        return {"suggestions": suggestions, "greeting": greeting}
+    except Exception as e:
+        logger.warning(f"Suggestions failed for {file_id}: {e}")
+        return {"suggestions": [], "greeting": ""}
+
+
 @app.get("/files/{file_id}")
 async def get_file_preview(file_id: str):
     """Return preview rows and metadata for one loaded file."""
@@ -339,6 +477,34 @@ async def get_file_preview(file_id: str):
     if preview is None:
         raise HTTPException(404, f"File '{file_id}' not found")
     return {"success": True, **preview}
+
+
+@app.get("/files/{file_id}/diagnostics")
+async def get_file_diagnostics(file_id: str):
+    """Re-run full schema diagnostics on a loaded file and return structured warnings."""
+    from core.error_intelligence import diagnose_schema
+    manager = get_file_manager()
+    record = manager.get_record(file_id)
+    if record is None:
+        raise HTTPException(404, f"File '{file_id}' not found")
+    try:
+        warnings = diagnose_schema(record.df, record.filename)
+        record.metadata["schema_warnings"] = warnings
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": record.filename,
+            "warnings": warnings,
+            "warning_count": len(warnings),
+            "warning_count_by_severity": {
+                "critical": sum(1 for w in warnings if w.get("severity") == "critical"),
+                "warning": sum(1 for w in warnings if w.get("severity") == "warning"),
+                "info": sum(1 for w in warnings if w.get("severity") == "info"),
+            },
+        }
+    except Exception as e:
+        logger.exception(f"Diagnostics failed for {file_id}: {e}")
+        raise HTTPException(500, f"Diagnostics failed: {e}")
 
 
 @app.patch("/files/{file_id}")
@@ -798,7 +964,7 @@ async def get_templates_route():
     """List all default built-in and user-created custom templates."""
     from core.template_store import get_template_store
     store = get_template_store()
-    return {"success": True, "templates": store.list_templates()}
+    return {"success": True, "templates": store.list_templates(user_id="default_user", workspace_id="default_workspace")}
 
 
 @app.post("/templates")
@@ -828,7 +994,7 @@ async def create_template_route(req: TemplateCreateRequest):
     if not steps:
         raise HTTPException(400, "Template must contain at least 1 pipeline step.")
         
-    template = store.create_template(req.name, req.description, req.category, steps)
+    template = store.create_template(req.name, req.description, req.category, steps, user_id="default_user", workspace_id="default_workspace")
     return {"success": True, "template": template}
 
 
@@ -837,7 +1003,7 @@ async def duplicate_template_route(template_id: str):
     """Duplicate an existing template, appending (Copy) to its name."""
     from core.template_store import get_template_store
     store = get_template_store()
-    duplicated = store.duplicate_template(template_id)
+    duplicated = store.duplicate_template(template_id, user_id="default_user", workspace_id="default_workspace")
     if not duplicated:
         raise HTTPException(404, f"Template '{template_id}' not found")
     return {"success": True, "template": duplicated}
@@ -893,6 +1059,78 @@ async def run_template_on_file(file_id: str, template_id: str, req: TemplateRunR
     except Exception as e:
         logger.exception("Template execution crashed: %s", e)
         raise HTTPException(500, f"Template execution failed: {e}")
+
+
+# ── Saved Analyses endpoints ──────────────────────────────────────────────────
+
+@app.post("/analyses")
+async def create_analysis(req: SaveAnalysisRequest):
+    """Persist a new saved analysis checkpoint."""
+    try:
+        result = analysis_store.save_analysis(
+            session_id=req.session_id,
+            title=req.title,
+            query=req.query,
+            response=req.response,
+            type=req.type,
+            chart_data=req.chart_data,
+            table_data=req.table_data,
+            metadata=req.metadata,
+            file_id=req.file_id,
+            filename=req.filename,
+            tags=req.tags,
+        )
+        return {"success": True, "analysis": result}
+    except Exception as e:
+        logger.exception(f"Failed to save analysis: {e}")
+        raise HTTPException(500, f"Failed to save analysis: {e}")
+
+
+@app.get("/analyses")
+async def list_analyses_route(
+    session_id: str | None = None,
+    file_id: str | None = None,
+    starred: bool = False,
+    limit: int = 100,
+):
+    """List saved analyses, optionally filtered by session, file, or starred status."""
+    results = analysis_store.list_analyses(
+        session_id=session_id,
+        file_id=file_id,
+        starred_only=starred,
+        limit=limit,
+    )
+    return {"success": True, "analyses": results, "count": len(results)}
+
+
+@app.get("/analyses/{analysis_id}")
+async def get_analysis_route(analysis_id: str):
+    """Fetch a single saved analysis by ID."""
+    result = analysis_store.get_analysis(analysis_id)
+    if result is None:
+        raise HTTPException(404, f"Analysis '{analysis_id}' not found")
+    return {"success": True, "analysis": result}
+
+
+@app.patch("/analyses/{analysis_id}")
+async def update_analysis_route(analysis_id: str, req: UpdateAnalysisRequest):
+    """Update a saved analysis: rename, re-tag, or star/unstar."""
+    ok = analysis_store.update_analysis(
+        analysis_id,
+        title=req.title,
+        tags=req.tags,
+        starred=req.starred,
+    )
+    if not ok:
+        raise HTTPException(404, f"Analysis '{analysis_id}' not found")
+    return {"success": True}
+
+
+@app.delete("/analyses/{analysis_id}")
+async def delete_analysis_route(analysis_id: str):
+    """Permanently delete a saved analysis."""
+    ok = analysis_store.delete_analysis(analysis_id)
+    return {"success": ok, "analysis_id": analysis_id}
 
 
 @app.post("/chat/stream")
@@ -1030,12 +1268,25 @@ def _sse(data: dict) -> str:
 async def startup_event():
     logger.info("DataPilot API starting up...")
     provider = get_active_provider()
+    
+    # Validate API key config
+    provider_keys = {
+        "gemini": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "claude": "ANTHROPIC_API_KEY"
+    }
+    if provider in provider_keys:
+        key_name = provider_keys[provider]
+        if not os.getenv(key_name):
+            logger.error(f"CRITICAL CONFIGURATION ERROR: Active provider is set to '{provider}', but '{key_name}' is not defined in the environment!")
+            
     llm = get_llm_client()
     online = await llm.is_online()
     if online:
         logger.info(f"Provider '{provider}' is online and ready")
     else:
         logger.warning(f"Provider '{provider}' is offline or missing API key")
+
 
     # Reload files persisted from previous sessions
     manager = get_file_manager()
@@ -1048,6 +1299,229 @@ async def startup_event():
         _get_backend_host(),
         _get_backend_port(),
     )
+
+# ── Reports Endpoints (Feature 1) ─────────────────────────────────────────────
+
+@app.post("/reports")
+async def save_report_route(req: report_dto.SaveReportRequest):
+    """Save a new AI-generated report."""
+    try:
+        report = report_store.save_report(
+            session_id=req.session_id,
+            title=req.title,
+            description=req.description,
+            prompt=req.prompt,
+            content=req.content,
+            report_type=req.report_type,
+            chart_data=req.chart_data,
+            table_data=req.table_data,
+            kpis=req.kpis,
+            metadata=req.metadata,
+            file_id=req.file_id,
+            filename=req.filename,
+            tags=req.tags,
+            user_id="default_user",
+            workspace_id="default_workspace"
+        )
+        return {"success": True, "report": report}
+    except Exception as e:
+        logger.exception("Failed to save report: %s", e)
+        raise HTTPException(500, f"Failed to save report: {e}")
+
+@app.get("/reports")
+async def list_reports_route(
+    session_id: str | None = None,
+    file_id: str | None = None,
+    starred: bool = False,
+    report_type: str | None = None,
+    limit: int = 50
+):
+    """List all saved reports, showing only the latest version of each report."""
+    reports = report_store.list_reports(
+        session_id=session_id,
+        file_id=file_id,
+        starred_only=starred,
+        report_type=report_type,
+        limit=limit,
+        user_id="default_user",
+        workspace_id="default_workspace"
+    )
+    return {"success": True, "reports": reports, "count": len(reports)}
+
+@app.get("/reports/{report_id}")
+async def get_report_route(report_id: str):
+    """Fetch a single report version by ID."""
+    report = report_store.get_report(report_id)
+    if not report:
+        raise HTTPException(404, f"Report '{report_id}' not found")
+    return {"success": True, "report": report}
+
+@app.patch("/reports/{report_id}")
+async def update_report_route(report_id: str, req: report_dto.UpdateReportRequest):
+    """Update title/description/tags/starred/scheduled metadata for a report."""
+    ok = report_store.update_report(
+        report_id,
+        title=req.title,
+        description=req.description,
+        tags=req.tags,
+        starred=req.starred,
+        scheduled=req.scheduled,
+        schedule_cron=req.schedule_cron
+    )
+    if not ok:
+        raise HTTPException(404, f"Report '{report_id}' not found")
+    return {"success": True}
+
+@app.delete("/reports/{report_id}")
+async def delete_report_route(report_id: str):
+    """Permanently delete a report and all of its versions."""
+    ok = report_store.delete_report(report_id)
+    if not ok:
+        raise HTTPException(404, f"Report '{report_id}' not found")
+    return {"success": True}
+
+@app.post("/reports/{report_id}/version")
+async def create_version_route(report_id: str, req: report_dto.CreateVersionRequest):
+    """Save a new version of a report."""
+    try:
+        report = report_store.create_version(
+            report_id,
+            content=req.content,
+            chart_data=req.chart_data,
+            kpis=req.kpis,
+            metadata=req.metadata
+        )
+        return {"success": True, "report": report}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        logger.exception("Failed to save report version: %s", e)
+        raise HTTPException(500, f"Failed to save report version: {e}")
+
+@app.get("/reports/{report_id}/versions")
+async def get_report_versions_route(report_id: str):
+    """List all versions of a report."""
+    versions = report_store.get_report_versions(report_id)
+    return {"success": True, "versions": versions}
+
+
+# ── Query History Endpoints (Feature 2) ───────────────────────────────────────
+
+@app.get("/history")
+async def get_history_route(
+    session_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """Get cross-session paginated history of user queries."""
+    res = session_store.get_history_paginated(
+        session_id=session_id,
+        limit=limit,
+        offset=offset,
+        user_id="default_user",
+        workspace_id="default_workspace"
+    )
+    return {"success": True, **res}
+
+@app.get("/history/search")
+async def search_history_route(
+    q: str,
+    session_id: str | None = None,
+    limit: int = 20
+):
+    """Search cross-session history for queries containing substring 'q'."""
+    results = session_store.search_history(
+        query_text=q,
+        session_id=session_id,
+        limit=limit,
+        user_id="default_user",
+        workspace_id="default_workspace"
+    )
+    return {"success": True, "messages": results}
+
+@app.delete("/history/{message_id}")
+async def delete_history_route(message_id: str):
+    """Delete a user query and its response."""
+    ok = session_store.delete_message(message_id)
+    if not ok:
+        raise HTTPException(404, f"Message '{message_id}' not found")
+    return {"success": True}
+
+@app.post("/history/{message_id}/pin")
+async def pin_history_route(message_id: str):
+    """Toggle pin status of a message."""
+    ok = session_store.pin_message(message_id)
+    if not ok:
+        raise HTTPException(404, f"Message '{message_id}' not found")
+    return {"success": True}
+
+
+# ── Dataset Management Endpoints (Feature 3) ──────────────────────────────────
+
+class UpdateDatasetRequest(BaseModel):
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+@app.get("/datasets")
+async def list_datasets_route(
+    archived: bool = False,
+    session_id: str | None = None,
+    tag: str | None = None
+):
+    """List registered datasets (excluding archived by default)."""
+    datasets = dataset_store.list_datasets(
+        archived=archived,
+        session_id=session_id,
+        tag=tag,
+        user_id="default_user",
+        workspace_id="default_workspace"
+    )
+    return {"success": True, "datasets": datasets, "count": len(datasets)}
+
+@app.get("/datasets/{dataset_id}")
+async def get_dataset_route(dataset_id: str):
+    """Fetch details for a single registered dataset."""
+    dataset = dataset_store.get_dataset(dataset_id)
+    if not dataset:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    return {"success": True, "dataset": dataset}
+
+@app.patch("/datasets/{dataset_id}")
+async def update_dataset_route(dataset_id: str, req: UpdateDatasetRequest):
+    """Update dataset details."""
+    ok = dataset_store.update_dataset(
+        dataset_id,
+        display_name=req.display_name,
+        description=req.description,
+        tags=req.tags
+    )
+    if not ok:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+        
+    # Also update in file manager memory if cached
+    manager = get_file_manager()
+    record = manager.get_record(dataset_id)
+    if record and req.display_name:
+        record.filename = req.display_name
+        
+    return {"success": True}
+
+@app.post("/datasets/{dataset_id}/archive")
+async def archive_dataset_route(dataset_id: str):
+    """Soft-archive a dataset."""
+    ok = dataset_store.archive_dataset(dataset_id)
+    if not ok:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    return {"success": True}
+
+@app.post("/datasets/{dataset_id}/restore")
+async def restore_dataset_route(dataset_id: str):
+    """Restore a soft-archived dataset."""
+    ok = dataset_store.restore_dataset(dataset_id)
+    if not ok:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    return {"success": True}
 
 
 if __name__ == "__main__":

@@ -7,6 +7,10 @@ import StepIndicator from './components/StepIndicator'
 import SessionManager from './components/SessionManager'
 import CommandPalette from './components/CommandPalette'
 import ChartRenderer from './components/ChartRenderer'
+import SavedAnalyses from './components/SavedAnalyses'
+import SavedReports from './components/SavedReports'
+import QueryHistory from './components/QueryHistory'
+import DatasetManager from './components/DatasetManager'
 import { useDataPilot } from './hooks/useDataPilot'
 import ReactMarkdown from 'react-markdown'
 
@@ -40,9 +44,9 @@ function AIStatus() {
 
 // ── Dashboard View Sub-Component ──────────────────────────────────────────
 function DashboardView() {
-  const { files, messages, switchSheet, loadPreviewFile } = useDataPilot()
+  const { files, activeFileId, messages, switchSheet, loadPreviewFile } = useDataPilot()
   const charts = messages.filter(m => m.chart_data)
-  const activeFile = files[0] || null
+  const activeFile = files.find(f => f.file_id === activeFileId) || files[0] || null
   
   const insights = activeFile?.metadata?.insights || []
   const sheets = activeFile?.metadata?.sheet_names || []
@@ -160,6 +164,22 @@ function DashboardView() {
 
         {activeFile && (
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Dataset Selector */}
+            {files.length > 1 && (
+              <div className="flex items-center gap-1.5 bg-white/5 border border-white/5 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-500">Dataset:</span>
+                <select
+                  value={activeFileId || activeFile.file_id}
+                  onChange={(e) => useDataPilot.getState().setActiveFileId(e.target.value)}
+                  className="bg-transparent text-slate-200 border-none outline-none cursor-pointer font-semibold py-0.5 focus:ring-0"
+                >
+                  {files.map(f => (
+                    <option key={f.file_id} value={f.file_id} className="bg-[#0b0f19] text-slate-200">{f.filename}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Sheet Selector (Excel only) */}
             {sheets.length > 1 && (
               <div className="flex items-center gap-1.5 bg-white/5 border border-white/5 rounded-xl px-2.5 py-1 text-xs">
@@ -446,8 +466,8 @@ const getBackendUrl = (path) => {
 
 // ── Long-form Executive Report View Sub-Component ────────────────────────
 function ReportView() {
-  const { files, generateBespokeReport, exportBespokeReport } = useDataPilot()
-  const activeFile = files[0] || null
+  const { files, activeFileId, generateBespokeReport, exportBespokeReport } = useDataPilot()
+  const activeFile = files.find(f => f.file_id === activeFileId) || files[0] || null
   const columns = activeFile?.columns || []
 
   // Control state
@@ -565,6 +585,21 @@ function ReportView() {
             <h2 className="text-xs font-bold text-slate-200 uppercase tracking-widest">Branding Designer</h2>
             <p className="text-[10px] text-slate-500 mt-0.5">Configure report templates and brand aesthetics</p>
           </div>
+
+          {files.length > 1 && (
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Active Dataset</label>
+              <select
+                value={activeFileId || activeFile.file_id}
+                onChange={(e) => useDataPilot.getState().setActiveFileId(e.target.value)}
+                className="w-full bg-[#050811] border border-white/5 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none cursor-pointer font-semibold"
+              >
+                {files.map(f => (
+                  <option key={f.file_id} value={f.file_id} className="bg-[#0b0f19] text-slate-200">{f.filename}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <hr className="border-white/5" />
 
@@ -1664,6 +1699,10 @@ export default function App() {
             <option value="analyst">🧠 Advanced Spreadsheet</option>
             <option value="presentation">📺 Fullscreen Present</option>
             <option value="templates">🗂️ Workflow Templates</option>
+            <option value="saved">💾 Saved Analyses</option>
+            <option value="reports">📋 Saved Reports</option>
+            <option value="history">📜 Query History</option>
+            <option value="datasets">📦 Dataset Manager</option>
           </select>
         </div>
 
@@ -1720,6 +1759,22 @@ export default function App() {
 
           {workspaceMode === 'templates' && (
             <TemplateView />
+          )}
+
+          {workspaceMode === 'saved' && (
+            <SavedAnalyses />
+          )}
+
+          {workspaceMode === 'reports' && (
+            <SavedReports />
+          )}
+
+          {workspaceMode === 'history' && (
+            <QueryHistory />
+          )}
+
+          {workspaceMode === 'datasets' && (
+            <DatasetManager />
           )}
 
           {workspaceMode === 'analyst' && (

@@ -3,6 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useDataPilot } from '../hooks/useDataPilot'
 import ChartRenderer from './ChartRenderer'
+import ExplainPanel from './ExplainPanel'
+import SmartSuggestions from './SmartSuggestions'
+import SaveAnalysisModal from './SaveAnalysisModal'
+import ErrorIntelligencePanel from './ErrorIntelligencePanel'
+import SchemaWarnings from './SchemaWarnings'
 
 // ── Typing/Thinking Indicator ─────────────────────────────────────────────
 function ThinkingIndicator({ text = 'Analyzing spreadsheet...' }) {
@@ -222,8 +227,9 @@ function ThoughtProcess({ metadata }) {
 
 // ── Bot message ───────────────────────────────────────────────────────────
 function BotMessage({ msg, onAskFollowup }) {
-  const { exportRows, exportReport, files, setPreviewFile } = useDataPilot()
+  const { exportRows, exportReport, files, setPreviewFile, saveAnalysis } = useDataPilot()
   const [copiedResponse, setCopiedResponse] = useState(false)
+  const [saveModalOpen, setSaveModalOpen] = useState(false)
 
   const handleExportRows = async (format) => {
     const result = await exportRows(
@@ -273,17 +279,22 @@ function BotMessage({ msg, onAskFollowup }) {
 
         {/* Text content card */}
         {msg.content && (
-          <div className={`message-bot glass-sm px-4.5 py-3.5 border ${
-            isError ? 'border-rose-500/20 bg-rose-900/5' : 'border-white/5'
-          }`}>
-            <div className="prose-dark">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          isError ? (
+            <ErrorIntelligencePanel
+              intelligentError={msg.metadata?.intelligent_error}
+              fallbackMessage={msg.content}
+            />
+          ) : (
+            <div className="message-bot glass-sm px-4.5 py-3.5 border border-white/5">
+              <div className="prose-dark">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+              </div>
             </div>
-          </div>
+          )
         )}
 
-        {/* Thought Process / SQL Trace */}
-        <ThoughtProcess metadata={msg.metadata} />
+        {/* ExplainPanel — universal AI Explainability & Trust surface */}
+        <ExplainPanel metadata={msg.metadata} />
 
         {/* Interactive Charts render */}
         {msg.chart_data && (
@@ -343,7 +354,29 @@ function BotMessage({ msg, onAskFollowup }) {
                 📖 Save Executive Brief
               </button>
             )}
+            {/* Save Analysis button — always available on non-loading bot messages */}
+            {msg.content && msg.type !== 'loading' && msg.type !== 'status' && (
+              <button
+                id={`save-analysis-btn-${msg.id}`}
+                className="btn-ghost text-[10px] text-brand-400 hover:text-brand-300"
+                onClick={() => setSaveModalOpen(true)}
+              >
+                💾 Save
+              </button>
+            )}
           </div>
+        )}
+
+        {/* Save Analysis Modal */}
+        {saveModalOpen && (
+          <SaveAnalysisModal
+            message={msg}
+            onSave={async ({ title, type, tags }) => {
+              const result = await saveAnalysis(msg, title, type, tags)
+              if (!result.success) throw new Error(result.error || 'Save failed')
+            }}
+            onClose={() => setSaveModalOpen(false)}
+          />
         )}
 
         {/* Timestamp footer indicator */}
@@ -493,6 +526,12 @@ export default function ChatWindow() {
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* Schema Warnings Banner */}
+      <SchemaWarnings />
+
+      {/* Smart AI Suggestion Tray — above the input box */}
+      <SmartSuggestions />
 
       {/* Premium Prompt box decking deck */}
       <div className="px-5 py-4 border-t border-white/5 bg-[#050811]/60 backdrop-blur-md flex-shrink-0">

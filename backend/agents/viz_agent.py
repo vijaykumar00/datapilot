@@ -14,6 +14,121 @@ from agents.base_agent import AgentResponse, BaseAgent
 
 logger = logging.getLogger("datapilot.agent.viz")
 
+
+CHART_TYPE_RULES = {
+    "bar": "Categorical comparison — best for comparing discrete groups (e.g. by product, by region).",
+    "line": "Time series / sequential data — shows how a value changes over an ordered axis.",
+    "scatter": "Correlation exploration — reveals relationships between two numeric variables.",
+    "histogram": "Distribution analysis — shows the frequency spread of a single numeric column.",
+    "pie": "Part-to-whole composition — best when there are 8 or fewer categories summing to a total.",
+    "box": "Distribution comparison — shows median, quartiles, and outliers across groups.",
+    "heatmap": "Correlation matrix — shows pairwise relationships between all numeric columns.",
+}
+
+
+def _build_chart_explain(
+    chart_info: dict,
+    df: pd.DataFrame,
+    detection_method: str,  # "keyword" or "llm"
+) -> dict:
+    """Build a structured explainability block for the chart response."""
+    sections = []
+    ctype = chart_info.get("chart_type", "bar")
+    x_col = chart_info.get("x_column")
+    y_col = chart_info.get("y_column")
+    title = chart_info.get("title", "Chart")
+    reasoning = chart_info.get("reasoning")
+
+    # 1. Chart type rationale
+    rule_text = CHART_TYPE_RULES.get(ctype, "General purpose chart.")
+    method_badge = "🤖 AI Selected" if detection_method == "llm" else "🔑 Rule Matched"
+    rationale_lines = [
+        f"{method_badge}: `{ctype}` chart chosen",
+        rule_text,
+    ]
+    if reasoning:
+        rationale_lines.append(f"AI reasoning: {reasoning}")
+    sections.append({
+        "label": "Chart Type Rationale",
+        "icon": "📈",
+        "content": rationale_lines
+    })
+
+    # 2. Axes mapping
+    axes_lines = []
+    if x_col and x_col in df.columns:
+        dtype = str(df[x_col].dtype)
+        nunique = df[x_col].nunique()
+        axes_lines.append(f"X-axis: `{x_col}` ({dtype}, {nunique} unique values) — categories / labels")
+    if y_col and y_col in df.columns:
+        dtype = str(df[y_col].dtype)
+        axes_lines.append(f"Y-axis: `{y_col}` ({dtype}) — numeric metric to plot")
+    elif not y_col:
+        axes_lines.append("Y-axis: count (frequency of each category)")
+    if axes_lines:
+        sections.append({
+            "label": "Axis Mapping",
+            "icon": "↔️",
+            "content": axes_lines
+        })
+
+    # 3. Aggregation description
+    if ctype == "bar" and x_col and y_col and x_col in df.columns and y_col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[y_col]):
+            agg_df = df.groupby(x_col)[y_col].sum()
+            top_cat = agg_df.idxmax()
+            top_val = agg_df.max()
+            bottom_cat = agg_df.idxmin()
+            bottom_val = agg_df.min()
+            sections.append({
+                "label": "Aggregation Applied",
+                "icon": "∑",
+                "content": [
+                    f"Grouped `{x_col}` and summed `{y_col}` per category",
+                    f"Showing top {min(20, len(agg_df))} categories by total",
+                    f"Highest: {top_cat} ({top_val:,.2f})",
+                    f"Lowest: {bottom_cat} ({bottom_val:,.2f})",
+                ]
+            })
+    elif ctype == "histogram" and x_col and x_col in df.columns:
+        col_data = df[x_col].dropna()
+        sections.append({
+            "label": "Distribution Statistics",
+            "icon": "📊",
+            "content": [
+                f"Mean: {col_data.mean():,.2f}",
+                f"Median: {col_data.median():,.2f}",
+                f"Std dev: {col_data.std():,.2f}",
+                f"Range: [{col_data.min():,.2f} — {col_data.max():,.2f}]",
+            ]
+        })
+    elif ctype == "line" and x_col and y_col and y_col in df.columns:
+        col_data = df[y_col].dropna()
+        if len(col_data) > 1:
+            trend_dir = "⬆️ Rising" if col_data.iloc[-1] > col_data.iloc[0] else "⬇️ Declining"
+            sections.append({
+                "label": "Trend Detected",
+                "icon": "📉",
+                "content": [
+                    f"{trend_dir} over the plotted range",
+                    f"Start: {col_data.iloc[0]:,.2f} → End: {col_data.iloc[-1]:,.2f}",
+                    f"Peak: {col_data.max():,.2f} | Trough: {col_data.min():,.2f}",
+                ]
+            })
+
+    # 4. Data scope
+    sections.append({
+        "label": "Data Scope",
+        "icon": "📁",
+        "content": f"{len(df):,} total rows in dataset — chart limited to top 20 (bar) or 1,000 (scatter) for performance"
+    })
+
+    return {
+        "type": "chart",
+        "chart_type": ctype,
+        "sections": sections
+    }
+
 VIZ_SYSTEM = """You are a data visualization expert. Given a user query and dataset info, pick the best chart.
 
 Return ONLY valid JSON:
@@ -208,6 +323,9 @@ class VizAgent(BaseAgent):
         if "reasoning" in chart_info:
             content += f"\n\n{chart_info['reasoning']}"
 
+        detection_method = "llm" if self.llm and "reasoning" in chart_info else "keyword"
+        explain = _build_chart_explain(chart_info, df, detection_method)
+
         return AgentResponse(
             type="visualize",
             content=content,
@@ -216,5 +334,8 @@ class VizAgent(BaseAgent):
                 "chart_type": chart_info.get("chart_type"),
                 "x_column": chart_info.get("x_column"),
                 "y_column": chart_info.get("y_column"),
+                "color_column": chart_info.get("color_column"),
+                "title": chart_info.get("title"),
+                "explain": explain,
             },
         )

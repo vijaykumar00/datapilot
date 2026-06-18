@@ -144,40 +144,45 @@ BUILT_IN_TEMPLATES = [
 ]
 
 
+from datetime import datetime
+from core.db import get_connection
+
 class TemplateStore:
     def __init__(self):
         self._custom_templates: Dict[str, Dict[str, Any]] = {}
         self._load_custom_templates()
 
     def _load_custom_templates(self):
-        """Load persistent templates from JSON file on disk."""
-        if not TEMPLATES_FILE.exists():
-            self._custom_templates = {}
-            return
+        """Load persistent templates from SQLite database."""
+        conn = get_connection()
         try:
-            with open(TEMPLATES_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    self._custom_templates = {t["template_id"]: t for t in data}
-                else:
-                    self._custom_templates = data
-            logger.info("Loaded %d custom templates from disk", len(self._custom_templates))
-        except Exception as e:
-            logger.error("Failed to load custom templates from %s: %s", TEMPLATES_FILE, e)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT template_id, name, description, category, steps, is_builtin, user_id, workspace_id, created_at, updated_at
+                FROM templates;
+                """
+            )
+            rows = cursor.fetchall()
             self._custom_templates = {}
-
-    def _save_custom_templates(self):
-        """Persist custom templates to JSON file on disk."""
-        try:
-            with open(TEMPLATES_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._custom_templates, f, indent=2, ensure_ascii=False)
-            logger.info("Persisted %d custom templates to disk", len(self._custom_templates))
+            for row in rows:
+                d = dict(row)
+                d["steps"] = json.loads(d["steps"])
+                d["is_builtin"] = bool(d["is_builtin"])
+                self._custom_templates[d["template_id"]] = d
+            logger.info("Loaded %d custom templates from SQLite", len(self._custom_templates))
         except Exception as e:
-            logger.error("Failed to persist custom templates: %s", e)
+            logger.error("Failed to load custom templates from SQLite: %s", e)
+            self._custom_templates = {}
+        finally:
+            conn.close()
 
-    def list_templates(self) -> List[Dict[str, Any]]:
-        """Return full list of built-in and custom templates."""
-        custom_list = list(self._custom_templates.values())
+    def list_templates(self, user_id: str = "default_user", workspace_id: str = "default_workspace") -> List[Dict[str, Any]]:
+        """Return full list of built-in and custom templates for the user/workspace."""
+        custom_list = [
+            t for t in self._custom_templates.values()
+            if t.get("user_id") == user_id and t.get("workspace_id") == workspace_id
+        ]
         return BUILT_IN_TEMPLATES + custom_list
 
     def get_template(self, template_id: str) -> Dict[str, Any] | None:
@@ -187,23 +192,53 @@ class TemplateStore:
                 return t
         return self._custom_templates.get(template_id)
 
-    def create_template(self, name: str, description: str, category: str, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Save a new custom template and persist to disk."""
+    def create_template(self, name: str, description: str, category: str, steps: List[Dict[str, Any]], user_id: str = "default_user", workspace_id: str = "default_workspace") -> Dict[str, Any]:
+        """Save a new custom template to SQLite and local cache."""
         template_id = f"custom_{uuid.uuid4().hex[:8]}"
+        now = datetime.utcnow().isoformat()
         template = {
             "template_id": template_id,
             "name": name.strip(),
             "description": description.strip(),
             "category": category.strip(),
             "steps": steps,
-            "is_builtin": False
+            "is_builtin": False,
+            "user_id": user_id,
+            "workspace_id": workspace_id,
+            "created_at": now,
+            "updated_at": now
         }
-        self._custom_templates[template_id] = template
-        self._save_custom_templates()
+        
+        conn = get_connection()
+        try:
+            conn.execute(
+                """
+                INSERT INTO templates (template_id, name, description, category, steps, is_builtin, user_id, workspace_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?);
+                """,
+                (
+                    template_id,
+                    template["name"],
+                    template["description"],
+                    template["category"],
+                    json.dumps(steps),
+                    user_id,
+                    workspace_id,
+                    now,
+                    now
+                )
+            )
+            conn.commit()
+            self._custom_templates[template_id] = template
+            logger.info(f"Created template {template_id} in SQLite")
+        except Exception as e:
+            logger.error(f"Failed to create template: {e}")
+        finally:
+            conn.close()
         return template
 
-    def duplicate_template(self, template_id: str) -> Dict[str, Any] | None:
-        """Duplicate an existing template, append (Copy) to name, and save to disk."""
+    def duplicate_template(self, template_id: str, user_id: str = "default_user", workspace_id: str = "default_workspace") -> Dict[str, Any] | None:
+        """Duplicate an existing template, append (Copy) to name, and save to SQLite."""
         source = self.get_template(template_id)
         if not source:
             return None
@@ -212,24 +247,64 @@ class TemplateStore:
         new_steps = copy.deepcopy(source["steps"])
         
         new_template_id = f"custom_{uuid.uuid4().hex[:8]}"
+        now = datetime.utcnow().isoformat()
         duplicated = {
             "template_id": new_template_id,
             "name": f"{source['name']} (Copy)",
             "description": source["description"],
             "category": source["category"],
             "steps": new_steps,
-            "is_builtin": False
+            "is_builtin": False,
+            "user_id": user_id,
+            "workspace_id": workspace_id,
+            "created_at": now,
+            "updated_at": now
         }
-        self._custom_templates[new_template_id] = duplicated
-        self._save_custom_templates()
+        
+        conn = get_connection()
+        try:
+            conn.execute(
+                """
+                INSERT INTO templates (template_id, name, description, category, steps, is_builtin, user_id, workspace_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?);
+                """,
+                (
+                    new_template_id,
+                    duplicated["name"],
+                    duplicated["description"],
+                    duplicated["category"],
+                    json.dumps(new_steps),
+                    user_id,
+                    workspace_id,
+                    now,
+                    now
+                )
+            )
+            conn.commit()
+            self._custom_templates[new_template_id] = duplicated
+            logger.info(f"Duplicated template {template_id} to {new_template_id}")
+        except Exception as e:
+            logger.error(f"Failed to duplicate template: {e}")
+            return None
+        finally:
+            conn.close()
         return duplicated
 
     def delete_template(self, template_id: str) -> bool:
-        """Delete custom template from store and disk."""
+        """Delete custom template from SQLite and local cache."""
         if template_id in self._custom_templates:
-            del self._custom_templates[template_id]
-            self._save_custom_templates()
-            return True
+            conn = get_connection()
+            try:
+                conn.execute("DELETE FROM templates WHERE template_id = ?;", (template_id,))
+                conn.commit()
+                del self._custom_templates[template_id]
+                logger.info(f"Deleted template {template_id} from SQLite")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to delete template: {e}")
+                return False
+            finally:
+                conn.close()
         return False
 
 
@@ -241,3 +316,4 @@ def get_template_store() -> TemplateStore:
     if _store is None:
         _store = TemplateStore()
     return _store
+

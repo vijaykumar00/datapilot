@@ -15,6 +15,102 @@ from agents.base_agent import AgentResponse, BaseAgent
 logger = logging.getLogger("datapilot.agent.forecast")
 
 
+def _build_forecast_explain(
+    method: str,
+    value_col: str,
+    date_col: str | None,
+    n_periods: int,
+    n_points: int,
+    r2: float | None,
+    last_val: float,
+    next_val: float,
+    pct_change: float,
+    resample_freq: str | None,
+    warnings: list[str],
+) -> dict:
+    """Build a structured explainability block for the forecast response."""
+    sections = []
+
+    # 1. Method selected + rationale
+    if method == "holt_winters":
+        method_label = "Holt-Winters Exponential Smoothing"
+        method_desc = (
+            f"Selected because {n_points} monthly data points were available (minimum 8 required). "
+            "This method captures level, trend, and seasonal components for accurate short-term projections."
+        )
+    else:
+        method_label = "Linear Regression (Fallback)"
+        reason = "no date column was detected" if not date_col else f"only {n_points} data points available (need 8+ for time-series)"
+        method_desc = (
+            f"Fallback method selected because {reason}. "
+            "Fits a straight-line trend to the numeric series. "
+            f"R² = {r2:.3f} {'(good fit)' if r2 and r2 > 0.7 else '(weak fit — interpret carefully)'}." if r2 is not None else ""
+        )
+    sections.append({
+        "label": "Method Selected",
+        "icon": "🧪",
+        "content": [method_label, method_desc]
+    })
+
+    # 2. Data basis
+    basis_lines = [f"Column forecasted: `{value_col}`", f"Historical data points used: {n_points}"]
+    if date_col:
+        basis_lines.append(f"Date column detected: `{date_col}`")
+        if resample_freq:
+            basis_lines.append(f"Resampled to monthly frequency (ME) for time-series alignment")
+    else:
+        basis_lines.append("No date column found — using row index as time axis")
+    basis_lines.append(f"Forecasting {n_periods} period(s) forward")
+    sections.append({
+        "label": "Data Basis",
+        "icon": "📊",
+        "content": basis_lines
+    })
+
+    # 3. Trend direction
+    direction = "⬆️ Rising" if pct_change > 1 else ("⬇️ Declining" if pct_change < -1 else "➡️ Flat")
+    trend_text = (
+        f"{direction} — last value was {last_val:,.2f}, next forecast period is {next_val:,.2f} "
+        f"({'+'  if pct_change >= 0 else ''}{pct_change:.1f}%)"
+    )
+    sections.append({
+        "label": "Detected Trend",
+        "icon": "📈",
+        "content": trend_text
+    })
+
+    # 4. Confidence interpretation
+    if method == "holt_winters":
+        conf_text = (
+            "The shaded band represents the 95% confidence interval, computed from the model’s "
+            "residual standard deviation (±1.96σ). Values are expected to fall within this range "
+            "with 95% probability under stable conditions."
+        )
+    else:
+        conf_text = (
+            "The shaded band represents ±1 standard deviation from the residuals of the linear fit. "
+            "A wider band indicates higher uncertainty. Consider adding a date column for more reliable forecasts."
+        )
+    sections.append({
+        "label": "Confidence Interpretation",
+        "icon": "🛡️",
+        "content": conf_text
+    })
+
+    # 5. Warnings if any
+    if warnings:
+        sections.append({
+            "label": "Notices",
+            "icon": "⚠️",
+            "content": warnings
+        })
+
+    return {
+        "type": "forecast",
+        "sections": sections
+    }
+
+
 def _find_date_column(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         if any(kw in col.lower() for kw in ["date", "time", "month", "year", "week", "period", "day"]):
@@ -146,12 +242,27 @@ class ForecastAgent(BaseAgent):
                 if warnings:
                     content += "\n" + "\n".join(warnings)
 
+                explain = _build_forecast_explain(
+                    method="holt_winters",
+                    value_col=value_col,
+                    date_col=date_col,
+                    n_periods=n_periods,
+                    n_points=len(ts),
+                    r2=None,
+                    last_val=last_val,
+                    next_val=next_val,
+                    pct_change=pct,
+                    resample_freq="ME",
+                    warnings=warnings,
+                )
+
                 return AgentResponse(
                     type="forecast", content=content, chart_data=plotly_spec,
                     metadata={
                         "method": "holt_winters", "date_column": date_col,
                         "value_column": value_col, "n_periods": n_periods,
                         "forecast_values": forecast.values.tolist(),
+                        "explain": explain,
                     },
                 )
             except Exception as e:
@@ -217,11 +328,26 @@ class ForecastAgent(BaseAgent):
             if not date_col:
                 content += "\n\n> Tip: Add a date/time column for better time-series forecasting."
 
+            explain = _build_forecast_explain(
+                method="linear_regression",
+                value_col=value_col,
+                date_col=date_col,
+                n_periods=n_periods,
+                n_points=len(y),
+                r2=r2,
+                last_val=float(y[-1]),
+                next_val=float(future_y[-1]),
+                pct_change=pct,
+                resample_freq=None,
+                warnings=warnings,
+            )
+
             return AgentResponse(
                 type="forecast", content=content, chart_data=plotly_spec,
                 metadata={
                     "method": "linear_regression", "value_column": value_col,
                     "r2": r2, "n_periods": n_periods,
+                    "explain": explain,
                 },
             )
         except Exception as e:

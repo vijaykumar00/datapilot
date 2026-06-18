@@ -10,8 +10,13 @@ import uuid
 import asyncio
 from pathlib import Path
 from typing import Any
+import json
+from datetime import datetime
+from core.db import get_connection
+from core.storage import get_storage_provider
 
 class ColumnMappingError(Exception):
+
     def __init__(self, failed_mappings: list[dict], available_columns: list[str]):
         self.failed_mappings = failed_mappings
         self.available_columns = available_columns
@@ -25,6 +30,12 @@ from fastapi import UploadFile
 from core.data_store import get_store
 from core.insights import clean_header_to_label, infer_semantic_type, generate_insights, profile_columns_semantically
 from core.transform_engine import execute_transform
+from core.error_intelligence import (
+    diagnose_upload_error,
+    diagnose_schema,
+    diagnose_transform_error,
+    format_for_user,
+)
 
 logger = logging.getLogger("datapilot.file_manager")
 
@@ -51,6 +62,8 @@ class FileRecord:
         df: pd.DataFrame,
         path: Path,
         metadata: dict[str, Any] | None = None,
+        workspace_id: str = "default_workspace",
+        user_id: str = "default_user",
     ):
         self.file_id = file_id
         self.filename = filename
@@ -60,6 +73,9 @@ class FileRecord:
         self.uploaded_at = time.time()
         self.table_name = f"file_{file_id.replace('-', '_')}"
         self.history = []  # list of tuples (df_copy, metadata_copy, description)
+        self.workspace_id = workspace_id
+        self.user_id = user_id
+
 
     def push_state(self, description: str):
         """Push the current state of df and metadata to the transactional history stack."""
@@ -180,7 +196,12 @@ class FileManager:
             "file_size_kb": round(df.memory_usage(deep=True).sum() / 1024, 1),
         }
 
-    async def process_upload(self, upload: UploadFile) -> dict[str, Any]:
+    async def process_upload(
+        self,
+        upload: UploadFile,
+        workspace_id: str = "default_workspace",
+        user_id: str = "default_user",
+    ) -> dict[str, Any]:
         """Process an uploaded file: validate, parse, cache, register in DuckDB, and run insights profiling."""
         filename = upload.filename or "unknown"
         ext = self._validate_extension(filename)
@@ -193,14 +214,18 @@ class FileManager:
         self._validate_magic(raw, ext)
 
         file_id = str(uuid.uuid4())[:8]
-        save_path = UPLOAD_DIR / f"{file_id}{ext}"
-        save_path.write_bytes(raw)
+        
+        # Save to namespaced storage
+        storage = get_storage_provider()
+        save_path, uri = storage.save_file(workspace_id, file_id, filename, raw)
 
         try:
             df, metadata = self._read_file(save_path, ext, len(raw))
         except Exception as e:
-            save_path.unlink(missing_ok=True)
-            raise ValueError(f"Could not parse file: {e}")
+            # Clean up namespaced directory
+            storage.delete_dataset_dir(workspace_id, file_id)
+            intelligent_err = diagnose_upload_error(e, filename, raw)
+            raise ValueError(format_for_user(intelligent_err))
 
         # Generate automated insights profiling
         table_name = f"file_{file_id.replace('-', '_')}"
@@ -219,14 +244,31 @@ class FileManager:
             logger.warning(f"Could not profile columns semantically: {e}")
             sem_map = {}
 
-        record = FileRecord(file_id, filename, df, save_path, metadata=metadata)
+        # Run proactive schema diagnostics (deterministic, no LLM)
+        try:
+            schema_warnings = diagnose_schema(df, filename)
+            metadata["schema_warnings"] = schema_warnings
+        except Exception as e:
+            logger.warning(f"Schema diagnostics failed: {e}")
+            schema_warnings = []
+
+        record = FileRecord(
+            file_id, filename, df, save_path, metadata=metadata,
+            workspace_id=workspace_id, user_id=user_id
+        )
         self._cache[file_id] = record
         self._store.register_dataframe(record.table_name, df)
 
-        logger.info("Processed '%s' -> file_id=%s, %s rows", filename, file_id, len(df))
+        logger.info("Processed '%s' -> file_id=%s, %s rows, %s schema warnings", filename, file_id, len(df), len(schema_warnings))
         summary = self._build_summary(df, file_id, filename, sem_map=sem_map)
         summary["metadata"] = metadata
+        summary["schema_warnings"] = schema_warnings
+        
+        # Register dataset in SQLite DB registry
+        self._ensure_dataset_registered(record, len(raw))
+        
         return summary
+
 
     def get_record(self, file_id: str) -> FileRecord | None:
         return self._cache.get(file_id)
@@ -317,7 +359,8 @@ class FileManager:
         except Exception as e:
             # Rollback stack immediately on failure
             record.undo()
-            raise ValueError(f"Transformation failed: {e}")
+            intelligent_err = diagnose_transform_error(e, action, record.df)
+            raise ValueError(format_for_user(intelligent_err))
 
         # Update metadata applied workflows
         if "applied_workflows" not in record.metadata:
@@ -472,6 +515,20 @@ class FileManager:
         if record is None:
             return False
         record.filename = new_name.strip()
+        
+        # Rename in DB registry
+        conn = get_connection()
+        try:
+            conn.execute(
+                "UPDATE dataset_registry SET display_name = ?, filename = ?, updated_at = ? WHERE dataset_id = ?;",
+                (record.filename, record.filename, datetime.utcnow().isoformat(), file_id)
+            )
+            conn.commit()
+        except Exception as db_err:
+            logger.error(f"Failed to update dataset name in registry: {db_err}")
+        finally:
+            conn.close()
+
         logger.info("Renamed file %s to '%s'", file_id, record.filename)
         return True
 
@@ -480,12 +537,22 @@ class FileManager:
         record = self._cache.pop(file_id, None)
         if record is None:
             return False
+        
         # Remove from disk
-        if record.path and record.path.exists():
-            try:
-                record.path.unlink(missing_ok=True)
-            except Exception as e:
-                logger.warning(f"Could not delete physical file: {e}")
+        workspace_id = getattr(record, "workspace_id", "default_workspace")
+        storage = get_storage_provider()
+        storage.delete_dataset_dir(workspace_id, file_id)
+
+        # Drop from registry
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM dataset_registry WHERE dataset_id = ?;", (file_id,))
+            conn.commit()
+        except Exception as db_err:
+            logger.error(f"Failed to delete dataset from registry: {db_err}")
+        finally:
+            conn.close()
+
         # Drop from store
         try:
             self._store.drop_table(record.table_name)
@@ -495,44 +562,161 @@ class FileManager:
         return True
 
     async def reload_from_disk(self) -> int:
-        """On startup, reload any files persisted in the uploads directory and regenerate insights if missing."""
+        """On startup, reload any files persisted in the uploads directory (legacy + namespaced)."""
         loaded = 0
-        for path in sorted(UPLOAD_DIR.glob("*")):
-            ext = path.suffix.lower()
-            if ext not in ALLOWED_EXTENSIONS:
+        storage = get_storage_provider()
+        
+        # 1. Look for namespaced files in uploads/{workspace_id}/{dataset_id}/{filename}
+        namespaced_paths = []
+        for path in UPLOAD_DIR.glob("*/*/*"):
+            if path.is_file() and path.suffix.lower() in ALLOWED_EXTENSIONS:
+                namespaced_paths.append(path)
+                
+        # 2. Look for legacy flat files in uploads/{file_id}.{ext}
+        legacy_paths = []
+        for path in UPLOAD_DIR.glob("*"):
+            if path.is_file() and path.suffix.lower() in ALLOWED_EXTENSIONS:
+                legacy_paths.append(path)
+
+        # Process namespaced files
+        for path in sorted(namespaced_paths):
+            filename = path.name
+            dataset_id = path.parent.name
+            workspace_id = path.parent.parent.name
+            
+            if dataset_id in self._cache:
                 continue
-            file_id = path.stem
-            if file_id in self._cache:
-                continue
+            
             try:
-                df, metadata = self._read_file(path, ext, path.stat().st_size)
-                table_name = f"file_{file_id.replace('-', '_')}"
-                # If we don't have insights yet, let's load/generate them!
+                df, metadata = self._read_file(path, path.suffix.lower(), path.stat().st_size)
+                table_name = f"file_{dataset_id.replace('-', '_')}"
+                
+                # Ensure profiling is fully present
                 if "insights" not in metadata:
                     try:
-                        insights_list = await generate_insights(df, table_name=table_name)
-                        metadata["insights"] = insights_list
+                        metadata["insights"] = await generate_insights(df, table_name=table_name)
                     except Exception as e:
-                        logger.warning(f"Could not generate reload insights: {e}")
+                        logger.warning(f"Could not generate insights: {e}")
                         metadata["insights"] = []
 
-                # If we don't have semantic map yet, let's generate it!
                 if "semantic_map" not in metadata:
                     try:
-                        sem_map = await profile_columns_semantically(df, table_name=table_name)
-                        metadata["semantic_map"] = sem_map
+                        metadata["semantic_map"] = await profile_columns_semantically(df, table_name=table_name)
                     except Exception as e:
-                        logger.warning(f"Could not generate reload semantic map: {e}")
+                        logger.warning(f"Could not profile columns: {e}")
+                        metadata["semantic_map"] = {}
 
-                orig_name = path.name
-                record = FileRecord(file_id, orig_name, df, path, metadata=metadata)
-                self._cache[file_id] = record
+                record = FileRecord(
+                    dataset_id, filename, df, path, metadata=metadata,
+                    workspace_id=workspace_id, user_id="default_user"
+                )
+                self._cache[dataset_id] = record
                 self._store.register_dataframe(record.table_name, df)
+                
+                # Sync with DB registry
+                self._ensure_dataset_registered(record, path.stat().st_size)
                 loaded += 1
-                logger.info("Reloaded persisted file: %s (%s rows)", orig_name, len(df))
+                logger.info("Reloaded namespaced file: %s (%s rows)", filename, len(df))
             except Exception as e:
                 logger.warning("Could not reload %s: %s", path.name, e)
+
+        # Process legacy flat files (migrate to namespaced folder)
+        for path in sorted(legacy_paths):
+            file_id = path.stem
+            ext = path.suffix.lower()
+            if file_id in self._cache:
+                continue
+            
+            try:
+                df, metadata = self._read_file(path, ext, path.stat().st_size)
+                filename = metadata.get("original_filename") or f"{file_id}{ext}"
+                
+                # Move legacy file to namespaced storage
+                content = path.read_bytes()
+                new_path, uri = storage.save_file("default_workspace", file_id, filename, content)
+                
+                # Delete legacy flat file
+                path.unlink(missing_ok=True)
+                
+                table_name = f"file_{file_id.replace('-', '_')}"
+                if "insights" not in metadata:
+                    try:
+                        metadata["insights"] = await generate_insights(df, table_name=table_name)
+                    except Exception as e:
+                        metadata["insights"] = []
+                        
+                if "semantic_map" not in metadata:
+                    try:
+                        metadata["semantic_map"] = await profile_columns_semantically(df, table_name=table_name)
+                    except Exception as e:
+                        metadata["semantic_map"] = {}
+
+                record = FileRecord(
+                    file_id, filename, df, new_path, metadata=metadata,
+                    workspace_id="default_workspace", user_id="default_user"
+                )
+                self._cache[file_id] = record
+                self._store.register_dataframe(record.table_name, df)
+                
+                # Sync with DB registry
+                self._ensure_dataset_registered(record, len(content))
+                loaded += 1
+                logger.info("Migrated and reloaded legacy file: %s (%s rows)", filename, len(df))
+            except Exception as e:
+                logger.warning("Could not reload legacy file %s: %s", path.name, e)
+                
         return loaded
+
+    def _ensure_dataset_registered(self, record: FileRecord, file_size_bytes: int):
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM dataset_registry WHERE dataset_id = ?;", (record.file_id,))
+            if not cursor.fetchone():
+                now = datetime.utcnow().isoformat()
+                col_info = []
+                for col in record.df.columns:
+                    col_info.append({
+                        "name": str(col),
+                        "dtype": str(record.df[col].dtype)
+                    })
+                schema_warnings = record.metadata.get("schema_warnings", [])
+                conn.execute(
+                    """
+                    INSERT INTO dataset_registry (
+                        dataset_id, filename, display_name, description, tags,
+                        row_count, column_count, sheet_count, file_size_bytes, archived,
+                        upload_date, last_query_date, session_id, column_summary, schema_warnings,
+                        user_id, workspace_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        record.file_id,
+                        record.filename,
+                        record.filename,
+                        "",
+                        "[]",
+                        len(record.df),
+                        len(record.df.columns),
+                        1,
+                        file_size_bytes,
+                        now,
+                        now,
+                        None,
+                        json.dumps(col_info),
+                        json.dumps(schema_warnings),
+                        record.user_id,
+                        record.workspace_id,
+                        now,
+                        now
+                    )
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Error ensuring dataset registration: {e}")
+        finally:
+            conn.close()
+
 
     def resolve_template_column(self, df: pd.DataFrame, target_col: str, semantic_map: dict | None) -> tuple[str, float]:
         """
