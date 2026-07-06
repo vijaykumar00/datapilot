@@ -13,6 +13,11 @@ import QueryHistory from './components/QueryHistory'
 import DatasetManager from './components/DatasetManager'
 import { useDataPilot } from './hooks/useDataPilot'
 import ReactMarkdown from 'react-markdown'
+import AuthModal from './components/AuthModal'
+import GuestBanner from './components/GuestBanner'
+import ToastContainer from './components/ToastContainer'
+import UserMenu from './components/UserMenu'
+import { useAuth } from './contexts/AuthContext'
 
 // ── Ollama status indicator ───────────────────────────────────────────────
 function AIStatus() {
@@ -1642,7 +1647,22 @@ export default function App() {
     files,
   } = useDataPilot()
 
+  const { isAuthenticated, isGuest, initGuestSession, loading } = useAuth()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [authModalOpen, setAuthModalOpen] = useState(false)
+  const [authModalTab, setAuthModalTab] = useState('login')
+
+  // Initialize guest session on first visit if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated && !isGuest) {
+      initGuestSession()
+    }
+  }, [loading, isAuthenticated, isGuest, initGuestSession])
+
+  const openAuthModal = (tab = 'login') => {
+    setAuthModalTab(tab)
+    setAuthModalOpen(true)
+  }
 
   // Listen for Ctrl+K / Cmd+K hotkey
   useEffect(() => {
@@ -1678,9 +1698,11 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xs font-bold tracking-tight text-white leading-none">DataPilot</h1>
-              <p className="text-[9px] text-slate-500 mt-1 font-mono">Local AI OS · v1.2</p>
+              <p className="text-[9px] text-slate-500 mt-1 font-mono">AI Analytics · v2.0</p>
             </div>
           </div>
+          {/* User Menu in sidebar header */}
+          <UserMenu onSettings={() => openAuthModal('login')} />
         </div>
 
         {/* Workspace Selector dropdown */}
@@ -1738,7 +1760,11 @@ export default function App() {
 
       {/* ── Main Workspace Area ──────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col min-w-0 z-10 bg-[#030712]">
-        
+        {/* Guest Banner (only shown for guest users) */}
+        <GuestBanner
+          onSignUp={() => openAuthModal('signup')}
+          onLogin={() => openAuthModal('login')}
+        />
         {/* App body renderer based on Workspace Mode state */}
         <div className="flex-1 overflow-hidden">
           {workspaceMode === 'chat' && (
@@ -1823,6 +1849,16 @@ export default function App() {
 
       {/* Ctrl + K command center overlay */}
       <CommandPalette isOpen={paletteOpen} onClose={() => setPaletteOpen(false)} />
+
+      {/* Auth Modal */}
+      <AuthModal
+        open={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        defaultTab={authModalTab}
+      />
+
+      {/* Global Toast Notifications */}
+      <ToastContainer />
     </div>
   )
 }

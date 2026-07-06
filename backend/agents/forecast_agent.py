@@ -27,6 +27,8 @@ def _build_forecast_explain(
     pct_change: float,
     resample_freq: str | None,
     warnings: list[str],
+    filename: str = "N/A",
+    sheet: str = "N/A"
 ) -> dict:
     """Build a structured explainability block for the forecast response."""
     sections = []
@@ -105,9 +107,27 @@ def _build_forecast_explain(
             "content": warnings
         })
 
+    columns = [value_col]
+    if date_col:
+        columns.append(date_col)
+
+    calcs = [
+        f"Historical data points: {n_points}",
+        f"Forecast periods: {n_periods}",
+        f"R² coefficient: {r2:.3f}" if r2 is not None else "No R² fit statistics available"
+    ]
+
     return {
         "type": "forecast",
-        "sections": sections
+        "sections": sections,
+        "data_source": filename,
+        "sheet": sheet,
+        "columns": columns,
+        "filters": "None",
+        "sql": "N/A",
+        "intermediate_calculations": calcs,
+        "confidence_score": 0.95 if method == "holt_winters" else (min(0.90, max(0.50, r2)) if r2 is not None else 0.80),
+        "reasoning_summary": f"Computed short-term forecasts using the {method} method on '{value_col}'."
     }
 
 
@@ -242,6 +262,8 @@ class ForecastAgent(BaseAgent):
                 if warnings:
                     content += "\n" + "\n".join(warnings)
 
+                filename = record.filename if record else "N/A"
+                sheet = record.metadata.get("active_sheet") or "Sheet1" if record else "N/A"
                 explain = _build_forecast_explain(
                     method="holt_winters",
                     value_col=value_col,
@@ -254,6 +276,8 @@ class ForecastAgent(BaseAgent):
                     pct_change=pct,
                     resample_freq="ME",
                     warnings=warnings,
+                    filename=filename,
+                    sheet=sheet
                 )
 
                 return AgentResponse(
@@ -328,6 +352,8 @@ class ForecastAgent(BaseAgent):
             if not date_col:
                 content += "\n\n> Tip: Add a date/time column for better time-series forecasting."
 
+            filename = record.filename if record else "N/A"
+            sheet = record.metadata.get("active_sheet") or "Sheet1" if record else "N/A"
             explain = _build_forecast_explain(
                 method="linear_regression",
                 value_col=value_col,
@@ -340,6 +366,8 @@ class ForecastAgent(BaseAgent):
                 pct_change=pct,
                 resample_freq=None,
                 warnings=warnings,
+                filename=filename,
+                sheet=sheet
             )
 
             return AgentResponse(

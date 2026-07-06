@@ -63,6 +63,8 @@ from core.router import classify
 from core.suggestion_engine import generate_suggestions, build_greeting
 import core.session_store as session_store
 import core.analysis_store as analysis_store
+from core.explain_enricher import enrich_explain_metadata
+from core.error_intelligence import IntelligentException
 
 
 def _get_backend_host() -> str:
@@ -110,6 +112,23 @@ app = FastAPI(
     description="Local-first AI data analysis assistant",
     version="1.0.0",
 )
+
+@app.on_event("startup")
+def startup_event():
+    from core.db import init_db
+    init_db()
+
+from core.auth_routes import router as auth_router
+from core.guest_routes import router as guest_router
+from core.workspace_routes import router as workspace_router
+from core.user_routes import router as user_router
+
+app.include_router(auth_router)
+app.include_router(guest_router)
+app.include_router(workspace_router)
+app.include_router(user_router)
+
+
 
 from collections import defaultdict
 
@@ -168,26 +187,116 @@ async def error_logging_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
     except Exception as exc:
+        import traceback as _tb
         request_id = request.headers.get("x-request-id", f"req_{os.urandom(4).hex()}")
+        full_tb = _tb.format_exc()
+        logger.error(f"Unhandled exception [{request_id}] on {request.url.path}: {exc}\n{full_tb}")
         # Log to db/error_logs
         log_api_error(
             request_id=request_id,
             endpoint=str(request.url.path),
             error_type=exc.__class__.__name__,
             message=str(exc),
-            traceback=tb.format_exc(),
+            traceback=full_tb,
             user_id="default_user",
             workspace_id="default_workspace"
         )
-        return JSONResponse(
+        # Include CORS headers so browser doesn't show a CORS error
+        origin = request.headers.get("origin", "*")
+        resp = JSONResponse(
             status_code=500,
             content={
                 "success": False,
                 "error": "Internal Server Error",
-                "message": "An unexpected error occurred. It has been logged.",
+                "message": str(exc) if os.getenv("DEBUG", "false").lower() == "true" else "An unexpected error occurred. It has been logged.",
                 "request_id": request_id
             }
         )
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        return resp
+
+
+
+@app.exception_handler(IntelligentException)
+async def intelligent_exception_handler(request: Request, exc: IntelligentException):
+    import os
+    request_id = request.headers.get("x-request-id", f"req_{os.urandom(4).hex()}")
+    log_api_error(
+        request_id=request_id,
+        endpoint=str(request.url.path),
+        error_type="IntelligentException",
+        message=exc.err_dict.get("message", "Intelligent error"),
+        traceback=None,
+        user_id="default_user",
+        workspace_id="default_workspace"
+    )
+    return JSONResponse(
+        status_code=400,
+        content={
+            "success": False,
+            "error": exc.err_dict.get("title", "Error"),
+            "message": exc.err_dict.get("message"),
+            "intelligent_error": exc.err_dict
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "error": exc.detail}
+        )
+        
+    import os
+    request_id = request.headers.get("x-request-id", f"req_{os.urandom(4).hex()}")
+    log_api_error(
+        request_id=request_id,
+        endpoint=str(request.url.path),
+        error_type=exc.__class__.__name__,
+        message=str(exc),
+        traceback=tb.format_exc(),
+        user_id="default_user",
+        workspace_id="default_workspace"
+    )
+
+    path = request.url.path
+    from core.error_intelligence import _make_error, diagnose_upload_error, diagnose_transform_error
+
+    if "/upload" in path:
+        err = diagnose_upload_error(exc, "uploaded_file")
+    elif "/transform" in path:
+        err = diagnose_transform_error(exc, {"operation": "transform"})
+    elif "/sheet" in path:
+        err = _make_error(
+            code="SHEET_ERROR",
+            title="Sheet operation failed",
+            message=f"Failed to switch or read Excel sheet: {str(exc)}",
+            suggestions=["Ensure the Excel file is not password protected.", "Try re-saving the file in Excel."],
+            severity="error"
+        )
+    else:
+        err = _make_error(
+            code="SERVER_ERROR",
+            title="Server operation failed",
+            message=f"An unexpected error occurred: {str(exc)}",
+            suggestions=["Retry the action.", "Check the server logs if hosting locally.", "Refresh your browser window."],
+            severity="critical"
+        )
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": err.get("title", "Server Error"),
+            "message": err.get("message"),
+            "intelligent_error": err,
+            "request_id": request_id
+        }
+    )
+
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
@@ -374,15 +483,57 @@ class ProviderRequest(BaseModel):
 
 @app.post("/provider")
 async def switch_provider(req: ProviderRequest):
-    """Switch LLM provider at runtime (no restart needed)."""
+    """Switch LLM provider at runtime. Saves API key to .env for persistence."""
     valid = {"gemini", "openai", "claude", "ollama"}
     if req.provider not in valid:
         raise HTTPException(400, f"Invalid provider. Choose from: {', '.join(valid)}")
+
     set_active_provider(req.provider, req.api_key)
+
+    # Persist key to .env so it survives restarts
+    if req.api_key:
+        _persist_key_to_env(req.provider, req.api_key)
+
     llm = get_llm_client()
     online = await llm.is_online()
     logger.info(f"Provider switched to '{req.provider}', online={online}")
     return {"success": True, "provider": req.provider, "online": online}
+
+
+def _persist_key_to_env(provider: str, api_key: str):
+    """Write or update an API key in the .env file."""
+    import re
+    env_key_map = {
+        "gemini": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+    }
+    env_var = env_key_map.get(provider)
+    if not env_var:
+        return
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    try:
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                content = f.read()
+            # Replace existing key or append
+            pattern = rf"^{env_var}=.*$"
+            replacement = f"{env_var}={api_key}"
+            if re.search(pattern, content, re.MULTILINE):
+                content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            else:
+                content += f"\n{replacement}\n"
+            with open(env_path, "w") as f:
+                f.write(content)
+            # Also update LLM_PROVIDER in .env
+            provider_pattern = r"^LLM_PROVIDER=.*$"
+            if re.search(provider_pattern, content, re.MULTILINE):
+                content = re.sub(provider_pattern, f"LLM_PROVIDER={provider}", content, flags=re.MULTILINE)
+                with open(env_path, "w") as f:
+                    f.write(content)
+        logger.info(f"Persisted {env_var} to .env")
+    except Exception as e:
+        logger.warning(f"Could not persist key to .env: {e}")
 
 
 @app.get("/ollama/status")
@@ -599,9 +750,20 @@ async def rename_file(file_id: str, req: RenameFileRequest):
 
 
 @app.get("/sessions")
-async def get_sessions():
-    """Get all saved chat sessions."""
-    return {"success": True, "sessions": session_store.get_all_sessions()}
+async def get_sessions(
+    limit: Optional[int] = None,
+    offset: int = 0,
+    q: Optional[str] = None
+):
+    """Get all or paginated saved chat sessions, with optional search."""
+    res = session_store.get_sessions_paginated(
+        user_id="default_user",
+        workspace_id="default_workspace",
+        limit=limit,
+        offset=offset,
+        search=q
+    )
+    return {"success": True, "sessions": res["sessions"], "total": res["total"]}
 
 
 @app.post("/sessions")
@@ -1147,6 +1309,14 @@ async def chat_stream(req: ChatRequest):
         message = req.message.strip()
         sid = req.session_id
 
+        # Touch last query date for all referenced files
+        if file_ids:
+            for fid in file_ids:
+                try:
+                    dataset_store.touch_last_query(fid)
+                except Exception as e:
+                    logger.warning(f"Failed to touch last query date for dataset {fid}: {e}")
+
         if not message:
             yield _sse({"type": "error", "content": "Empty message", "is_final": True})
             return
@@ -1200,9 +1370,28 @@ async def chat_stream(req: ChatRequest):
                         "or asking a more specific data question."
                     )
 
+            meta = {
+                "agent_used": "general",
+                "dataset_refs": file_ids
+            }
+            meta["explain"] = enrich_explain_metadata(meta, file_ids, get_file_manager())
+
             if sid:
-                session_store.append_message(sid, "bot", response_text, {"type": "text"})
-            yield _sse({"type": "text", "content": response_text, "is_final": True})
+                session_store.append_message(
+                    sid,
+                    "bot",
+                    response_text,
+                    {
+                        "type": "text",
+                        "metadata": meta
+                    }
+                )
+            yield _sse({
+                "type": "text",
+                "content": response_text,
+                "is_final": True,
+                "metadata": meta
+            })
             return
 
         # ── Route to agent ────────────────────────────────────────────────────
@@ -1224,6 +1413,13 @@ async def chat_stream(req: ChatRequest):
             result = await agent.run(message, file_ids, req.conversation_history)
             response = result.to_dict()
             response["is_final"] = True
+            
+            meta = response.get("metadata", {}) or {}
+            meta["agent_used"] = intent
+            meta["dataset_refs"] = file_ids
+            meta["explain"] = enrich_explain_metadata(meta, file_ids, get_file_manager())
+            response["metadata"] = meta
+
             if sid:
                 session_store.append_message(
                     sid,
@@ -1233,18 +1429,46 @@ async def chat_stream(req: ChatRequest):
                         "type": response.get("type", "text"),
                         "chart_data": response.get("chart_data"),
                         "table_data": response.get("table_data"),
-                        "metadata": response.get("metadata", {}),
+                        "metadata": meta,
                     }
                 )
             yield _sse(response)
         except Exception as e:
             logger.exception(f"Agent '{intent}' crashed: {e}")
-            err_msg = f"Analysis failed: {str(e)}"
+            from core.error_intelligence import diagnose_agent_error, format_for_user
+            
+            # Fetch df for diagnostics
+            _df = None
+            try:
+                record = get_file_manager().get_record(file_ids[0]) if file_ids else None
+                _df = record.df if record else None
+            except Exception:
+                pass
+                
+            intelligent_err = diagnose_agent_error(e, intent, _df, message)
+            err_msg = format_for_user(intelligent_err)
+            
+            meta = {
+                "agent_used": intent,
+                "dataset_refs": file_ids,
+                "intelligent_error": intelligent_err
+            }
             if sid:
-                session_store.append_message(sid, "bot", err_msg, {"type": "error"})
+                session_store.append_message(
+                    sid,
+                    "bot",
+                    err_msg,
+                    {
+                        "type": "error",
+                        "error": err_msg,
+                        "metadata": meta
+                    }
+                )
             yield _sse({
                 "type": "error",
                 "content": err_msg,
+                "error": err_msg,
+                "metadata": meta,
                 "is_final": True,
             })
 
@@ -1465,13 +1689,19 @@ class UpdateDatasetRequest(BaseModel):
 
 @app.get("/datasets")
 async def list_datasets_route(
-    archived: bool = False,
+    archived: str = "false",
     session_id: str | None = None,
     tag: str | None = None
 ):
     """List registered datasets (excluding archived by default)."""
+    archived_val = None
+    if archived.lower() == "false":
+        archived_val = False
+    elif archived.lower() == "true":
+        archived_val = True
+
     datasets = dataset_store.list_datasets(
-        archived=archived,
+        archived=archived_val,
         session_id=session_id,
         tag=tag,
         user_id="default_user",

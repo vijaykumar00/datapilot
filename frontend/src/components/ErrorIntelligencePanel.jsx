@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDataPilot } from '../hooks/useDataPilot'
 
 const SEVERITY_CONFIG = {
   critical: { icon: '🔴', label: 'Critical',  bg: 'bg-rose-500/10',    border: 'border-rose-500/25',    text: 'text-rose-300',    badge: 'bg-rose-500/20 text-rose-300 border-rose-500/35' },
@@ -16,6 +17,9 @@ const DEFAULT_SEV = SEVERITY_CONFIG.error
 export default function ErrorIntelligencePanel({ intelligentError, fallbackMessage }) {
   const [suggestionsOpen, setSuggestionsOpen] = useState(true)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const { switchSheet, switchProvider, retryLastMessage } = useDataPilot()
+  const [recovering, setRecovering] = useState(false)
+  const [recoveryError, setRecoveryError] = useState(null)
 
   // If no intelligent error dict, fall back to plain text rendering
   if (!intelligentError) {
@@ -31,6 +35,27 @@ export default function ErrorIntelligencePanel({ intelligentError, fallbackMessa
   const suggestions = intelligentError.suggestions || []
   const details = intelligentError.details || []
   const hasAffectedRows = intelligentError.affected_rows?.[0] != null
+  const recovery = intelligentError.recovery
+
+  const handleRecovery = async () => {
+    if (recovering) return
+    setRecovering(true)
+    setRecoveryError(null)
+    try {
+      if (recovery.type === 'switch_sheet') {
+        const res = await switchSheet(recovery.file_id, recovery.sheet)
+        if (!res.success) throw new Error(res.error || 'Failed to switch sheet')
+        await retryLastMessage()
+      } else if (recovery.type === 'switch_provider') {
+        const res = await switchProvider(recovery.provider)
+        if (!res.success) throw new Error(res.error || 'Failed to switch provider')
+        await retryLastMessage()
+      }
+    } catch (err) {
+      setRecoveryError(err.message)
+      setRecovering(false)
+    }
+  }
 
   return (
     <div className={`rounded-xl border ${sev.border} ${sev.bg} overflow-hidden animate-slide-up`}>
@@ -113,6 +138,38 @@ export default function ErrorIntelligencePanel({ intelligentError, fallbackMessa
                 <p key={i} className="text-[10px] text-slate-500 font-mono leading-snug">{d}</p>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Recovery action block */}
+      {recovery && (
+        <div className="mt-2.5 px-4 pb-3">
+          <button
+            onClick={handleRecovery}
+            disabled={recovering}
+            className={`w-full py-2.5 px-4 text-[11px] font-bold rounded-xl border flex items-center justify-center gap-2 transition-all duration-200 ${
+              recovering
+                ? 'bg-brand-500/10 border-brand-500/20 text-slate-500 cursor-wait'
+                : 'bg-gradient-to-r from-brand-600 to-purple-600 hover:from-brand-500 hover:to-purple-500 border-brand-500/20 hover:border-brand-500/35 text-white active:scale-[0.98] shadow-md hover:shadow-brand-500/10'
+            }`}
+          >
+            {recovering ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <span>Executing recovery...</span>
+              </>
+            ) : (
+              <>
+                <span>⚡</span>
+                <span>{recovery.label || 'Fix and Retry'}</span>
+              </>
+            )}
+          </button>
+          {recoveryError && (
+            <p className="text-[10px] text-rose-400 mt-1.5 text-center leading-normal">
+              ⚠️ Auto-recovery failed: {recoveryError}
+            </p>
           )}
         </div>
       )}

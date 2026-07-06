@@ -159,6 +159,9 @@ export const useDataPilot = create((set, get) => ({
   sessionId: typeof window !== 'undefined' ? localStorage.getItem('datapilot_session_id') || '' : '',
   sessions: [],
   sessionsLoading: false,
+  sessionsTotal: 0,
+  sessionsHasMore: false,
+  sessionsSearch: '',
 
   workspaceMode: 'chat',
   reasoningMode: false,
@@ -181,6 +184,8 @@ export const useDataPilot = create((set, get) => ({
   datasetsList: [],
   datasetsLoading: false,
 
+  chatPromptInput: '',
+  setChatPromptInput: (val) => set({ chatPromptInput: val }),
   setActiveFileId: (fileId) => set({ activeFileId: fileId }),
 
   uploadFile: async (file) => {
@@ -718,6 +723,17 @@ export const useDataPilot = create((set, get) => ({
         }),
       })
 
+      if (!resp.ok) {
+        let errMsg = 'Failed to connect to backend'
+        let intelErr = null
+        try {
+          const errJson = await resp.json()
+          errMsg = errJson.message || errJson.error || errMsg
+          intelErr = errJson.intelligent_error || null
+        } catch (_) {}
+        throw { message: errMsg, intelligent_error: intelErr }
+      }
+
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -735,7 +751,15 @@ export const useDataPilot = create((set, get) => ({
           try {
             const event = JSON.parse(line.slice(6))
 
-            if (event.type === 'text_chunk') {
+            if (event.type === 'status') {
+              set(s => ({
+                messages: s.messages.map(m =>
+                  m.id === botMsgId
+                    ? { ...m, content: event.content, type: 'status' }
+                    : m
+                ),
+              }))
+            } else if (event.type === 'text_chunk') {
               set(s => ({
                 messages: s.messages.map(m =>
                   m.id === botMsgId
@@ -766,15 +790,37 @@ export const useDataPilot = create((set, get) => ({
         }
       }
     } catch (err) {
+      const intel = err.intelligent_error || null
+      const content = err.message || String(err)
       set(s => {
         const newMessages = s.messages.map(m =>
           m.id === botMsgId
-            ? { ...m, content: `Failed to connect to backend: ${err.message}`, type: 'error' }
+            ? {
+                ...m,
+                content: content,
+                type: 'error',
+                metadata: {
+                  ...m.metadata,
+                  intelligent_error: intel,
+                },
+              }
             : m
         )
         persistMessages(s.sessionId, newMessages)
         return { messages: newMessages, isStreaming: false }
       })
+    }
+  },
+
+  retryLastMessage: async () => {
+    const { messages, sendMessage } = get()
+    const lastUserIdx = messages.findLastIndex(m => m.role === 'user')
+    if (lastUserIdx !== -1) {
+      const lastUserMsg = messages[lastUserIdx]
+      set(s => ({
+        messages: s.messages.slice(0, lastUserIdx),
+      }))
+      await sendMessage(lastUserMsg.content)
     }
   },
 
@@ -851,21 +897,53 @@ export const useDataPilot = create((set, get) => ({
     }
   },
 
-  loadSessions: async () => {
-    set({ sessionsLoading: true })
+  loadSessions: async (reset = false, searchVal = null) => {
+    const limit = 20
+    const currentSearch = searchVal !== null ? searchVal : get().sessionsSearch
+    const currentOffset = reset ? 0 : get().sessions.length
+
+    if (reset) {
+      set({ sessionsLoading: true, sessionsSearch: currentSearch })
+    } else {
+      set({ sessionsLoading: true })
+    }
+
     try {
-      const resp = await apiFetch('/sessions')
+      const params = new URLSearchParams()
+      params.set('limit', limit)
+      params.set('offset', currentOffset)
+      if (currentSearch) {
+        params.set('q', currentSearch)
+      }
+
+      const resp = await apiFetch(`/sessions?${params.toString()}`)
       const data = await resp.json()
       if (data.success) {
-        set({ sessions: data.sessions })
+        const newSessions = reset ? data.sessions : [...get().sessions, ...data.sessions]
+        const uniqueSessions = []
+        const seen = new Set()
+        for (const s of newSessions) {
+          if (!seen.has(s.session_id)) {
+            seen.add(s.session_id)
+            uniqueSessions.push(s)
+          }
+        }
+
+        set({
+          sessions: uniqueSessions,
+          sessionsTotal: data.total,
+          sessionsHasMore: uniqueSessions.length < data.total,
+          sessionsLoading: false,
+        })
+
         const currentId = get().sessionId
-        const exists = data.sessions.some(s => s.session_id === currentId)
+        const exists = uniqueSessions.some(s => s.session_id === currentId)
         if (exists && currentId) {
           const msgs = await loadPersistedMessages(currentId)
           set({ messages: msgs })
         } else {
-          if (data.sessions.length > 0) {
-            const firstSess = data.sessions[0].session_id
+          if (uniqueSessions.length > 0) {
+            const firstSess = uniqueSessions[0].session_id
             set({ sessionId: firstSess })
             localStorage.setItem('datapilot_session_id', firstSess)
             const msgs = await loadPersistedMessages(firstSess)
@@ -877,7 +955,6 @@ export const useDataPilot = create((set, get) => ({
       }
     } catch (err) {
       console.error('Failed to load sessions:', err)
-    } finally {
       set({ sessionsLoading: false })
     }
   },
@@ -898,6 +975,7 @@ export const useDataPilot = create((set, get) => ({
           sessionId: serverSessionId,
           messages: [],
           sessions: [data.session, ...s.sessions],
+          sessionsTotal: s.sessionsTotal + 1,
         }))
         await persistMessages(serverSessionId, [])
         return { success: true, sessionId: serverSessionId }
@@ -962,11 +1040,7 @@ export const useDataPilot = create((set, get) => ({
       })
       const data = await resp.json()
       if (data.success) {
-        const reloadResp = await apiFetch('/sessions')
-        const reloadData = await reloadResp.json()
-        if (reloadData.success) {
-          set({ sessions: reloadData.sessions })
-        }
+        await get().loadSessions(true)
         return { success: true }
       }
     } catch (err) {
@@ -984,6 +1058,7 @@ export const useDataPilot = create((set, get) => ({
       if (data.success) {
         set(s => ({
           sessions: s.sessions.filter(sess => sess.session_id !== targetSessionId),
+          sessionsTotal: Math.max(0, s.sessionsTotal - 1),
         }))
         if (get().sessionId === targetSessionId) {
           const remaining = get().sessions
@@ -1294,7 +1369,9 @@ export const useDataPilot = create((set, get) => ({
     set({ datasetsLoading: true })
     try {
       const params = new URLSearchParams()
-      if (filters.archived) params.set('archived', 'true')
+      if (filters.archived !== undefined) {
+        params.set('archived', String(filters.archived))
+      }
       if (filters.session_id) params.set('session_id', filters.session_id)
       if (filters.tag) params.set('tag', filters.tag)
       const resp = await apiFetch(`/datasets?${params.toString()}`)

@@ -1,36 +1,177 @@
 """
-db.py — SQLite database helper with SQLAlchemy connection pooling, dynamic migrations, and logging.
+db.py — Database helper with SQLAlchemy connection pooling, supporting SQLite locally and PostgreSQL in production.
 """
 
 import json
 import os
-import sqlite3
+import logging
 from datetime import datetime
 from pathlib import Path
-from sqlalchemy.pool import QueuePool
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from core.models import Base
 
+logger = logging.getLogger("datapilot.db")
+
+# Setup database paths and URLs
 DB_DIR = Path(__file__).parent.parent / "uploads"
 DB_PATH = DB_DIR / "datapilot.db"
+DB_DIR.mkdir(exist_ok=True)
 
-def _create_sqlite_conn() -> sqlite3.Connection:
-    """Create a raw sqlite3 connection configured for DataPilot."""
-    DB_DIR.mkdir(exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+# Determine database URL: default to local sqlite
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
+is_postgres = DATABASE_URL.startswith("postgresql") or "postgres" in DATABASE_URL
 
-# SQLAlchemy Connection Pool for thread safety and performance
-_db_pool = QueuePool(
-    creator=_create_sqlite_conn,
-    pool_size=10,
-    max_overflow=20,
-    timeout=30
+# SQLAlchemy engine config
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_recycle=1800
 )
 
-def get_connection() -> sqlite3.Connection:
-    """Get a database connection from the pool."""
-    return _db_pool.connect()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# ─────────────────────────────────────────────────────────────
+# DB Wrapper classes to adapt SQLite-style calls to PostgreSQL
+# ─────────────────────────────────────────────────────────────
+
+class RowWrapper:
+    def __init__(self, raw_row, description):
+        self.raw_row = raw_row
+        self.keys_list = [desc[0] for desc in description] if description else []
+        self.key_map = {name: i for i, name in enumerate(self.keys_list)}
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.raw_row[key]
+        elif isinstance(key, str):
+            idx = self.key_map.get(key)
+            if idx is None:
+                raise KeyError(key)
+            return self.raw_row[idx]
+        else:
+            raise TypeError("Key must be string or integer")
+
+    def keys(self):
+        return self.keys_list
+
+    def __iter__(self):
+        return iter(self.raw_row)
+
+    def __len__(self):
+        return len(self.raw_row)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+class DBCursorWrapper:
+    def __init__(self, raw_cursor, is_pg: bool):
+        self.raw_cursor = raw_cursor
+        self.is_pg = is_pg
+
+    def execute(self, sql, parameters=None):
+        if self.is_pg and sql:
+            # Convert SQLite placeholders (?) to PostgreSQL (%s)
+            sql = sql.replace("?", "%s")
+            
+            # Simple conversion of SQLite INSERT OR IGNORE to standard SQL + conflict clause
+            if "INSERT OR IGNORE INTO" in sql.upper():
+                sql_upper = sql.upper()
+                if "SESSIONS" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (session_id) DO NOTHING"
+                elif "MESSAGES" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (id) DO NOTHING"
+                elif "SAVED_ANALYSES" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (analysis_id) DO NOTHING"
+                elif "REPORTS" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (report_id) DO NOTHING"
+                elif "DATASET_REGISTRY" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (dataset_id) DO NOTHING"
+                elif "TEMPLATES" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (template_id) DO NOTHING"
+                elif "USERS" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (user_id) DO NOTHING"
+                elif "WORKSPACES" in sql_upper:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (workspace_id) DO NOTHING"
+                else:
+                    sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO")
+
+        if parameters is not None:
+            # PostgreSQL requires tuple or list
+            if not isinstance(parameters, (tuple, list)):
+                parameters = (parameters,)
+            self.raw_cursor.execute(sql, parameters)
+        else:
+            self.raw_cursor.execute(sql)
+        return self
+
+    def fetchone(self):
+        row = self.raw_cursor.fetchone()
+        if row is None:
+            return None
+        return RowWrapper(row, self.raw_cursor.description)
+
+    def fetchall(self):
+        rows = self.raw_cursor.fetchall()
+        desc = self.raw_cursor.description
+        return [RowWrapper(r, desc) for r in rows]
+
+    @property
+    def rowcount(self):
+        return self.raw_cursor.rowcount
+
+    def close(self):
+        self.raw_cursor.close()
+
+class DBConnectionWrapper:
+    def __init__(self, raw_conn, is_pg: bool):
+        self.raw_conn = raw_conn
+        self.is_pg = is_pg
+
+    def cursor(self):
+        return DBCursorWrapper(self.raw_conn.cursor(), self.is_pg)
+
+    def execute(self, sql, parameters=None):
+        cur = self.cursor()
+        cur.execute(sql, parameters)
+        return cur
+
+    def commit(self):
+        self.raw_conn.commit()
+
+    def rollback(self):
+        self.raw_conn.rollback()
+
+    def close(self):
+        self.raw_conn.close()
+
+# ─────────────────────────────────────────────────────────────
+# Connection and Session Helpers
+# ─────────────────────────────────────────────────────────────
+
+def get_connection():
+    """Exposes a wrapped database connection matching the legacy API."""
+    raw_conn = engine.raw_connection()
+    # If SQLite, ensure we enable foreign keys and row factory
+    if not is_postgres:
+        raw_conn.execute("PRAGMA foreign_keys = ON;")
+    return DBConnectionWrapper(raw_conn, is_postgres)
+
+def get_db():
+    """FastAPI Dependency for database sessions."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 def log_api_error(
     request_id: str | None,
@@ -71,192 +212,52 @@ def log_api_error(
         )
         conn.commit()
     except Exception as e:
-        # Prevent logging crashes from crashing the app
         print(f"Failed to log API error to DB: {e}")
     finally:
         conn.close()
 
 def init_db() -> None:
-    """Initialize SQLite tables and run migrations to ensure auth/multi-tenancy columns exist."""
-    conn = get_connection()
+    """Initialize database schemas programmatically using Alembic migrations on startup."""
     try:
-        # Create core tables
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                pinned INTEGER NOT NULL DEFAULT 0,
-                user_id TEXT,
-                workspace_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                type TEXT NOT NULL,
-                chart_data TEXT,
-                table_data TEXT,
-                metadata TEXT,
-                user_id TEXT,
-                workspace_id TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS saved_analyses (
-                analysis_id TEXT PRIMARY KEY,
-                session_id  TEXT NOT NULL,
-                title       TEXT NOT NULL,
-                query       TEXT NOT NULL,
-                response    TEXT NOT NULL,
-                type        TEXT NOT NULL DEFAULT 'insight',
-                chart_data  TEXT,
-                table_data  TEXT,
-                metadata    TEXT,
-                file_id     TEXT,
-                filename    TEXT,
-                tags        TEXT,
-                starred     INTEGER NOT NULL DEFAULT 0,
-                user_id     TEXT,
-                workspace_id TEXT,
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-            );
-            """
-        )
+        # Run alembic migrations dynamically
+        import sys
+        from alembic.config import Config
+        from alembic import command
 
-        # Create new tables for reports, datasets, templates, and errors
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS reports (
-                report_id TEXT PRIMARY KEY,
-                session_id TEXT,
-                title TEXT NOT NULL,
-                description TEXT DEFAULT '',
-                version INTEGER NOT NULL DEFAULT 1,
-                parent_report_id TEXT REFERENCES reports(report_id) ON DELETE SET NULL,
-                prompt TEXT DEFAULT '',
-                content TEXT NOT NULL,
-                report_type TEXT NOT NULL DEFAULT 'insight',
-                chart_data TEXT,
-                table_data TEXT,
-                kpis TEXT,
-                metadata TEXT NOT NULL DEFAULT '{}',
-                file_id TEXT,
-                filename TEXT,
-                tags TEXT NOT NULL DEFAULT '[]',
-                starred INTEGER NOT NULL DEFAULT 0,
-                scheduled INTEGER NOT NULL DEFAULT 0,
-                schedule_cron TEXT,
-                export_formats TEXT NOT NULL DEFAULT '[]',
-                user_id TEXT,
-                workspace_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS dataset_registry (
-                dataset_id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                display_name TEXT NOT NULL,
-                description TEXT DEFAULT '',
-                tags TEXT NOT NULL DEFAULT '[]',
-                row_count INTEGER DEFAULT 0,
-                column_count INTEGER DEFAULT 0,
-                sheet_count INTEGER DEFAULT 1,
-                file_size_bytes INTEGER DEFAULT 0,
-                archived INTEGER NOT NULL DEFAULT 0,
-                upload_date TEXT NOT NULL,
-                last_query_date TEXT,
-                session_id TEXT,
-                column_summary TEXT NOT NULL DEFAULT '{}',
-                schema_warnings TEXT NOT NULL DEFAULT '[]',
-                user_id TEXT,
-                workspace_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS templates (
-                template_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT DEFAULT '',
-                category TEXT NOT NULL,
-                steps TEXT NOT NULL,
-                is_builtin INTEGER NOT NULL DEFAULT 0,
-                user_id TEXT,
-                workspace_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS error_logs (
-                id TEXT PRIMARY KEY,
-                request_id TEXT,
-                endpoint TEXT NOT NULL,
-                error_type TEXT NOT NULL,
-                message TEXT NOT NULL,
-                traceback TEXT,
-                dataset_id TEXT,
-                session_id TEXT,
-                user_id TEXT,
-                workspace_id TEXT,
-                timestamp TEXT NOT NULL
-            );
-            """
-        )
+        backend_dir = Path(__file__).parent.parent
+        alembic_ini_path = backend_dir / "alembic.ini"
+        
+        # Configure and run migrations
+        alembic_cfg = Config(str(alembic_ini_path))
+        # Override the migration path to be absolute
+        alembic_cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+        
+        # Check if legacy database (has tables but no alembic history)
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        has_sessions = "sessions" in inspector.get_table_names()
+        has_alembic = "alembic_version" in inspector.get_table_names()
+        
+        if has_sessions and not has_alembic:
+            command.stamp(alembic_cfg, "96e4e347edff")
+            logger.info("Stamped legacy database to baseline revision 96e4e347edff.")
+            print("Stamped legacy database to baseline revision 96e4e347edff.")
 
-        # Run dynamic migrations to add user_id / workspace_id to any pre-existing tables
-        tables = ["sessions", "messages", "saved_analyses"]
-        for table in tables:
-            cursor = conn.cursor()
-            cursor.execute(f"PRAGMA table_info({table})")
-            columns = [row["name"] for row in cursor.fetchall()]
-            if "user_id" not in columns:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT;")
-                logger_msg = f"Migrated {table}: added user_id column"
-                print(logger_msg)
-            if "workspace_id" not in columns:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN workspace_id TEXT;")
-                logger_msg = f"Migrated {table}: added workspace_id column"
-                print(logger_msg)
+        # Run upgrade head
+        command.upgrade(alembic_cfg, "head")
 
-        # Create indexes
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_analyses_session ON saved_analyses(session_id);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_analyses_file ON saved_analyses(file_id);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_analyses_starred ON saved_analyses(starred);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_session ON reports(session_id);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_starred ON reports(starred);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_dataset_archived ON dataset_registry(archived);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_error_logs_timestamp ON error_logs(timestamp);")
+        logger.info("Alembic database migrations successfully applied.")
+        print("Alembic migrations successfully applied.")
+    except Exception as e:
+        logger.error(f"Failed to run database migrations: {e}")
+        print(f"Failed to run database migrations: {e}")
+        # Fallback: create tables using SQLAlchemy if migrations fail
+        try:
+            Base.metadata.create_all(bind=engine)
+            print("Fallback table creation applied.")
+        except Exception as fe:
+            print(f"Fallback table creation also failed: {fe}")
 
-        conn.commit()
-    finally:
-        conn.close()
-
-# Initialize the database on import
-init_db()
+# Initialize database on module import removed to prevent re-entrant Alembic conflicts
 

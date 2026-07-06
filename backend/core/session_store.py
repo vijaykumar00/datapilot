@@ -50,6 +50,52 @@ def get_all_sessions(user_id: str = "default_user", workspace_id: str = "default
         conn.close()
 
 
+def get_sessions_paginated(
+    user_id: str = "default_user",
+    workspace_id: str = "default_workspace",
+    limit: int | None = None,
+    offset: int = 0,
+    search: str | None = None
+) -> dict:
+    """Retrieve paginated sessions, optionally filtered by a search query on the name."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        
+        base_where = "WHERE user_id = ? AND workspace_id = ?"
+        params = [user_id, workspace_id]
+        
+        if search:
+            base_where += " AND name LIKE ?"
+            params.append(f"%{search}%")
+            
+        cursor.execute(
+            f"SELECT COUNT(*) FROM sessions {base_where};",
+            tuple(params)
+        )
+        total = cursor.fetchone()[0]
+        
+        select_query = f"""
+            SELECT session_id, name, pinned, user_id, workspace_id, created_at, updated_at
+            FROM sessions
+            {base_where}
+            ORDER BY pinned DESC, updated_at DESC
+        """
+        if limit is not None:
+            select_query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+        cursor.execute(select_query, tuple(params))
+        sessions = [dict(row) for row in cursor.fetchall()]
+        return {"sessions": sessions, "total": total}
+    except Exception as e:
+        logger.error(f"Error fetching paginated sessions: {e}")
+        return {"sessions": [], "total": 0}
+    finally:
+        conn.close()
+
+
+
 def create_session(session_id: str | None = None, name: str = None, user_id: str = "default_user", workspace_id: str = "default_workspace") -> dict:
     """Create a new session explicitly, generating a server-side UUID if none is provided."""
     if not session_id:

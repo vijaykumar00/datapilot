@@ -73,7 +73,7 @@ def restore_dataset(dataset_id: str) -> bool:
 
 def list_datasets(
     *,
-    archived: bool = False,
+    archived: Optional[bool] = False,
     session_id: Optional[str] = None,
     tag: Optional[str] = None,
     user_id: str = "default_user",
@@ -82,8 +82,12 @@ def list_datasets(
     """List datasets matching criteria."""
     conn = get_connection()
     try:
-        clauses = ["user_id = ?", "workspace_id = ?", "archived = ?"]
-        params: List[Any] = [user_id, workspace_id, 1 if archived else 0]
+        clauses = ["user_id = ?", "workspace_id = ?"]
+        params: List[Any] = [user_id, workspace_id]
+        
+        if archived is not None:
+            clauses.append("archived = ?")
+            params.append(1 if archived else 0)
         
         if session_id:
             clauses.append("session_id = ?")

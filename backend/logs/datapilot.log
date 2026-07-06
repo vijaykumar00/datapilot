@@ -3179,3 +3179,27 @@ For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/St
 2026-06-18 21:34:57,669 [INFO] datapilot.template_store: Deleted template custom_789bd3b5 from SQLite
 2026-06-18 21:34:57,671 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
 2026-06-18 21:34:57,674 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv
+2026-06-18 21:49:14,842 [INFO] datapilot.template_store: Loaded 0 custom templates from SQLite
+2026-06-18 21:49:14,846 [INFO] datapilot.template_store: Created template custom_0801b036 in SQLite
+2026-06-18 21:49:14,850 [INFO] datapilot.template_store: Deleted template custom_0801b036 from SQLite
+2026-06-18 21:49:14,852 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
+2026-06-18 21:49:14,854 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv
+2026-06-18 21:56:55,066 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-06-18 21:56:55,073 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-06-18 21:56:55,082 [INFO] datapilot.main: Intent: 'summary' | files=['test_ds_1'] | msg='Summarize my dataset'
+2026-06-18 22:30:44,020 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-06-18 22:30:44,032 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-06-18 22:30:44,037 [INFO] datapilot.main: Intent: 'summary' | files=['test_ds_1'] | msg='Summarize my dataset'
+2026-06-18 22:30:44,115 [INFO] datapilot.data_store: Registered table 'file_mock' with 3 rows
+2026-06-18 22:30:44,128 [ERROR] datapilot.data_store: SQL execution failed: Binder Error: Referenced column "revenuee" not found in FROM clause!
+Candidate bindings: "file_mock.revenue"
+LINE 1: SELECT SUM(revenuee) as total FROM file_mock
+                   ^
+SQL: SELECT SUM(revenuee) as total FROM file_mock
+2026-06-18 22:30:44,132 [INFO] datapilot.agent.insight: Auto-recovery: retrying SQL with 'revenue' instead of 'revenuee'
+2026-06-18 22:30:45,705 [WARNING] asyncio: Executing <Task finished name='Task-107' coro=<TestErrorRecoverySystem.test_incorrect_sheet_name() done, defined at C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\test_error_recovery.py:56> result=None created at C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:100> took 1.516 seconds
+2026-06-18 22:30:45,982 [INFO] datapilot.template_store: Loaded 0 custom templates from SQLite
+2026-06-18 22:30:46,200 [INFO] datapilot.template_store: Created template custom_5a9aaf83 in SQLite
+2026-06-18 22:30:46,350 [INFO] datapilot.template_store: Deleted template custom_5a9aaf83 from SQLite
+2026-06-18 22:30:46,360 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
+2026-06-18 22:30:46,380 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv

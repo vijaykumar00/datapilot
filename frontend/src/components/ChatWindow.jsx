@@ -420,9 +420,12 @@ export default function ChatWindow() {
     activeFileIds,
     reasoningMode,
     setReasoningMode,
+    chatPromptInput,
+    setChatPromptInput,
   } = useDataPilot()
 
-  const [input, setInput] = useState('')
+  const input = chatPromptInput
+  const setInput = setChatPromptInput
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 

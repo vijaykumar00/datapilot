@@ -24,6 +24,13 @@ import pandas as pd
 logger = logging.getLogger("datapilot.error_intelligence")
 
 
+class IntelligentException(Exception):
+    """Custom exception containing structured diagnostic details."""
+    def __init__(self, err_dict: dict):
+        self.err_dict = err_dict
+        super().__init__(err_dict.get("message", "An error occurred."))
+
+
 # ── Data structure ─────────────────────────────────────────────────────────────
 
 def _make_error(
@@ -35,6 +42,7 @@ def _make_error(
     severity: str = "error",
     affected_column: str | None = None,
     affected_rows: tuple[int, int] | None = None,
+    recovery: dict | None = None,
 ) -> dict:
     """Build a standard IntelligentError dict."""
     return {
@@ -46,6 +54,7 @@ def _make_error(
         "severity": severity,
         "affected_column": affected_column,
         "affected_rows": affected_rows,
+        "recovery": recovery,
     }
 
 
@@ -98,7 +107,7 @@ def diagnose_upload_error(exc: Exception, filename: str, raw_bytes: bytes | None
         )
 
     # ── Empty file ──
-    if "empty" in msg or size_mb == 0:
+    if "empty" in msg or (raw_bytes is not None and len(raw_bytes) == 0):
         return _make_error(
             code="EMPTY_FILE",
             title="File appears to be empty",
@@ -114,7 +123,7 @@ def diagnose_upload_error(exc: Exception, filename: str, raw_bytes: bytes | None
     if "unsupported" in msg or "extension" in msg or "format" in msg:
         return _make_error(
             code="UNSUPPORTED_FORMAT",
-            title="Unsupported file format",
+            title="Unsupported file",
             message=(
                 f"'.{ext}' files are not supported. DataPilot accepts CSV (.csv), "
                 f"Excel (.xlsx), and legacy Excel (.xls) files."
@@ -183,8 +192,8 @@ def diagnose_schema(df: pd.DataFrame, filename: str) -> list[dict]:
         if null_pct > 0.40:
             severity = "critical" if null_pct > 0.80 else "warning"
             warnings.append(_make_error(
-                code="HIGH_NULL_RATE",
-                title=f"High missing-value rate: '{col}'",
+                code="MISSING_VALUES",
+                title=f"Missing values: '{col}'",
                 message=(
                     f"Column '{col}' is {round(null_pct * 100, 1)}% empty "
                     f"({int(null_pct * total_rows):,} of {total_rows:,} rows are null)."
@@ -335,7 +344,12 @@ def diagnose_schema(df: pd.DataFrame, filename: str) -> list[dict]:
 
 # ── SQL error diagnostics ──────────────────────────────────────────────────────
 
-def diagnose_sql_error(exc: Exception, sql: str, df: pd.DataFrame | None = None) -> dict:
+def diagnose_sql_error(
+    exc: Exception,
+    sql: str,
+    df: pd.DataFrame | None = None,
+    file_record: Any = None,
+) -> dict:
     """
     Convert a DuckDB / SQL execution error into a human-readable diagnostic.
     Uses fuzzy column matching to suggest fixes for typos.
@@ -377,6 +391,59 @@ def diagnose_sql_error(exc: Exception, sql: str, df: pd.DataFrame | None = None)
             f"Did you mean: **{close[0]}**?" if close
             else f"Available columns: {', '.join(available_cols[:8]) or 'none'}"
         )
+
+        suggestions = [
+            f"Replace '{bad_col}' with '{close[0]}' in your query." if close else "Check column names in the Data Preview tab.",
+            "Column names are case-sensitive in SQL — check for capitalisation differences.",
+            f"Available columns: {', '.join(available_cols[:10])}.",
+        ]
+
+        # Check for missing values in referenced columns to suggest cleanups
+        if df is not None:
+            referenced_nulls = [c for c in available_cols if c in sql and df[c].isnull().any()]
+            for c in referenced_nulls[:2]:
+                null_pct = df[c].isnull().mean()
+                suggestions.append(
+                    f"Column '{c}' contains {round(null_pct * 100, 1)}% missing values. "
+                    f"Consider cleaning it first or using COALESCE."
+                )
+
+        # Cross-sheet column search for automatic Excel sheet suggestion
+        recovery = None
+        if file_record is not None and file_record.path.suffix.lower() in {".xlsx", ".xls"}:
+            sheet_names = file_record.metadata.get("sheet_names", [])
+            active_sheet = file_record.metadata.get("active_sheet")
+            for sheet in sheet_names:
+                if sheet == active_sheet:
+                    continue
+                try:
+                    engine = "openpyxl" if file_record.path.suffix.lower() == ".xlsx" else "xlrd"
+                    sheet_df = pd.read_excel(file_record.path, sheet_name=sheet, nrows=0, engine=engine)
+                    if bad_col in sheet_df.columns or difflib.get_close_matches(bad_col, list(sheet_df.columns), cutoff=0.8):
+                        err = _make_error(
+                            code="COLUMN_NOT_FOUND",
+                            title=f"Column '{bad_col}' not found",
+                            message=(
+                                f"Column '{bad_col}' was not found in the active sheet '{active_sheet}', "
+                                f"but it exists in sheet '{sheet}'."
+                            ),
+                            suggestions=[
+                                f"Switch to sheet '{sheet}' to analyze this column.",
+                                "Verify you are querying the correct sheet.",
+                            ],
+                            severity="error",
+                            affected_column=bad_col,
+                            recovery={
+                                "type": "switch_sheet",
+                                "sheet": sheet,
+                                "file_id": file_record.file_id,
+                                "label": f"Switch to sheet '{sheet}' and retry"
+                            }
+                        )
+                        return err
+                except Exception as scan_err:
+                    logger.warning(f"Failed to scan sheet '{sheet}' for column '{bad_col}': {scan_err}")
+
         return _make_error(
             code="COLUMN_NOT_FOUND",
             title=f"Column '{bad_col}' not found",
@@ -384,13 +451,10 @@ def diagnose_sql_error(exc: Exception, sql: str, df: pd.DataFrame | None = None)
                 f"The query references column '{bad_col}' which does not exist in this dataset. "
                 + suggestion_text
             ),
-            suggestions=[
-                f"Replace '{bad_col}' with '{close[0]}' in your query." if close else "Check column names in the Data Preview tab.",
-                "Column names are case-sensitive in SQL — check for capitalisation differences.",
-                f"Available columns: {', '.join(available_cols[:10])}.",
-            ],
+            suggestions=suggestions,
             severity="error",
             affected_column=bad_col,
+            recovery=recovery,
         )
 
     # ── Division by zero ──
@@ -499,7 +563,6 @@ def diagnose_empty_result(sql: str, df: pd.DataFrame | None = None, query: str =
                     if val.lower() in df[col].astype(str).str.lower().values:
                         found_in.append(col)
                 if not found_in:
-                    sample_vals = [str(v) for v in df.iloc[:, 0].dropna().head(3).tolist()]
                     context_lines.append(
                         f"Filter value '{val}' was not found in any column. "
                         f"Check spelling and capitalisation."
@@ -507,10 +570,10 @@ def diagnose_empty_result(sql: str, df: pd.DataFrame | None = None, query: str =
 
     context_str = " ".join(context_lines)
     return _make_error(
-        code="EMPTY_RESULT",
-        title="Query returned 0 rows",
+        code="EMPTY_DATASET",
+        title="Empty dataset",
         message=(
-            f"The analysis returned no matching rows. {context_str}"
+            f"The analysis query returned 0 rows, resulting in an empty dataset. {context_str}"
         ).strip(),
         suggestions=[
             "Remove or relax the date filter if one was applied.",
@@ -574,6 +637,15 @@ def diagnose_agent_error(
 
     # ── LLM quota / API error ──
     if any(k in msg for k in ("quota", "rate limit", "429", "api key", "unauthorized", "forbidden")):
+        from core.llm_client import get_active_provider
+        active_prov = "gemini"
+        try:
+            active_prov = get_active_provider()
+        except Exception:
+            pass
+        next_prov = "ollama" if active_prov != "ollama" else "gemini"
+        next_label = "local Ollama (Unlimited)" if next_prov == "ollama" else "Gemini"
+        
         return _make_error(
             code="LLM_QUOTA_ERROR",
             title="AI provider rate limit reached",
@@ -588,6 +660,11 @@ def diagnose_agent_error(
                 "Use Ollama for unlimited local processing without API keys.",
             ],
             severity="warning",
+            recovery={
+                "type": "switch_provider",
+                "provider": next_prov,
+                "label": f"Switch to {next_label} and retry"
+            }
         )
 
     # ── No file loaded ──
@@ -650,6 +727,24 @@ def diagnose_transform_error(exc: Exception, action: dict, df: pd.DataFrame | No
             ],
             severity="error",
             affected_column=str(bad_col),
+        )
+
+    # ── Invalid date format ──
+    if any(k in msg_lower for k in ("date", "time", "datetime", "parse", "strptime")):
+        return _make_error(
+            code="INVALID_DATE_FORMAT",
+            title="Invalid date format",
+            message=(
+                f"The date conversion failed for column '{col}'. "
+                f"The values could not be parsed as standard dates. Detail: {msg[:120]}"
+            ),
+            suggestions=[
+                "Check that the date format is consistent (e.g. YYYY-MM-DD or MM/DD/YYYY).",
+                "Remove any non-date text like 'N/A' or 'unknown' before converting.",
+                "Specify the format explicitly (e.g., %Y-%m-%d) in the transformation settings.",
+            ],
+            severity="error",
+            affected_column=col,
         )
 
     # ── Type conversion failure ──

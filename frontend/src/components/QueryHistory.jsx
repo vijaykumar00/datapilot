@@ -29,6 +29,7 @@ export default function QueryHistory() {
     togglePinHistoryItem,
     sendMessage,
     setWorkspaceMode,
+    setChatPromptInput,
   } = useDataPilot()
 
   const [search, setSearch] = useState('')
@@ -50,10 +51,15 @@ export default function QueryHistory() {
 
   const handleReplay = async (queryText) => {
     setWorkspaceMode('chat')
-    // Let's send the message in chat
+    setChatPromptInput(queryText)
     setTimeout(() => {
       sendMessage(queryText)
     }, 100)
+  }
+
+  const handleDuplicate = (queryText) => {
+    setWorkspaceMode('chat')
+    setChatPromptInput(queryText)
   }
 
   const handleTogglePin = async (msgId) => {
@@ -162,10 +168,16 @@ export default function QueryHistory() {
                 {/* Action Dock */}
                 <div className="flex gap-2 justify-end">
                   <button
+                    onClick={() => handleDuplicate(item.content)}
+                    className="px-3 py-1 bg-white/5 border border-white/5 rounded-lg text-[10px] font-bold text-slate-300 hover:bg-white/10 transition-all"
+                  >
+                    👥 Duplicate / Edit
+                  </button>
+                  <button
                     onClick={() => handleReplay(item.content)}
                     className="px-3 py-1 bg-brand-600/10 border border-brand-500/20 rounded-lg text-[10px] font-bold text-brand-300 hover:bg-brand-500/20 transition-all"
                   >
-                    ▶ Replay in Chat
+                    ▶ Re-run
                   </button>
                 </div>
               </div>

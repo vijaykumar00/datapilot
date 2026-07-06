@@ -19,7 +19,14 @@ _query_cache: dict[str, tuple[AgentResponse, float]] = {}
 CACHE_TTL = 300  # 5 minutes
 
 
-def _build_sql_explain(sql: str, explanation: str, row_count: int, table_name: str) -> dict:
+def _build_sql_explain(
+    sql: str,
+    explanation: str,
+    row_count: int,
+    table_name: str,
+    filename: str = "N/A",
+    sheet: str = "N/A"
+) -> dict:
     """Parse SQL into a structured explain block for the frontend ExplainPanel."""
     sql_upper = sql.upper()
     sections = []
@@ -139,10 +146,24 @@ def _build_sql_explain(sql: str, explanation: str, row_count: int, table_name: s
             "content": user_cols
         })
 
+    # Calculations
+    calcs = [f"SQL returned row count: {row_count}"]
+    if group_match:
+        calcs.append(f"Grouping keys: {group_match.group(1).strip()}")
+    if order_match:
+        calcs.append(f"Sorting keys: {order_match.group(1).strip()}")
+
     return {
         "type": "sql",
         "sql": sql,
-        "sections": sections
+        "sections": sections,
+        "data_source": filename,
+        "sheet": sheet,
+        "columns": user_cols,
+        "filters": where_match.group(1).strip() if where_match else "None",
+        "intermediate_calculations": calcs,
+        "confidence_score": 0.98,
+        "reasoning_summary": explanation or "SQL statement formed and successfully run on target dataset."
     }
 
 SQL_SYSTEM = """You are a SQL expert. Generate a single DuckDB SQL SELECT query for the user's question.
@@ -252,7 +273,54 @@ class InsightAgent(BaseAgent):
         try:
             results = self.store.execute(sql)
         except Exception as e:
-            intelligent_err = diagnose_sql_error(e, sql, df)
+            intelligent_err = diagnose_sql_error(e, sql, df, file_record=record)
+            
+            # Automatic recovery:
+            if intelligent_err.get("code") == "COLUMN_NOT_FOUND" and df is not None:
+                bad_col = intelligent_err.get("affected_column")
+                import difflib
+                close = difflib.get_close_matches(bad_col, list(df.columns), n=1, cutoff=0.6)
+                if close:
+                    suggested = close[0]
+                    # Automatically replace bad column name in SQL
+                    fixed_sql = re.sub(r'\b' + re.escape(bad_col) + r'\b', suggested, sql, flags=re.IGNORECASE)
+                    fixed_sql = fixed_sql.replace(f'"{bad_col}"', f'"{suggested}"').replace(f"'{bad_col}'", f"'{suggested}'")
+                    try:
+                        logger.info(f"Auto-recovery: retrying SQL with '{suggested}' instead of '{bad_col}'")
+                        results = self.store.execute(fixed_sql)
+                        row_count = len(results)
+                        
+                        content_lines = [
+                            f"⚠️ **Note:** Column '{bad_col}' was not found. We automatically corrected it to '{suggested}' and ran the query.\n",
+                            f"**Query:** `{fixed_sql}`\n"
+                        ]
+                        if explanation:
+                            content_lines.append(f"*{explanation}*\n")
+                        content_lines.append(f"**{row_count} row(s) returned.**")
+                        
+                        filename = record.filename if record else "N/A"
+                        sheet = record.metadata.get("active_sheet") or "Sheet1"
+                        
+                        explain = _build_sql_explain(fixed_sql, explanation, row_count, table_name, filename, sheet)
+                        
+                        return AgentResponse(
+                            type="insight",
+                            content="\n".join(content_lines),
+                            table_data=results,
+                            metadata={
+                                "sql": fixed_sql,
+                                "explanation": explanation,
+                                "row_count": row_count,
+                                "table_name": table_name,
+                                "cached": False,
+                                "explain": explain,
+                                "auto_recovered": True,
+                                "recovery_message": f"Automatically replaced missing column '{bad_col}' with '{suggested}'"
+                            },
+                        )
+                    except Exception:
+                        pass
+            
             return AgentResponse.error_response(
                 format_for_user(intelligent_err), "insight", intelligent_error=intelligent_err
             )
@@ -271,7 +339,13 @@ class InsightAgent(BaseAgent):
             content_lines.append(f"*{explanation}*\n")
         content_lines.append(f"**{row_count} row(s) returned.**")
 
-        explain = _build_sql_explain(sql, explanation, row_count, table_name)
+        filename = "N/A"
+        sheet = "N/A"
+        if record:
+            filename = record.filename
+            sheet = record.metadata.get("active_sheet") or "Sheet1"
+
+        explain = _build_sql_explain(sql, explanation, row_count, table_name, filename, sheet)
 
         response = AgentResponse(
             type="insight",

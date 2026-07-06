@@ -35,6 +35,8 @@ from core.error_intelligence import (
     diagnose_schema,
     diagnose_transform_error,
     format_for_user,
+    IntelligentException,
+    _make_error,
 )
 
 logger = logging.getLogger("datapilot.file_manager")
@@ -482,7 +484,27 @@ class FileManager:
             return None
         sheet_names = record.metadata.get("sheet_names", [])
         if sheet_name not in sheet_names:
-            raise ValueError(f"Sheet '{sheet_name}' not found. Available: {sheet_names}")
+            import difflib
+            close = difflib.get_close_matches(sheet_name, sheet_names, n=1, cutoff=0.5)
+            close_suggestion = f"Did you mean '{close[0]}?'" if close else f"Available sheets: {', '.join(sheet_names)}"
+            err = _make_error(
+                code="INCORRECT_SHEET_NAME",
+                title="Incorrect sheet name",
+                message=f"The workbook does not contain a sheet named '{sheet_name}'. {close_suggestion}",
+                suggestions=[
+                    f"Switch to sheet '{close[0]}' instead." if close else "Check sheet names in the workbook.",
+                    f"Available sheets: {', '.join(sheet_names)}."
+                ],
+                severity="error"
+            )
+            if close:
+                err["recovery"] = {
+                    "type": "switch_sheet",
+                    "sheet": close[0],
+                    "file_id": file_id,
+                    "label": f"Switch to '{close[0]}' and retry"
+                }
+            raise IntelligentException(err)
         ext = record.path.suffix.lower()
         engine = "openpyxl" if ext == ".xlsx" else "xlrd"
         df = pd.ExcelFile(record.path, engine=engine).parse(sheet_name=sheet_name)
