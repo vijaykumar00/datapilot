@@ -433,3 +433,49 @@ def get_llm_client() -> BaseLLMProvider:
         _llm_instance = provider_cls()
         logger.info(f"LLM client initialized: {_active_provider}")
     return _llm_instance
+
+
+# ── User DB key injection ─────────────────────────────────────────────────────
+
+def load_user_api_key(user_id: str, provider: str, db) -> bool:
+    """
+    Load the encrypted API key for a user+provider pair from the database,
+    decrypt it, and inject it into _runtime_keys for the session.
+
+    Returns True if a key was loaded, False otherwise.
+    Call this at the start of any authenticated LLM request.
+    """
+    try:
+        from core.models import UserAPIKey
+        from core.encryption import decrypt_value
+
+        key_record = db.query(UserAPIKey).filter(
+            UserAPIKey.user_id == user_id,
+            UserAPIKey.provider == provider,
+        ).first()
+
+        if not key_record:
+            return False
+
+        decrypted = decrypt_value(key_record.encrypted_key)
+        if decrypted:
+            _runtime_keys[provider] = decrypted
+            # Reset singleton so next call picks up the new key
+            global _llm_instance
+            _llm_instance = None
+            logger.info(f"Loaded user DB API key for provider '{provider}' [user={user_id}]")
+            return True
+    except Exception as e:
+        logger.warning(f"Failed to load user API key for {provider}: {e}")
+    return False
+
+
+def get_llm_client_for_user(user_id: str, provider: str | None = None, db=None) -> BaseLLMProvider:
+    """
+    Get LLM client, prioritizing the user's stored (encrypted) DB key over .env key.
+    Falls back to get_llm_client() if no DB key exists or db is None.
+    """
+    effective_provider = (provider or _active_provider).lower()
+    if user_id and db:
+        load_user_api_key(user_id, effective_provider, db)
+    return get_llm_client()

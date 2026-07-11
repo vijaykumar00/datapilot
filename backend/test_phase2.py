@@ -76,7 +76,7 @@ check("Invalid guest token returns 404", r.status_code == 404)
 section("3. Auth: Signup")
 # ─────────────────────────────────────────────────────────────
 import random
-TEST_EMAIL = f"test_phase2_{random.randint(1000,9999)}@datapilot.test"
+TEST_EMAIL = f"test_phase2_{random.randint(1000,9999)}@datapilot.com"
 TEST_PW = "SecurePassword2026!"
 
 r = requests.post(f"{BASE}/auth/signup", json={
@@ -194,7 +194,7 @@ else:
 section("8. RBAC: Cross-Workspace Isolation (Returns 404)")
 # ─────────────────────────────────────────────────────────────
 # Create a second user to test cross-workspace access
-OTHER_EMAIL = f"other_phase2_{random.randint(1000,9999)}@datapilot.test"
+OTHER_EMAIL = f"other_phase2_{random.randint(1000,9999)}@datapilot.com"
 r = requests.post(f"{BASE}/auth/signup", json={"email": OTHER_EMAIL, "password": TEST_PW, "workspace_name": "Other WS"})
 if r.ok:
     other_data = r.json()
@@ -222,7 +222,7 @@ if r.ok:
 # ─────────────────────────────────────────────────────────────
 section("10. Guest-to-User Conversion")
 # ─────────────────────────────────────────────────────────────
-CONVERT_EMAIL = f"convert_phase2_{random.randint(1000,9999)}@datapilot.test"
+CONVERT_EMAIL = f"convert_phase2_{random.randint(1000,9999)}@datapilot.com"
 r = requests.post(f"{BASE}/guest/convert",
     headers={"X-Guest-Token": GUEST_TOKEN},
     json={

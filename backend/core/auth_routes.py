@@ -17,6 +17,7 @@ from core.auth import (
     decode_access_token,
     REFRESH_TOKEN_EXPIRE_DAYS
 )
+from core.email_service import send_verification_email, send_password_reset_email
 
 logger = logging.getLogger("datapilot.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -140,16 +141,24 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
 
     db.commit()
 
-    # Log/Print token for simulation/testing purposes
-    logger.info(f"Verification token for user {payload.email}: {raw_verify_token}")
-    print(f"VERIFICATION TOKEN FOR {payload.email}: {raw_verify_token}")
+    # Send verification email (async-safe: uses SMTP or dev console)
+    sent = send_verification_email(
+        to_email=payload.email,
+        full_name=None,  # SignupRequest has no full_name field
+        raw_token=raw_verify_token,
+    )
+    if not sent:
+        logger.warning(f"Failed to send verification email to {payload.email} — check SMTP config.")
+    else:
+        logger.info(f"Verification email sent to {payload.email}")
 
     return {
         "success": True,
         "message": "User registered successfully. Verification email sent.",
         "user_id": user_id,
         "email": payload.email,
-        "workspace_id": ws_id
+        "workspace_id": ws_id,
+        "verification_required": True
     }
 
 @router.post("/login", response_model=TokenResponse)
@@ -392,9 +401,15 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
         db.add(reset_request_log)
         db.commit()
 
-        # Log/Print token for simulation/testing purposes
-        logger.info(f"Password reset token for {payload.email}: {raw_reset_token}")
-        print(f"PASSWORD RESET TOKEN FOR {payload.email}: {raw_reset_token}")
+        # Send password reset email
+        user_name = user.full_name if hasattr(user, 'full_name') else None
+        sent = send_password_reset_email(
+            to_email=payload.email,
+            full_name=user_name,
+            raw_token=raw_reset_token,
+        )
+        if not sent:
+            logger.warning(f"Failed to send password reset email to {payload.email} — check SMTP config.")
 
     # Return success regardless to prevent account enumeration
     return {"success": True, "message": "If the email is registered, a password reset link has been generated."}

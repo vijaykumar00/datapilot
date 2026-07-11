@@ -65,6 +65,9 @@ import core.session_store as session_store
 import core.analysis_store as analysis_store
 from core.explain_enricher import enrich_explain_metadata
 from core.error_intelligence import IntelligentException
+from core.request_identity import get_caller, CallerContext
+from core.db import get_db
+from sqlalchemy.orm import Session
 
 
 def _get_backend_host() -> str:
@@ -128,6 +131,29 @@ app.include_router(guest_router)
 app.include_router(workspace_router)
 app.include_router(user_router)
 
+
+# ── Audit log helper ─────────────────────────────────────────────────────────
+def _audit_log(
+    caller: "CallerContext",
+    event_type: str,
+    description: str,
+    db: "Session",
+) -> None:
+    """Write a lightweight audit log entry for core analytics events."""
+    try:
+        import uuid
+        from core.models import AuditLog
+        db.add(AuditLog(
+            id=str(uuid.uuid4()),
+            user_id=caller.user_id if caller.is_authenticated else None,
+            workspace_id=caller.workspace_id if caller.is_authenticated else None,
+            guest_session_id=caller.guest.guest_session_id if caller.is_guest else None,
+            event_type=event_type,
+            description=description,
+        ))
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Audit log write failed [{event_type}]: {e}")
 
 
 from collections import defaultdict
@@ -554,12 +580,23 @@ async def ollama_status():
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
     """Upload and parse a CSV or Excel file. Returns file summary + AI suggestions."""
+    # Enforce upload limit before processing
+    caller.check_limit("upload", db)
+
     manager = get_file_manager()
     try:
-        result = await manager.process_upload(file, workspace_id="default_workspace", user_id="default_user")
-        logger.info(f"Upload successful: {file.filename} -> {result['file_id']}")
+        result = await manager.process_upload(
+            file,
+            workspace_id=caller.effective_workspace_id,
+            user_id=caller.user_id,
+        )
+        logger.info(f"Upload successful: {file.filename} -> {result['file_id']} [caller={caller.user_id}]")
 
         # Generate smart suggestions from profiled metadata
         record = manager.get_record(result["file_id"])
@@ -581,7 +618,15 @@ async def upload_file(file: UploadFile = File(...)):
             except Exception as e:
                 logger.warning(f"Suggestion generation failed: {e}")
 
+        # Increment usage after successful upload
+        caller.increment_usage("upload", db)
+
+        # Audit log
+        _audit_log(caller, "FILE_UPLOADED", f"File '{file.filename}' uploaded (id={result['file_id']})", db)
+
         return {"success": True, **result, "suggestions": suggestions, "greeting": greeting}
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning(f"Upload validation failed: {e}")
         return {"success": False, "error": str(e)}
@@ -686,13 +731,20 @@ async def export_file_data(file_id: str, format: str = "csv"):
 
 
 @app.post("/export/results")
-async def export_result_rows(req: ExportRowsRequest, format: str = "csv"):
+async def export_result_rows(
+    req: ExportRowsRequest,
+    format: str = "csv",
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
     """Export query or preview rows currently visible in the UI."""
+    caller.check_limit("export", db)
     if not req.rows:
         raise HTTPException(400, "No rows provided for export")
     df = pd.DataFrame(req.rows)
     payload, media_type, ext = _dataframe_to_bytes(df, format)
     filename = f"{_safe_export_name(req.filename or 'results', 'results')}.{ext}"
+    caller.increment_usage("export", db)
     return _bytes_download_response(payload, media_type, filename)
 
 
@@ -944,8 +996,13 @@ async def transform_pipeline(file_id: str, req: TransformPipelineRequest):
 
 
 @app.post("/report/generate")
-async def report_generate(req: ReportGenerateRequest):
+async def report_generate(
+    req: ReportGenerateRequest,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
     """Generate business-ready narrative analysis and dynamically styled charts."""
+    caller.check_limit("report", db)
     manager = get_file_manager()
     record = manager.get_record(req.file_id)
     if record is None:
@@ -1009,6 +1066,12 @@ async def report_generate(req: ReportGenerateRequest):
         ]
 
     chart_url = f"/uploads/{chart_filename}" if chart_ok else None
+
+    # Increment report usage after successful generation
+    caller.increment_usage("report", db)
+
+    # Audit log
+    _audit_log(caller, "REPORT_GENERATED", f"Report '{req.title}' generated (type={req.report_type})", db)
 
     return {
         "success": True,
@@ -1296,12 +1359,19 @@ async def delete_analysis_route(analysis_id: str):
 
 
 @app.post("/chat/stream")
-
-async def chat_stream(req: ChatRequest):
+async def chat_stream(
+    req: ChatRequest,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
     """
     SSE streaming chat endpoint.
     Classifies intent → routes to agent → streams response.
     """
+    # Enforce query limit before dispatching
+    caller.check_limit("query", db)
+    # Increment usage — do it before streaming so limit is counted even on errors
+    caller.increment_usage("query", db)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         agents = get_agents()
@@ -1309,11 +1379,17 @@ async def chat_stream(req: ChatRequest):
         message = req.message.strip()
         sid = req.session_id
 
+        # If authenticated, load user's DB API key (encrypted) into runtime
+        if caller.is_authenticated and caller.user_id and caller.user_id != "anonymous":
+            from core.llm_client import load_user_api_key
+            load_user_api_key(caller.user_id, get_active_provider(), db)
+
         # Touch last query date for all referenced files
         if file_ids:
             for fid in file_ids:
                 try:
                     dataset_store.touch_last_query(fid)
+
                 except Exception as e:
                     logger.warning(f"Failed to touch last query date for dataset {fid}: {e}")
 

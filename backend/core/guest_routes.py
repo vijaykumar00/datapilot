@@ -32,6 +32,7 @@ from core.models import (
 from core.auth import hash_password, hash_token, generate_random_token, create_access_token, REFRESH_TOKEN_EXPIRE_DAYS
 from core.models import RefreshToken
 from core.usage import PLAN_LIMITS, get_usage_summary
+from core.email_service import send_verification_email
 import os
 
 logger = logging.getLogger("datapilot.guest")
@@ -310,8 +311,16 @@ def convert_guest_to_user(
 
     access_token = create_access_token(user_id, payload.email, ws_id)
 
-    # Print verification token for dev mode
-    logger.info(f"Email verification token for {payload.email}: {raw_verify}")
+    # Send email verification link
+    sent = send_verification_email(
+        to_email=payload.email,
+        full_name=payload.full_name,
+        raw_token=raw_verify,
+    )
+    if not sent:
+        logger.warning(f"Failed to send verification email to {payload.email} after guest conversion.")
+    else:
+        logger.info(f"Verification email sent to {payload.email} after guest conversion.")
 
     return {
         "success": True,

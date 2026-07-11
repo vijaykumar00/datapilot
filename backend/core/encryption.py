@@ -6,8 +6,12 @@ import os
 import base64
 import logging
 from cryptography.fernet import Fernet, InvalidToken
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger("datapilot.encryption")
+
 
 # Load or generate encryption key
 _ENCRYPTION_KEY_ENV = "ENCRYPTION_KEY"
