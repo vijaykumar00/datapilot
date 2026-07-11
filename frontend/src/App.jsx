@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import ChatWindow from './components/ChatWindow'
 import DataPreview from './components/DataPreview'
 import FileUploader from './components/FileUploader'
@@ -18,6 +19,15 @@ import GuestBanner from './components/GuestBanner'
 import ToastContainer from './components/ToastContainer'
 import UserMenu from './components/UserMenu'
 import { useAuth } from './contexts/AuthContext'
+
+import LandingPage from './components/LandingPage'
+import OnboardingFlow from './components/OnboardingFlow'
+import BillingPortal from './components/BillingPortal'
+import { PrivacyPolicy, TermsOfService } from './components/LegalPages'
+import DashboardHome from './components/DashboardHome'
+import SettingsLayout, { ProfileSettings, WorkspaceSettings, TeamMembersSettings, ProvidersKeysSettings, SecuritySessionsSettings } from './components/SettingsLayout'
+
+
 
 // ── Ollama status indicator ───────────────────────────────────────────────
 function AIStatus() {
@@ -1637,32 +1647,81 @@ function TabBtn({ id, label, active, onClick }) {
   )
 }
 
-// ── Layout Main Redesign ──────────────────────────────────────────────────
-export default function App() {
+// ── Auth Modal Route Guards & Direct Entries ─────────────────────────────────
+function AuthRouteWrapper({ tab }) {
+  const { isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/app/analyze')
+    }
+  }, [isAuthenticated, navigate])
+
+  return (
+    <div className="min-h-screen bg-[#030712] flex items-center justify-center">
+      <AuthModal open={true} onClose={() => navigate('/')} defaultTab={tab} />
+    </div>
+  )
+}
+
+function DemoTrigger() {
+  const { initGuestSession } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const startDemo = async () => {
+      await initGuestSession()
+      navigate('/app/analyze')
+    }
+    startDemo()
+  }, [initGuestSession, navigate])
+
+  return (
+    <div className="min-h-screen bg-[#030712] flex items-center justify-center text-slate-400 text-xs">
+      <div className="animate-spin rounded-full h-5 w-5 border border-slate-400 border-t-transparent mr-2" />
+      Loading demo dataset...
+    </div>
+  )
+}
+
+function RouteGuard({ children }) {
+  const { isAuthenticated, isGuest, loading } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated && !isGuest) {
+      navigate('/login')
+    }
+  }, [loading, isAuthenticated, isGuest, navigate])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#030712] flex items-center justify-center text-slate-400 text-xs">
+        Loading workspace context...
+      </div>
+    )
+  }
+
+  return children
+}
+
+// ── Shared Application Layout Shell ──────────────────────────────────────────
+import { Outlet } from 'react-router-dom'
+
+function AppLayout() {
   const {
-    workspaceMode,
-    setWorkspaceMode,
     activeTab,
     setActiveTab,
     files,
   } = useDataPilot()
 
   const { isAuthenticated, isGuest, initGuestSession, loading } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authModalTab, setAuthModalTab] = useState('login')
-
-  // Initialize guest session on first visit if not authenticated
-  useEffect(() => {
-    if (!loading && !isAuthenticated && !isGuest) {
-      initGuestSession()
-    }
-  }, [loading, isAuthenticated, isGuest, initGuestSession])
-
-  const openAuthModal = (tab = 'login') => {
-    setAuthModalTab(tab)
-    setAuthModalOpen(true)
-  }
 
   // Listen for Ctrl+K / Cmd+K hotkey
   useEffect(() => {
@@ -1676,6 +1735,20 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  const openAuthModal = (tab = 'login') => {
+    setAuthModalTab(tab)
+    setAuthModalOpen(true)
+  }
+
+  // Get active link highlight
+  const getLinkClass = (path) => {
+    const base = "flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 "
+    const isActive = location.pathname === path
+    return base + (isActive
+      ? 'bg-brand-500/10 text-brand-300 border border-brand-500/20'
+      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent')
+  }
+
   return (
     <div className="noise flex h-screen overflow-hidden bg-[#030712]">
       {/* Ambient purple blurs */}
@@ -1684,15 +1757,13 @@ export default function App() {
           style={{ background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)' }} />
         <div className="ambient-glow bottom-[-10%] right-[-10%] opacity-10"
           style={{ background: 'radial-gradient(circle, #8b5cf6 0%, transparent 70%)' }} />
-        <div className="ambient-glow top-[30%] right-[30%] opacity-5"
-          style={{ background: 'radial-gradient(circle, #3b82f6 0%, transparent 70%)' }} />
       </div>
 
       {/* ── Left Sidebar ─────────────────────────────────────────────────── */}
       <aside className="sidebar z-10">
         {/* Brand Logo */}
         <div className="px-4.5 pt-5 pb-4 border-b border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <Link to="/" className="flex items-center gap-2.5 hover:opacity-90">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center text-lg shadow-lg border border-brand-500/25 bg-gradient-to-br from-brand-600 to-purple-600">
               🧭
             </div>
@@ -1700,36 +1771,30 @@ export default function App() {
               <h1 className="text-xs font-bold tracking-tight text-white leading-none">DataPilot</h1>
               <p className="text-[9px] text-slate-500 mt-1 font-mono">AI Analytics · v2.0</p>
             </div>
-          </div>
-          {/* User Menu in sidebar header */}
-          <UserMenu onSettings={() => openAuthModal('login')} />
+          </Link>
+          <UserMenu onSettings={() => navigate('/app/settings/profile')} />
         </div>
 
-        {/* Workspace Selector dropdown */}
-        <div className="px-3 pt-4 pb-2">
-          <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-1 block mb-1.5">
+        {/* Navigation links */}
+        <div className="px-3 pt-4 pb-2 space-y-1">
+          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-1.5 block mb-1">
             Workspace Mode
-          </label>
-          <select
-            value={workspaceMode}
-            onChange={(e) => setWorkspaceMode(e.target.value)}
-            className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-300 focus:outline-none focus:border-brand-500/35 cursor-pointer"
-          >
-            <option value="chat">💬 Conversational Chat</option>
-            <option value="dashboard">📊 Metric Dashboard</option>
-            <option value="report">📖 Narrative Report</option>
-            <option value="analyst">🧠 Advanced Spreadsheet</option>
-            <option value="presentation">📺 Fullscreen Present</option>
-            <option value="templates">🗂️ Workflow Templates</option>
-            <option value="saved">💾 Saved Analyses</option>
-            <option value="reports">📋 Saved Reports</option>
-            <option value="history">📜 Query History</option>
-            <option value="datasets">📦 Dataset Manager</option>
-          </select>
+          </span>
+          <Link to="/app/analyze" className={getLinkClass('/app/analyze')}>💬 Conversational Chat</Link>
+          <Link to="/app/dashboard" className={getLinkClass('/app/dashboard')}>📊 Metric Dashboard</Link>
+          <Link to="/app/report" className={getLinkClass('/app/report')}>📖 Narrative Report</Link>
+          <Link to="/app/spreadsheet" className={getLinkClass('/app/spreadsheet')}>🧠 Advanced Spreadsheet</Link>
+          <Link to="/app/presentation" className={getLinkClass('/app/presentation')}>📺 Fullscreen Present</Link>
+          <Link to="/app/templates" className={getLinkClass('/app/templates')}>🗂️ Workflow Templates</Link>
+          <Link to="/app/saved" className={getLinkClass('/app/saved')}>💾 Saved Analyses</Link>
+          <Link to="/app/reports" className={getLinkClass('/app/reports')}>📋 Saved Reports</Link>
+          <Link to="/app/history" className={getLinkClass('/app/history')}>📜 Query History</Link>
+          <Link to="/app/datasets" className={getLinkClass('/app/datasets')}>📦 Dataset Manager</Link>
+          <Link to="/app/settings/profile" className={location.pathname.startsWith('/app/settings') ? getLinkClass(location.pathname) : getLinkClass('/app/settings/profile')}>⚙️ Settings & Billing</Link>
         </div>
 
         {/* AI local provider status */}
-        <div className="px-3 py-1.5">
+        <div className="px-3 py-1.5 border-t border-white/5 mt-auto">
           <AIStatus />
           <div className="mt-1.5">
             <ProviderSelector />
@@ -1765,85 +1830,9 @@ export default function App() {
           onSignUp={() => openAuthModal('signup')}
           onLogin={() => openAuthModal('login')}
         />
-        {/* App body renderer based on Workspace Mode state */}
+        {/* App body render via React Router Outlet */}
         <div className="flex-1 overflow-hidden">
-          {workspaceMode === 'chat' && (
-            <ChatWindow />
-          )}
-
-          {workspaceMode === 'dashboard' && (
-            <DashboardView />
-          )}
-
-          {workspaceMode === 'report' && (
-            <ReportView />
-          )}
-
-          {workspaceMode === 'presentation' && (
-            <PresentationView />
-          )}
-
-          {workspaceMode === 'templates' && (
-            <TemplateView />
-          )}
-
-          {workspaceMode === 'saved' && (
-            <SavedAnalyses />
-          )}
-
-          {workspaceMode === 'reports' && (
-            <SavedReports />
-          )}
-
-          {workspaceMode === 'history' && (
-            <QueryHistory />
-          )}
-
-          {workspaceMode === 'datasets' && (
-            <DatasetManager />
-          )}
-
-          {workspaceMode === 'analyst' && (
-            <div className="h-full flex flex-col">
-              {/* Tab Header for Analyst Mode */}
-              <div className="flex items-center gap-2 px-5 pt-3 pb-2 border-b border-white/5 flex-shrink-0 bg-[#050811]">
-                <div className="flex gap-1 p-1 bg-[#0d1222] rounded-xl flex-shrink-0 border border-white/5">
-                  <TabBtn
-                    id="tab-preview"
-                    label="🔍 Data spreadsheet"
-                    active={activeTab === 'preview'}
-                    onClick={() => setActiveTab('preview')}
-                  />
-                  <TabBtn
-                    id="tab-chat-sub"
-                    label="💬 Active chat prompt"
-                    active={activeTab === 'chat'}
-                    onClick={() => setActiveTab('chat')}
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <StepIndicator />
-                </div>
-              </div>
-              
-              {/* Render spreadsheet view or chat prompt */}
-              <div className="flex-1 overflow-hidden">
-                {activeTab === 'preview' ? (
-                  files.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center gap-4 bg-[#030712]">
-                      <div className="text-4xl select-none">📂</div>
-                      <h3 className="text-sm font-semibold text-slate-400">Empty Workspace</h3>
-                      <p className="text-slate-600 text-xs">Upload a CSV or Excel spreadsheet to preview values here</p>
-                    </div>
-                  ) : (
-                    <DataPreview />
-                  )
-                ) : (
-                  <ChatWindow />
-                )}
-              </div>
-            </div>
-          )}
+          <Outlet />
         </div>
       </main>
 
@@ -1862,3 +1851,97 @@ export default function App() {
     </div>
   )
 }
+
+function SpreadsheetWrapper() {
+  const { files, activeTab, setActiveTab } = useDataPilot()
+  return (
+    <div className="h-full flex flex-col">
+      {/* Tab Header for Analyst Mode */}
+      <div className="flex items-center gap-2 px-5 pt-3 pb-2 border-b border-white/5 flex-shrink-0 bg-[#050811]">
+        <div className="flex gap-1 p-1 bg-[#0d1222] rounded-xl flex-shrink-0 border border-white/5">
+          <TabBtn
+            id="tab-preview"
+            label="🔍 Data spreadsheet"
+            active={activeTab === 'preview'}
+            onClick={() => setActiveTab('preview')}
+          />
+          <TabBtn
+            id="tab-chat-sub"
+            label="💬 Active chat prompt"
+            active={activeTab === 'chat'}
+            onClick={() => setActiveTab('chat')}
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <StepIndicator />
+        </div>
+      </div>
+      
+      {/* Render spreadsheet view or chat prompt */}
+      <div className="flex-1 overflow-hidden">
+        {activeTab === 'preview' ? (
+          files.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center gap-4 bg-[#030712]">
+              <div className="text-4xl select-none">📂</div>
+              <h3 className="text-sm font-semibold text-slate-400">Empty Workspace</h3>
+              <p className="text-slate-600 text-xs">Upload a CSV or Excel spreadsheet to preview values here</p>
+            </div>
+          ) : (
+            <DataPreview />
+          )
+        ) : (
+          <ChatWindow />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main App Router Entry Point ──────────────────────────────────────────────
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/demo" element={<DemoTrigger />} />
+        <Route path="/login" element={<AuthRouteWrapper tab="login" />} />
+        <Route path="/signup" element={<AuthRouteWrapper tab="signup" />} />
+        <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+        <Route path="/legal/terms" element={<TermsOfService />} />
+        <Route path="/onboarding" element={<OnboardingFlow />} />
+        
+        {/* Protected App Routes */}
+        <Route path="/app" element={<RouteGuard><AppLayout /></RouteGuard>}>
+          <Route path="analyze" element={<ChatWindow />} />
+          <Route path="dashboard" element={<DashboardView />} />
+          <Route path="report" element={<ReportView />} />
+          <Route path="spreadsheet" element={<SpreadsheetWrapper />} />
+          <Route path="presentation" element={<PresentationView />} />
+          <Route path="templates" element={<TemplateView />} />
+          <Route path="saved" element={<SavedAnalyses />} />
+          <Route path="reports" element={<SavedReports />} />
+          <Route path="history" element={<QueryHistory />} />
+          <Route path="datasets" element={<DatasetManager />} />
+          <Route path="billing" element={<BillingPortal />} />
+          
+          {/* Settings Sub-routes */}
+          <Route path="settings" element={<SettingsLayout />}>
+            <Route path="profile" element={<ProfileSettings />} />
+            <Route path="workspace" element={<WorkspaceSettings />} />
+            <Route path="members" element={<TeamMembersSettings />} />
+            <Route path="providers" element={<ProvidersKeysSettings />} />
+            <Route path="security" element={<SecuritySessionsSettings />} />
+            <Route path="billing" element={<BillingPortal />} />
+            <Route index element={<Navigate to="profile" replace />} />
+          </Route>
+
+          <Route index element={<DashboardHome />} />
+        </Route>
+
+        {/* Fallback redirect */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+

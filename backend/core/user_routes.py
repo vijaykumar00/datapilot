@@ -320,3 +320,32 @@ def get_usage(
     get_workspace_member(user, workspace_id, db)
 
     return get_usage_summary(workspace_id, db)
+
+
+# ─────────────────────────────────────────────────────────────
+# Client-side Event Analytics Tracking
+# ─────────────────────────────────────────────────────────────
+
+class TrackEventRequest(BaseModel):
+    event_type: str
+    description: str
+    workspace_id: Optional[str] = None
+
+
+@router.post("/track")
+def track_event(
+    payload: TrackEventRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Log client-side user analytics tracking events directly to backend audit logs."""
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        user_id=user.user_id,
+        workspace_id=payload.workspace_id,
+        event_type=payload.event_type,
+        description=payload.description
+    ))
+    db.commit()
+    return {"success": True}
+

@@ -125,10 +125,31 @@ def get_workspace_plan(workspace_id: str, db: Session) -> str:
     return workspace.plan_tier if workspace else "free"
 
 
+def get_plan_limits(plan_id: str, db: Session) -> dict:
+    """
+    Get plan limits from the database 'plans' table, falling back to static config.
+    """
+    try:
+        from core.models import Plan as PlanModel
+        db_plan = db.query(PlanModel).filter(PlanModel.plan_id == plan_id, PlanModel.is_active == True).first()
+        if db_plan:
+            return {
+                "upload_count": db_plan.upload_count,
+                "query_count": db_plan.query_count,
+                "report_count": db_plan.report_count,
+                "export_count": db_plan.export_count,
+                "storage_bytes": db_plan.storage_limit_bytes,
+                "max_file_size_bytes": db_plan.file_size_limit_bytes,
+            }
+    except Exception as e:
+        logger.warning(f"Failed to query Plan limits from DB (using static fallback): {e}")
+    return PLAN_LIMITS.get(plan_id, PLAN_LIMITS["free"])
+
+
 def check_workspace_limit(workspace_id: str, action: str, db: Session) -> None:
     """Check if workspace has exceeded their plan limit for a given action. Raises 429 if exceeded."""
     plan = get_workspace_plan(workspace_id, db)
-    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
+    limits = get_plan_limits(plan, db)
     limit = limits.get(f"{action}_count", 0)
 
     if limit == -1:  # Unlimited
@@ -152,6 +173,7 @@ def check_workspace_limit(workspace_id: str, action: str, db: Session) -> None:
         )
 
 
+
 def increment_workspace_usage(
     workspace_id: str,
     action: str,
@@ -172,7 +194,7 @@ def increment_workspace_usage(
 def get_usage_summary(workspace_id: str, db: Session) -> dict:
     """Get full usage summary for a workspace including limits."""
     plan = get_workspace_plan(workspace_id, db)
-    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
+    limits = get_plan_limits(plan, db)
     period = _get_current_period()
 
     stats = db.query(UsageStats).filter(
@@ -197,11 +219,12 @@ def get_usage_summary(workspace_id: str, db: Session) -> dict:
         "period": period,
         "current": current,
         "limits": {
-            "upload_count": fmt_limit(limits["upload_count"]),
-            "query_count": fmt_limit(limits["query_count"]),
-            "report_count": fmt_limit(limits["report_count"]),
-            "export_count": fmt_limit(limits["export_count"]),
-            "storage_bytes": fmt_limit(limits["storage_bytes"]),
-            "max_file_size_bytes": limits["max_file_size_bytes"],
+            "upload_count": fmt_limit(limits.get("upload_count")),
+            "query_count": fmt_limit(limits.get("query_count")),
+            "report_count": fmt_limit(limits.get("report_count")),
+            "export_count": fmt_limit(limits.get("export_count")),
+            "storage_bytes": fmt_limit(limits.get("storage_bytes")),
+            "max_file_size_bytes": limits.get("max_file_size_bytes"),
         },
     }
+

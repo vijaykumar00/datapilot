@@ -34,12 +34,30 @@ const API_BASES = [
 ]
 
 async function apiFetch(path, options = {}) {
+  const headers = { ...options.headers }
+  
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('dp_access_token')
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    const guestToken = sessionStorage.getItem('dp_guest_token')
+    if (guestToken) {
+      headers['X-Guest-Token'] = guestToken
+    }
+    const workspaceId = localStorage.getItem('dp_workspace_id')
+    if (workspaceId) {
+      headers['X-Workspace-ID'] = workspaceId
+    }
+  }
+
+  const finalOptions = { ...options, headers }
   let lastError = null
   let lastResponse = null
 
   for (const base of API_BASES) {
     try {
-      const response = await fetch(`${base}${path}`, options)
+      const response = await fetch(`${base}${path}`, finalOptions)
       if (response.status === 404 || response.status === 405) {
         lastResponse = response
         continue
@@ -55,6 +73,7 @@ async function apiFetch(path, options = {}) {
   }
   throw lastError || new Error(`Request failed for ${path}`)
 }
+
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
@@ -187,6 +206,23 @@ export const useDataPilot = create((set, get) => ({
   chatPromptInput: '',
   setChatPromptInput: (val) => set({ chatPromptInput: val }),
   setActiveFileId: (fileId) => set({ activeFileId: fileId }),
+
+  trackEvent: async (eventType, description) => {
+    try {
+      const workspaceId = localStorage.getItem('dp_workspace_id')
+      await apiFetch('/user/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_type: eventType,
+          description,
+          workspace_id: workspaceId || null
+        })
+      })
+    } catch (err) {
+      console.warn('Failed to send tracking event:', err)
+    }
+  },
 
   uploadFile: async (file) => {
     const form = new FormData()

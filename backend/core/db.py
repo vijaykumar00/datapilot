@@ -249,6 +249,9 @@ def init_db() -> None:
 
         logger.info("Alembic database migrations successfully applied.")
         print("Alembic migrations successfully applied.")
+
+        # Seed plan records into database
+        seed_plans()
     except Exception as e:
         logger.error(f"Failed to run database migrations: {e}")
         print(f"Failed to run database migrations: {e}")
@@ -256,8 +259,80 @@ def init_db() -> None:
         try:
             Base.metadata.create_all(bind=engine)
             print("Fallback table creation applied.")
+            seed_plans()
         except Exception as fe:
             print(f"Fallback table creation also failed: {fe}")
+
+
+def seed_plans() -> None:
+    """Seed pricing plans in database plans table."""
+    try:
+        from core.models import Plan
+        db = SessionLocal()
+        
+        # Free Plan
+        free = db.query(Plan).filter(Plan.plan_id == "free").first()
+        if not free:
+            db.add(Plan(
+                plan_id="free",
+                name="Free Plan",
+                monthly_price_cents=0,
+                annual_price_cents=0,
+                query_limit=200,
+                upload_limit=20,
+                file_size_limit_bytes=25 * 1024 * 1024,       # 25MB
+                storage_limit_bytes=500 * 1024 * 1024,        # 500MB
+                report_limit=10,
+                export_limit=20,
+                member_limit=1,
+                is_active=True
+            ))
+
+        # Pro Plan
+        pro = db.query(Plan).filter(Plan.plan_id == "pro").first()
+        if not pro:
+            db.add(Plan(
+                plan_id="pro",
+                name="Pro Plan",
+                monthly_price_cents=1900,
+                annual_price_cents=19000,
+                query_limit=-1,
+                upload_limit=-1,
+                file_size_limit_bytes=100 * 1024 * 1024,      # 100MB
+                storage_limit_bytes=10 * 1024 * 1024 * 1024,   # 10GB
+                report_limit=-1,
+                export_limit=-1,
+                member_limit=1,
+                is_active=True
+            ))
+
+        # Business Plan
+        business = db.query(Plan).filter(Plan.plan_id == "business").first()
+        if not business:
+            db.add(Plan(
+                plan_id="business",
+                name="Business Plan",
+                monthly_price_cents=4900,
+                annual_price_cents=49000,
+                query_limit=-1,
+                upload_limit=-1,
+                file_size_limit_bytes=500 * 1024 * 1024,      # 500MB
+                storage_limit_bytes=50 * 1024 * 1024 * 1024,   # 50GB
+                report_limit=-1,
+                export_limit=-1,
+                member_limit=5,
+                is_active=True
+            ))
+
+        db.commit()
+        logger.info("Plan database tables successfully seeded.")
+        print("Plan tables successfully seeded.")
+    except Exception as e:
+        logger.warning(f"Failed to seed plans: {e}")
+        print(f"Failed to seed plans: {e}")
+    finally:
+        db.close()
+
 
 # Initialize database on module import removed to prevent re-entrant Alembic conflicts
 

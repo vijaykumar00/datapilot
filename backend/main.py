@@ -125,11 +125,13 @@ from core.auth_routes import router as auth_router
 from core.guest_routes import router as guest_router
 from core.workspace_routes import router as workspace_router
 from core.user_routes import router as user_router
+from core.billing_routes import router as billing_router
 
 app.include_router(auth_router)
 app.include_router(guest_router)
 app.include_router(workspace_router)
 app.include_router(user_router)
+app.include_router(billing_router)
 
 
 # ── Audit log helper ─────────────────────────────────────────────────────────
@@ -1565,7 +1567,7 @@ def _sse(data: dict) -> str:
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
-async def startup_event():
+async def startup_event_llm():
     logger.info("DataPilot API starting up...")
     provider = get_active_provider()
     
@@ -1580,19 +1582,25 @@ async def startup_event():
         if not os.getenv(key_name):
             logger.error(f"CRITICAL CONFIGURATION ERROR: Active provider is set to '{provider}', but '{key_name}' is not defined in the environment!")
             
-    llm = get_llm_client()
-    online = await llm.is_online()
-    if online:
-        logger.info(f"Provider '{provider}' is online and ready")
-    else:
-        logger.warning(f"Provider '{provider}' is offline or missing API key")
+    async def check_provider_online():
+        try:
+            llm = get_llm_client()
+            online = await llm.is_online()
+            if online:
+                logger.info(f"Provider '{provider}' is online and ready")
+            else:
+                logger.warning(f"Provider '{provider}' is offline or missing API key")
+        except Exception as e:
+            logger.warning(f"Failed to verify provider status: {e}")
+
+    # Run network check in a background task so it doesn't block uvicorn startup
+    asyncio.create_task(check_provider_online())
 
 
-    # Reload files persisted from previous sessions
+    # Reload files persisted from previous sessions in the background
     manager = get_file_manager()
-    reloaded = await manager.reload_from_disk()
-    if reloaded:
-        logger.info(f"Reloaded {reloaded} file(s) from uploads directory")
+    asyncio.create_task(manager.reload_from_disk())
+
 
     logger.info(
         "DataPilot API ready at http://%s:%s",

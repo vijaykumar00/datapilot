@@ -461,6 +461,9 @@ export default function ChatWindow() {
     sendMessage(text)
   }
 
+  const [logicDrawerOpen, setLogicDrawerOpen] = useState(false)
+  const lastBotMessage = [...messages].reverse().find(m => m.role === 'assistant' && m.type !== 'loading' && m.type !== 'status')
+
   const hasFiles = files.length > 0
   const activeCount = activeFileIds.length
 
@@ -476,59 +479,95 @@ export default function ChatWindow() {
             </span>
           )}
         </div>
-        {messages.length > 0 && (
-          <button
-            id="clear-chat-btn"
-            onClick={clearMessages}
-            className="btn-ghost text-[10px]"
-          >
-            Clear History
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {lastBotMessage && (
+            <button
+              onClick={() => setLogicDrawerOpen(prev => !prev)}
+              className="flex items-center gap-1.5 px-3 py-1 bg-brand-500/10 border border-brand-500/20 hover:bg-brand-500/20 hover:border-brand-500/35 text-brand-300 rounded-xl text-[10px] font-bold transition-all select-none"
+            >
+              💡 {logicDrawerOpen ? 'Close Logic Trace' : 'Show Logic Trace'}
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button
+              id="clear-chat-btn"
+              onClick={clearMessages}
+              className="btn-ghost text-[10px]"
+            >
+              Clear History
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Message Chat stream */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 custom-scrollbar">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-6 animate-fade-in max-w-xl mx-auto py-12">
-            <div className="text-center">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shadow-xl border border-brand-500/20 bg-gradient-to-br from-brand-600 to-purple-600 mx-auto mb-4 animate-bounce">
-                🧭
+      {/* Main Workspace split */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Message Chat stream */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 custom-scrollbar">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-6 animate-fade-in max-w-xl mx-auto py-12">
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shadow-xl border border-brand-500/20 bg-gradient-to-br from-brand-600 to-purple-600 mx-auto mb-4 animate-bounce">
+                  🧭
+                </div>
+                <h2 className="text-base font-black tracking-tight text-white mb-2">
+                  {hasFiles ? 'Conversational Analytics' : 'AI Spreadsheet Workspace'}
+                </h2>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                  {hasFiles
+                    ? `Active datasets verified successfully. Enter questions naturally to profile, forecast, or generate interactive charts.`
+                    : 'Start by uploading a CSV or Excel spreadsheet inside the left navigation sidebar.'}
+                </p>
               </div>
-              <h2 className="text-base font-black tracking-tight text-white mb-2">
-                {hasFiles ? 'Conversational Analytics' : 'AI Spreadsheet Workspace'}
-              </h2>
-              <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-                {hasFiles
-                  ? `Active datasets verified successfully. Enter questions naturally to profile, forecast, or generate interactive charts.`
-                  : 'Start by uploading a CSV or Excel spreadsheet inside the left navigation sidebar.'}
-              </p>
-            </div>
 
-            {hasFiles && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-2 select-none">
-                {QUICK_PROMPTS.map((p) => (
-                  <button
-                    key={p.label}
-                    onClick={() => sendMessage(p.text)}
-                    className="glass-sm px-3.5 py-3 text-left rounded-xl border border-white/5 text-slate-400 hover:text-brand-300 hover:border-brand-500/30 transition-all duration-200 hover:bg-brand-500/[0.03]"
-                  >
-                    <span className="text-[11px] font-semibold block mb-0.5">{p.label}</span>
-                    <span className="text-[9px] text-slate-600 truncate block">{p.text}</span>
-                  </button>
-                ))}
+              {hasFiles && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-2 select-none">
+                  {QUICK_PROMPTS.map((p) => (
+                    <button
+                      key={p.label}
+                      onClick={() => sendMessage(p.text)}
+                      className="glass-sm px-3.5 py-3 text-left rounded-xl border border-white/5 text-slate-400 hover:text-brand-300 hover:border-brand-500/30 transition-all duration-200 hover:bg-brand-500/[0.03]"
+                    >
+                      <span className="text-[11px] font-semibold block mb-0.5">{p.label}</span>
+                      <span className="text-[9px] text-slate-600 truncate block">{p.text}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {messages.map((msg) =>
+            msg.role === 'user'
+              ? <UserMessage key={msg.id} msg={msg} />
+              : <BotMessage key={msg.id} msg={msg} onAskFollowup={handleFollowup} />
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Explainability Side Drawer */}
+        {logicDrawerOpen && (
+          <div className="w-96 border-l border-white/5 bg-[#050811] flex flex-col z-20 overflow-y-auto p-5 custom-scrollbar animate-slide-left">
+            <div className="flex items-center justify-between pb-3 border-b border-white/5 mb-4 select-none">
+              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">💡 Active Logic Trace</h3>
+              <button 
+                onClick={() => setLogicDrawerOpen(false)}
+                className="text-slate-500 hover:text-slate-300 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            {lastBotMessage?.metadata ? (
+              <ExplainPanel metadata={lastBotMessage.metadata} />
+            ) : (
+              <div className="text-center py-12 text-slate-500 text-xs font-medium">
+                No active query logic metadata is loaded.
               </div>
             )}
           </div>
         )}
-
-        {messages.map((msg) =>
-          msg.role === 'user'
-            ? <UserMessage key={msg.id} msg={msg} />
-            : <BotMessage key={msg.id} msg={msg} onAskFollowup={handleFollowup} />
-        )}
-        <div ref={bottomRef} />
       </div>
+
 
       {/* Schema Warnings Banner */}
       <SchemaWarnings />

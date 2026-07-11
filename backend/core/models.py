@@ -330,3 +330,68 @@ class ErrorLog(Base):
     user_id = Column(String(50), nullable=True)
     workspace_id = Column(String(50), nullable=True)
     timestamp = Column(String(50), nullable=False)
+
+
+# ── Billing & Subscriptions Models ──────────────────────────────────────────
+
+class Plan(Base):
+    __tablename__ = "plans"
+
+    plan_id = Column(String(50), primary_key=True)  # free, pro, business
+    name = Column(String(100), nullable=False)
+    monthly_price_cents = Column(Integer, nullable=False)
+    annual_price_cents = Column(Integer, nullable=False)
+    query_limit = Column(Integer, nullable=False)
+    upload_limit = Column(Integer, nullable=False)
+    file_size_limit_bytes = Column(BigInteger, nullable=False)
+    storage_limit_bytes = Column(BigInteger, nullable=False)
+    report_limit = Column(Integer, nullable=False)
+    export_limit = Column(Integer, nullable=False)
+    member_limit = Column(Integer, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+
+class BillingCustomer(Base):
+    __tablename__ = "billing_customers"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), unique=True, nullable=False)
+    stripe_customer_id = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False)
+    stripe_subscription_id = Column(String(255), unique=True, nullable=False)
+    status = Column(String(50), nullable=False)  # active, trialing, past_due, canceled, incomplete
+    plan_id = Column(String(50), ForeignKey("plans.plan_id"), nullable=False)
+    current_period_start = Column(DateTime, nullable=False)
+    current_period_end = Column(DateTime, nullable=False)
+    cancel_at_period_end = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    plan = relationship("Plan")
+
+
+class SubscriptionEvent(Base):
+    __tablename__ = "subscription_events"
+
+    id = Column(String(50), primary_key=True)
+    stripe_subscription_id = Column(String(255), nullable=False)
+    event_type = Column(String(100), nullable=False)
+    payload = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class WebhookEvent(Base):
+    __tablename__ = "webhook_events"
+
+    id = Column(String(50), primary_key=True)
+    stripe_event_id = Column(String(255), unique=True, nullable=False)
+    processed = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+

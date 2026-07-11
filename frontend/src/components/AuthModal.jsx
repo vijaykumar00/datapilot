@@ -18,11 +18,57 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    setTab(defaultTab);
-    setError(''); setSuccess('');
+    if (!open) return;
+    const modalEl = document.querySelector('.auth-modal');
+    if (!modalEl) return;
+
+    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const focusables = Array.from(modalEl.querySelectorAll(focusableSelector));
+        if (focusables.length === 0) return;
+
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    
+    // Auto-focus first input on open
+    const firstInput = modalEl.querySelector('input');
+    if (firstInput) firstInput.focus();
+
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (open) {
+      setTab(defaultTab);
+      setError(''); setSuccess('');
+    }
   }, [open, defaultTab]);
 
   if (!open) return null;
+
 
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
