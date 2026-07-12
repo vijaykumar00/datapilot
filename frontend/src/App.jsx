@@ -23,9 +23,19 @@ import { useAuth } from './contexts/AuthContext'
 import LandingPage from './components/LandingPage'
 import OnboardingFlow from './components/OnboardingFlow'
 import BillingPortal from './components/BillingPortal'
-import { PrivacyPolicy, TermsOfService } from './components/LegalPages'
+import { PrivacyPolicy, TermsOfService, CookiePolicy, AcceptableUsePolicy } from './components/LegalPages'
 import DashboardHome from './components/DashboardHome'
 import SettingsLayout, { ProfileSettings, WorkspaceSettings, TeamMembersSettings, ProvidersKeysSettings, SecuritySessionsSettings } from './components/SettingsLayout'
+
+// Modular Marketing Pages
+import FeaturesPage from './pages/marketing/FeaturesPage'
+import UseCasesPage from './pages/marketing/UseCasesPage'
+import SecurityPage from './pages/marketing/SecurityPage'
+import PricingPage from './pages/marketing/PricingPage'
+import AboutPage from './pages/marketing/AboutPage'
+import ContactPage from './pages/marketing/ContactPage'
+import DocsPage from './pages/marketing/DocsPage'
+
 
 
 
@@ -1906,8 +1916,21 @@ export default function App() {
         <Route path="/demo" element={<DemoTrigger />} />
         <Route path="/login" element={<AuthRouteWrapper tab="login" />} />
         <Route path="/signup" element={<AuthRouteWrapper tab="signup" />} />
+        
+        {/* Marketing sub-pages */}
+        <Route path="/features" element={<FeaturesPage />} />
+        <Route path="/use-cases" element={<UseCasesPage />} />
+        <Route path="/security" element={<SecurityPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/contact" element={<ContactPage />} />
+        <Route path="/docs" element={<DocsPage />} />
+
+        {/* Legal pages */}
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal/terms" element={<TermsOfService />} />
+        <Route path="/legal/cookie-policy" element={<CookiePolicy />} />
+        <Route path="/legal/acceptable-use" element={<AcceptableUsePolicy />} />
         <Route path="/onboarding" element={<OnboardingFlow />} />
         
         {/* Protected App Routes */}

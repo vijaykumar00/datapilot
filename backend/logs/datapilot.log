@@ -3206,3 +3206,4 @@ SQL: SELECT SUM(revenuee) as total FROM file_mock
 2026-07-11 12:33:08,944 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
 2026-07-11 12:35:51,547 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
 2026-07-11 12:57:28,137 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-11 13:22:37,678 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.

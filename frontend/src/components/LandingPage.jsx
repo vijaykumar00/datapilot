@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useDataPilot } from '../hooks/useDataPilot'
@@ -6,11 +6,10 @@ import { useDataPilot } from '../hooks/useDataPilot'
 export default function LandingPage() {
   const navigate = useNavigate()
   const { initGuestSession } = useAuth()
-  const { uploadFile } = useDataPilot()
+  const [activeFAQ, setActiveFAQ] = useState(null)
 
   const handleTryDemo = async () => {
     await initGuestSession()
-    // Redirect to guest demo page
     navigate('/demo')
   }
 
@@ -19,29 +18,95 @@ export default function LandingPage() {
     if (!file) return
     await initGuestSession()
     navigate('/app/analyze')
-    // We will automatically upload the file once the hook mounts in /app/analyze
     setTimeout(() => {
       useDataPilot.getState().uploadFile(file)
     }, 500)
   }
 
+  const toggleFAQ = (idx) => {
+    setActiveFAQ(activeFAQ === idx ? null : idx)
+  }
+
   const faqItems = [
     {
       q: "Does my data leave my local machine?",
-      a: "DataPilot processes your calculations locally in memory. For AI features, you can connect your own encrypted API keys (Gemini, OpenAI, Claude) which are encrypted at the application layer."
+      a: "DataPilot processes your calculations locally in memory using an embedded high-speed DuckDB client. For AI insights, we securely interface with LLMs (Gemini, OpenAI, Claude). You can also connect your own API keys, which are AES-encrypted at the application layer before storage. We never sell or store your data."
     },
     {
       q: "What file formats are supported?",
-      a: "We support CSV (.csv) and Excel (.xlsx) spreadsheets of up to 100MB for premium plans."
+      a: "We support CSV (.csv) and Excel (.xlsx) spreadsheets. Multi-sheet workbooks are fully supported: DataPilot automatically profiles columns across all sheets and lets you query them in plain English."
     },
     {
-      q: "Is there a free tier?",
-      a: "Yes! Guest mode requires no signup and lets you ask up to 20 questions. Free accounts offer persistent workspaces with 20 uploads monthly."
+      q: "How does the AI auto-recovery work?",
+      a: "If a database execution fails (e.g. column typo or mismatched sheet name), DataPilot's agent automatically fuzzy matches column schemas, attempts self-repair, and notifies you of the corrected columns used. It is designed to never let query execution crash."
+    },
+    {
+      q: "Can I host this locally?",
+      a: "Yes! DataPilot has a built-in Ollama adapter. By selecting the Ollama provider, you can run all natural language models locally on your own hardware, ensuring complete compliance and offline operation."
+    },
+    {
+      q: "What are the limits on the Free tier?",
+      a: "The Free tier includes 20 persistent uploads monthly, 200 conversational queries, and up to 500MB of storage. It is perfect for personal analysts, indie developers, and startup founders."
+    },
+    {
+      q: "Is it easy to cancel my subscription?",
+      a: "Absolutely. You can manage your billing, download receipts, or cancel your subscription at any time using the Stripe Customer Portal inside your account settings with a single click."
+    }
+  ]
+
+  const features = [
+    {
+      icon: "💬",
+      title: "Conversational Chat",
+      desc: "Ask questions naturally like 'Compare Q1 sales vs Q2 sales by category' and get instant formatted answers."
+    },
+    {
+      icon: "📊",
+      title: "Dynamic Charting",
+      desc: "Receive interactive charts (bar, line, scatter) automatically mapped to your query parameters."
+    },
+    {
+      icon: "🧹",
+      title: "AI Data Cleaning",
+      desc: "Identify quality issues, clean null values, handle date formatting, and detect outliers automatically."
+    },
+    {
+      icon: "⚡",
+      title: "DuckDB Speed Engine",
+      desc: "Enjoy sub-second queries on millions of rows powered by an embedded columnar database engine."
+    },
+    {
+      icon: "💡",
+      title: "Logic Explainability",
+      desc: "Full transparency. Inspect the generated DuckDB SQL query, used columns, and reasoning logic in a side drawer."
+    },
+    {
+      icon: "🔒",
+      title: "Client-Key Encryption",
+      desc: "All API keys are encrypted at the application layer with AES-256 (Fernet) keys. Plain text keys are never stored."
+    }
+  ]
+
+  const steps = [
+    {
+      step: "01",
+      title: "Upload Dataset",
+      desc: "Drag & drop your CSV or Excel workbook. We automatically run diagnostics and profile your columns."
+    },
+    {
+      step: "02",
+      title: "Ask & Filter",
+      desc: "Type questions in plain English. The AI agent translates prompts to optimized SQL, executes them, and builds charts."
+    },
+    {
+      step: "03",
+      title: "Export & Report",
+      desc: "Generate narrative executive summaries, export results to Excel/CSV, or share saved analysis dashboards."
     }
   ]
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-[#030712] text-slate-100 flex flex-col font-sans select-none custom-scrollbar">
+    <div className="h-screen overflow-y-auto bg-[#030712] text-slate-100 flex flex-col font-sans select-none custom-scrollbar">
       {/* Ambient background glows */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
         <div className="ambient-glow top-[-20%] left-[-15%] opacity-15"
@@ -72,20 +137,20 @@ export default function LandingPage() {
       </header>
 
       {/* Hero Section */}
-      <section className="flex-1 max-w-5xl mx-auto px-6 pt-16 pb-20 text-center flex flex-col items-center justify-center z-10 relative">
+      <section className="max-w-5xl mx-auto px-6 pt-16 pb-20 text-center flex flex-col items-center justify-center z-10 relative">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-brand-500/20 bg-brand-500/5 text-[10px] text-brand-300 font-semibold mb-6">
           <span className="flex h-2 w-2 relative">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-500"></span>
           </span>
-          Phase 3 Beta: Production-Ready Billing & Auth Online
+          Next-Gen AI Spreadsheet Analytics Engine
         </div>
 
-        <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-[1.15] max-w-3xl text-white">
-          Ask questions of your <span className="gradient-text">Spreadsheets</span>. Receive trusted answers in seconds.
+        <h2 className="text-4xl md:text-6xl font-black tracking-tight leading-[1.1] max-w-4xl text-white">
+          Ditch pivot tables. Chat with your <span className="gradient-text">Spreadsheets</span> naturally.
         </h2>
-        <p className="text-slate-400 text-sm md:text-base mt-6 max-w-2xl leading-relaxed">
-          Upload your CSV or Excel file, ask questions in plain English, and receive explanatory answers, plotted charts, and narrative reports instantly.
+        <p className="text-slate-400 text-sm md:text-base mt-6 max-w-3xl leading-relaxed">
+          Upload any CSV or Excel file, ask complex questions in plain English, and receive explanatory answers, interactive charts, and executive narrative briefs in seconds.
         </p>
 
         {/* CTA Cards */}
@@ -113,34 +178,82 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Feature grid */}
+      {/* Comparisons Section */}
       <section className="border-t border-white/5 py-20 bg-black/10 z-10 relative">
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="glass p-6 rounded-xl border border-white/5">
-            <div className="text-brand-400 text-lg mb-3">💬</div>
-            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Conversational SQL</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              No need to remember pivot tables or complex formulas. Type what you want to calculate, and receive answers with SQL transcripts.
-            </p>
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h3 className="text-xl md:text-2xl font-bold text-white tracking-tight">Why switch to DataPilot?</h3>
+            <p className="text-xs text-slate-500 mt-1">Compare the old way of doing analytics with DataPilot's agentic model.</p>
           </div>
-          <div className="glass p-6 rounded-xl border border-white/5">
-            <div className="text-blue-400 text-lg mb-3">📈</div>
-            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Custom Charts</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Dynamically generates interactive charts that match your layout and branding constraints directly.
-            </p>
-          </div>
-          <div className="glass p-6 rounded-xl border border-white/5">
-            <div className="text-purple-400 text-lg mb-3">🔒</div>
-            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Data Privacy & Security</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Your API keys are encrypted at the application layer with AES-256 (Fernet) keys. Plaintext keys are never stored.
-            </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="p-6 rounded-2xl bg-slate-900/5 border border-white/5 space-y-4">
+              <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-2">
+                ❌ Traditional Spreadsheets (Excel/Sheets)
+              </h4>
+              <ul className="text-xs text-slate-400 space-y-3 font-medium">
+                <li>• Writing nested IF, VLOOKUP, or INDEX MATCH formulas by hand.</li>
+                <li>• Spending hours structuring charts and formatting reports.</li>
+                <li>• Manual script scripting (VBA/Python) for outliers.</li>
+                <li>• Staring at massive rows hoping you didn't break a calculation cells reference.</li>
+              </ul>
+            </div>
+            <div className="p-6 rounded-2xl bg-brand-500/[0.02] border border-brand-500/20 space-y-4">
+              <h4 className="text-xs font-bold text-brand-300 uppercase tracking-wider flex items-center gap-2">
+                🚀 DataPilot AI Engine
+              </h4>
+              <ul className="text-xs text-slate-300 space-y-3 font-semibold">
+                <li>• **Conversational agent**: Just type what you want to calculate in plain English.</li>
+                <li>• **Automated insights**: Dynamic line/bar charting built on query outputs.</li>
+                <li>• **AI self-healing**: Auto-repairs schema typos or misspelled sheet constraints.</li>
+                <li>• **Explainability trace**: Full SQL and logical explanations are always visible.</li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Pricing Preview */}
+      {/* How it Works Timeline */}
+      <section className="border-t border-white/5 py-20 z-10 relative">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h3 className="text-xl md:text-2xl font-bold text-white tracking-tight">How it works</h3>
+            <p className="text-xs text-slate-500 mt-1">Three simple steps to unlock tabular data insights.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {steps.map(step => (
+              <div key={step.step} className="flex flex-col relative p-6 rounded-xl border border-white/5 bg-[#0d1222]/30">
+                <span className="text-3xl font-black text-brand-500/20 font-mono mb-4">{step.step}</span>
+                <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">{step.title}</h4>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">{step.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Full Feature Grid */}
+      <section className="border-t border-white/5 py-20 bg-black/10 z-10 relative">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h3 className="text-xl md:text-2xl font-bold text-white tracking-tight">Complete SaaS Analytics Toolkit</h3>
+            <p className="text-xs text-slate-500 mt-1">DataPilot comes packed with premium enterprise features out of the box.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {features.map(f => (
+              <div key={f.title} className="glass p-6 rounded-xl border border-white/5 hover:border-brand-500/20 transition-all duration-200">
+                <div className="text-xl mb-3">{f.icon}</div>
+                <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">{f.title}</h4>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Section */}
       <section className="border-t border-white/5 py-20 z-10 relative">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h3 className="text-2xl font-extrabold text-white">Simple, transparent pricing</h3>
@@ -152,26 +265,28 @@ export default function LandingPage() {
               <div>
                 <h4 className="text-xs font-bold text-slate-400">Free</h4>
                 <div className="text-2xl font-black mt-2 text-white">$0</div>
-                <ul className="text-[10px] text-slate-500 space-y-2 mt-4">
+                <ul className="text-[10px] text-slate-500 space-y-2.5 mt-4">
                   <li>• 20 uploads / mo</li>
-                  <li>• 200 queries</li>
+                  <li>• 200 conversational queries</li>
                   <li>• 500MB storage limit</li>
+                  <li>• Team members limit: 1</li>
                 </ul>
               </div>
               <Link to="/signup" className="btn-ghost w-full text-center mt-6 py-2 rounded-xl bg-white/5">Sign Up</Link>
             </div>
 
             {/* Pro Plan */}
-            <div className="glass border-brand-500/30 p-6 rounded-xl text-left flex flex-col justify-between relative">
+            <div className="glass border-brand-500/30 p-6 rounded-xl text-left flex flex-col justify-between relative bg-brand-500/[0.01]">
               <div className="absolute top-2 right-2 bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-full px-2 py-0.5 text-[8px] font-bold">POPULAR</div>
               <div>
                 <h4 className="text-xs font-bold text-brand-300">Pro</h4>
                 <div className="text-2xl font-black mt-2 text-white">$19<span className="text-xs font-medium text-slate-500">/mo</span></div>
-                <ul className="text-[10px] text-slate-400 space-y-2 mt-4">
-                  <li>• Unlimited uploads</li>
-                  <li>• Unlimited queries</li>
-                  <li>• 10GB storage limit</li>
-                  <li>• Custom API Key support</li>
+                <ul className="text-[10px] text-slate-300 space-y-2.5 mt-4">
+                  <li>• **Unlimited uploads**</li>
+                  <li>• **Unlimited queries**</li>
+                  <li>• **10GB storage limit**</li>
+                  <li>• AES-encrypted API keys</li>
+                  <li>• Advanced spreadsheet grids</li>
                 </ul>
               </div>
               <Link to="/signup" className="btn-primary w-full text-center mt-6 py-2 rounded-xl">Get Pro</Link>
@@ -182,10 +297,11 @@ export default function LandingPage() {
               <div>
                 <h4 className="text-xs font-bold text-slate-400">Enterprise</h4>
                 <div className="text-2xl font-black mt-2 text-white">Custom</div>
-                <ul className="text-[10px] text-slate-500 space-y-2 mt-4">
-                  <li>• Dedicated instances</li>
+                <ul className="text-[10px] text-slate-500 space-y-2.5 mt-4">
+                  <li>• Dedicated memory buffers</li>
                   <li>• SSO / SAML integration</li>
-                  <li>• SLA agreements</li>
+                  <li>• SLA agreement support</li>
+                  <li>• Custom limits config</li>
                 </ul>
               </div>
               <a href="mailto:sales@datapilot.ai" className="btn-ghost w-full text-center mt-6 py-2 rounded-xl bg-white/5">Contact Sales</a>
@@ -198,11 +314,21 @@ export default function LandingPage() {
       <section className="border-t border-white/5 py-20 bg-black/10 z-10 relative">
         <div className="max-w-3xl mx-auto px-6">
           <h3 className="text-xl font-bold text-white text-center mb-12">Frequently Asked Questions</h3>
-          <div className="space-y-6">
+          <div className="space-y-4">
             {faqItems.map((item, idx) => (
-              <div key={idx} className="glass p-5 rounded-xl border border-white/5">
-                <h4 className="text-xs font-bold text-slate-200">{item.q}</h4>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">{item.a}</p>
+              <div key={idx} className="glass rounded-xl border border-white/5 overflow-hidden transition-all duration-300">
+                <button 
+                  onClick={() => toggleFAQ(idx)}
+                  className="w-full text-left px-5 py-4 flex items-center justify-between text-xs font-bold text-slate-200 hover:bg-white/[0.01] transition-colors focus:outline-none"
+                >
+                  <span>{item.q}</span>
+                  <span className="text-slate-500">{activeFAQ === idx ? '✕' : '＋'}</span>
+                </button>
+                {activeFAQ === idx && (
+                  <div className="px-5 pb-4 text-xs text-slate-400 leading-relaxed border-t border-white/[0.03] pt-3 bg-black/5 animate-fade-in">
+                    {item.a}
+                  </div>
+                )}
               </div>
             ))}
           </div>
