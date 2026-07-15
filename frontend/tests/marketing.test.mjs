@@ -141,3 +141,33 @@ test('marketing path does not statically import Plotly chart renderer', () => {
   assert.match(app, /lazy\(\(\) => import\('\.\/components\/ChartRenderer'\)\)/)
   assert.match(chat, /lazy\(\(\) => import\('\.\/ChartRenderer'\)\)/)
 })
+
+test('Sprint 3.3 premium dashboard includes required workspace sections', () => {
+  const dashboard = read('../src/components/DashboardHome.jsx')
+
+  for (const text of [
+    'Upload Dataset',
+    'Try Demo Dataset',
+    'Continue Previous Analysis',
+    'Recent Datasets',
+    'Recent Reports',
+    'Recent Conversations',
+    'Suggested Questions',
+    'Usage',
+    'Onboarding Progress',
+    'Premium Templates',
+    'No Dataset',
+    'No Reports',
+    'No Chat',
+    'Sales',
+    'Finance',
+    'Inventory',
+    'HR',
+    'Marketing',
+    'Construction',
+    'Healthcare',
+    'Retail',
+  ]) {
+    assert.match(dashboard, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+})

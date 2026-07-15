@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const evidenceDir = resolve(root, 'test-results', 'sprint-3-2')
+const evidenceDir = resolve(root, 'test-results', 'sprint-3-3')
 const previewPort = 4173
 const debugPort = 9333
 const baseUrl = `http://127.0.0.1:${previewPort}`
@@ -396,6 +396,44 @@ async function main() {
     const protectedState = await evaluate(tab, `({ path: location.pathname, signInVisible: document.body.textContent.includes('Welcome back') || document.body.textContent.includes('Sign In') })`)
     assert.equal(protectedState.path, '/login')
     assert.equal(protectedState.signInVisible, true)
+    browserErrors.length = 0
+
+    await evaluate(tab, `(() => {
+      localStorage.setItem('dp_access_token', 'browser-verification-token');
+      localStorage.setItem('dp_refresh_token', 'browser-verification-refresh');
+      localStorage.setItem('dp_workspace_id', 'browser-workspace');
+      localStorage.setItem('dp_user', JSON.stringify({
+        user_id: 'browser-user',
+        email: 'browser@datapilot.test',
+        full_name: 'Browser Analyst'
+      }));
+      sessionStorage.clear();
+    })()`)
+    await navigate(tab, '/app', 1440, 900)
+    await sleep(900)
+    const dashboardState = await evaluate(tab, `(() => ({
+      path: location.pathname,
+      shell: !!document.querySelector('[data-testid="premium-dashboard"]'),
+      uploadCta: document.body.textContent.includes('Upload Dataset'),
+      quickActions: document.querySelectorAll('.quick-action-card').length,
+      prompts: document.querySelectorAll('.prompt-grid button').length,
+      templates: document.querySelectorAll('.template-card').length,
+      usage: document.body.textContent.includes('Usage'),
+      onboarding: document.body.textContent.includes('Onboarding Progress'),
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+      scrollable: document.querySelector('.app-dashboard-shell')?.scrollHeight > document.querySelector('.app-dashboard-shell')?.clientHeight
+    }))()`)
+    assert.equal(dashboardState.path, '/app')
+    assert.equal(dashboardState.shell, true)
+    assert.equal(dashboardState.uploadCta, true)
+    assert.ok(dashboardState.quickActions >= 5)
+    assert.ok(dashboardState.prompts >= 6)
+    assert.ok(dashboardState.templates >= 8)
+    assert.equal(dashboardState.usage, true)
+    assert.equal(dashboardState.onboarding, true)
+    assert.equal(dashboardState.noOverflow, true)
+    assert.equal(dashboardState.scrollable, true)
+    await screenshot(tab, 'dashboard-home-desktop')
 
     await navigate(tab, '/missing-route', 1024, 768)
     const notFoundState = await evaluate(tab, `document.body.textContent.includes('Page not found') && !!document.querySelector('a[href="/"]')`)
@@ -415,6 +453,7 @@ async function main() {
         viewportChecks,
         publicRoutesChecked: publicRoutes,
         homepageChecks: homepageState,
+        dashboardChecks: dashboardState,
         keyboardChecks: [
           'skip link focus and activation',
           'mobile menu keyboard open',
