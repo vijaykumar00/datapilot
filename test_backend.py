@@ -7,8 +7,26 @@ import json, sys, urllib.request, uuid
 
 BASE = "http://localhost:8001"
 
+# ── Guest Authentication setup ───────────────────────────────────────────────
+GUEST_TOKEN = None
+try:
+    # Perform pre-emptive guest session creation
+    req = urllib.request.Request(
+        f"{BASE}/guest/session", data=b"{}",
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=5) as r:
+        guest_data = json.loads(r.read())
+        GUEST_TOKEN = guest_data.get("guest_token")
+except Exception as e:
+    print(f"Warning: failed to initialize guest token: {e}")
+
 def get(path):
-    with urllib.request.urlopen(f"{BASE}{path}", timeout=10) as r:
+    headers = {}
+    if GUEST_TOKEN:
+        headers["X-Guest-Token"] = GUEST_TOKEN
+    req = urllib.request.Request(f"{BASE}{path}", headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
 def upload_csv(filepath):
@@ -20,18 +38,26 @@ def upload_csv(filepath):
         f'Content-Disposition: form-data; name="file"; filename="test_sales.csv"\r\n'
         f"Content-Type: text/csv\r\n\r\n"
     ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
+    
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    if GUEST_TOKEN:
+        headers["X-Guest-Token"] = GUEST_TOKEN
+        
     req = urllib.request.Request(
         f"{BASE}/upload", data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        headers=headers
     )
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read())
 
 def read_sse_final(path, data):
     body = json.dumps(data).encode()
+    headers = {"Content-Type": "application/json"}
+    if GUEST_TOKEN:
+        headers["X-Guest-Token"] = GUEST_TOKEN
     req = urllib.request.Request(
         f"{BASE}{path}", data=body,
-        headers={"Content-Type": "application/json"}
+        headers=headers
     )
     events = []
     with urllib.request.urlopen(req, timeout=25) as r:
