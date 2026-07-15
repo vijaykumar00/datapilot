@@ -18,6 +18,7 @@ import GuestBanner from './components/GuestBanner'
 import ToastContainer from './components/ToastContainer'
 import UserMenu from './components/UserMenu'
 import { useAuth } from './contexts/AuthContext'
+import OnboardingAssistant from './components/OnboardingAssistant'
 
 import OnboardingFlow from './components/OnboardingFlow'
 import BillingPortal from './components/BillingPortal'
@@ -1877,6 +1878,7 @@ function AppLayout() {
 
       {/* Global Toast Notifications */}
       <ToastContainer />
+      <OnboardingAssistant />
     </div>
   )
 }

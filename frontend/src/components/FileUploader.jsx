@@ -146,9 +146,9 @@ export default function FileUploader() {
           <div className="flex flex-col items-center gap-2 pointer-events-none">
             <div className="text-3xl mb-1">{isDragActive ? '📂' : '☁️'}</div>
             <p className="text-sm font-medium text-slate-300">
-              {isDragActive ? 'Drop to upload' : 'Drop CSV or Excel'}
+              {isDragActive ? 'Drop to upload' : 'Upload your first spreadsheet'}
             </p>
-            <p className="text-xs text-slate-500">or click to browse · max {MAX_MB}MB</p>
+            <p className="text-xs text-slate-500">CSV, XLS, or XLSX. Try sales, finance, HR, or inventory exports. Max {MAX_MB}MB.</p>
           </div>
         )}
       </div>

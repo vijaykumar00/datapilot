@@ -171,3 +171,83 @@ test('Sprint 3.3 premium dashboard includes required workspace sections', () => 
     assert.match(dashboard, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 })
+
+test('Sprint 3.4 guided onboarding persists progress, skip, resume, and completion states', () => {
+  const assistant = read('../src/components/OnboardingAssistant.jsx')
+  const app = read('../src/App.jsx')
+
+  for (const text of [
+    'dp_onboarding_state_v1',
+    'Skip onboarding',
+    'Resume onboarding',
+    'Resume later',
+    'Onboarding complete',
+    'Guest converted to account',
+    'Success: you uploaded data',
+    'aria-label="Guided onboarding"',
+  ]) {
+    assert.match(assistant, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  assert.match(app, /<OnboardingAssistant \/>/)
+})
+
+test('Sprint 3.4 starter prompts cover target dataset categories', () => {
+  const assistant = read('../src/components/OnboardingAssistant.jsx')
+
+  for (const text of [
+    'sales',
+    'finance',
+    'hr',
+    'marketing',
+    'inventory',
+    'healthcare',
+    'construction',
+    'operations',
+    'Show monthly sales',
+    'Find budget variance',
+    'Show hiring bottlenecks',
+    'Which campaigns convert best?',
+    'Find low stock items',
+    'Find overbooked clinics',
+    'Which projects are over budget?',
+    'Find process bottlenecks',
+  ]) {
+    assert.match(assistant, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+})
+
+test('Sprint 3.4 onboarding route and chat prompt handoff support activation flow', () => {
+  const flow = read('../src/components/OnboardingFlow.jsx')
+  const chat = read('../src/components/ChatWindow.jsx')
+  const upload = read('../src/components/FileUploader.jsx')
+
+  for (const text of [
+    'First analysis setup',
+    'Start with upload',
+    'Skip for now',
+    'dp_usecase_preference',
+    'Upload a spreadsheet',
+    'Ask a starter question',
+    'Generate a chart',
+    'Create a report',
+    'Save the report',
+  ]) {
+    assert.match(flow, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  assert.match(chat, /suggestedPrompt/)
+  assert.match(chat, /inputRef\.current\?\.focus/)
+  assert.match(upload, /Upload your first spreadsheet/)
+})
+
+test('Sprint 3.4 guest conversion and accessibility affordances are present', () => {
+  const auth = read('../src/components/AuthModal.jsx')
+  const styles = read('../src/index.css')
+
+  assert.match(auth, /dp_guest_converted_success/)
+  assert.match(auth, /Your guest work is preserved/)
+  assert.match(styles, /\.onboarding-assistant-toggle:focus-visible/)
+  assert.match(styles, /prefers-reduced-motion: reduce/)
+  assert.match(styles, /max-width: 640px/)
+})

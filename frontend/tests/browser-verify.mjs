@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const evidenceDir = resolve(root, 'test-results', 'sprint-3-3')
+const evidenceDir = resolve(root, 'test-results', 'sprint-3-4')
 const previewPort = 4173
 const debugPort = 9333
 const baseUrl = `http://127.0.0.1:${previewPort}`
@@ -407,6 +407,8 @@ async function main() {
         email: 'browser@datapilot.test',
         full_name: 'Browser Analyst'
       }));
+      localStorage.removeItem('dp_onboarding_state_v1');
+      localStorage.setItem('dp_guest_converted_success', 'true');
       sessionStorage.clear();
     })()`)
     await navigate(tab, '/app', 1440, 900)
@@ -435,6 +437,75 @@ async function main() {
     assert.equal(dashboardState.scrollable, true)
     await screenshot(tab, 'dashboard-home-desktop')
 
+    await evaluate(tab, `document.querySelector('.onboarding-assistant-toggle')?.click()`)
+    await sleep(300)
+    const onboardingState = await evaluate(tab, `(() => ({
+      assistant: !!document.querySelector('.onboarding-assistant'),
+      panel: !!document.querySelector('.onboarding-panel'),
+      progress: document.querySelector('.onboarding-assistant-toggle strong')?.textContent || '',
+      stepLinks: document.querySelectorAll('.onboarding-step-list a').length,
+      promptLinks: document.querySelectorAll('.onboarding-prompt-box a').length,
+      converted: document.body.textContent.includes('Guest converted to account'),
+      successStates: document.body.textContent.includes('Upload spreadsheet') && document.body.textContent.includes('Ask first question') && document.body.textContent.includes('Generate chart') && document.body.textContent.includes('Generate report') && document.body.textContent.includes('Save report'),
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+      focusable: !!document.querySelector('.onboarding-assistant-toggle')
+    }))()`)
+    assert.equal(onboardingState.assistant, true)
+    assert.equal(onboardingState.panel, true)
+    assert.match(onboardingState.progress, /%/)
+    assert.equal(onboardingState.stepLinks, 5)
+    assert.ok(onboardingState.promptLinks >= 3)
+    assert.equal(onboardingState.converted, true)
+    assert.equal(onboardingState.successStates, true)
+    assert.equal(onboardingState.noOverflow, true)
+    assert.equal(onboardingState.focusable, true)
+    await screenshot(tab, 'onboarding-assistant-open')
+
+    await evaluate(tab, `Array.from(document.querySelectorAll('.onboarding-panel-actions button')).find((button) => button.textContent.includes('Resume later'))?.click()`)
+    await sleep(150)
+    const resumeLaterState = await evaluate(tab, `!document.querySelector('.onboarding-panel')`)
+    assert.equal(resumeLaterState, true)
+
+    await evaluate(tab, `document.querySelector('.onboarding-assistant-toggle')?.click()`)
+    await sleep(150)
+    await evaluate(tab, `Array.from(document.querySelectorAll('.onboarding-panel-actions button')).find((button) => button.textContent.includes('Skip onboarding'))?.click()`)
+    await sleep(150)
+    const skipState = await evaluate(tab, `(() => ({
+      skipped: JSON.parse(localStorage.getItem('dp_onboarding_state_v1') || '{}').skipped === true,
+      resumeVisible: document.body.textContent.includes('Resume onboarding')
+    }))()`)
+    assert.equal(skipState.skipped, true)
+    assert.equal(skipState.resumeVisible, true)
+    await evaluate(tab, `Array.from(document.querySelectorAll('.onboarding-panel-actions button')).find((button) => button.textContent.includes('Resume onboarding'))?.click()`)
+    await sleep(150)
+    const resumeState = await evaluate(tab, `JSON.parse(localStorage.getItem('dp_onboarding_state_v1') || '{}').skipped === false`)
+    assert.equal(resumeState, true)
+
+    await evaluate(tab, `document.querySelector('.onboarding-prompt-box a')?.click()`)
+    await sleep(500)
+    const promptState = await evaluate(tab, `(() => ({
+      path: location.pathname,
+      value: document.querySelector('#chat-input')?.value || '',
+      focused: document.activeElement?.id === 'chat-input'
+    }))()`)
+    assert.equal(promptState.path, '/app/analyze')
+    assert.ok(promptState.value.length > 0)
+    assert.equal(promptState.focused, true)
+
+    await navigate(tab, '/app', 375, 812)
+    await sleep(600)
+    await evaluate(tab, `document.querySelector('.onboarding-assistant-toggle')?.click()`)
+    await sleep(200)
+    const mobileOnboardingState = await evaluate(tab, `(() => ({
+      panel: !!document.querySelector('.onboarding-panel'),
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+      panelFits: document.querySelector('.onboarding-panel')?.getBoundingClientRect().width <= window.innerWidth
+    }))()`)
+    assert.equal(mobileOnboardingState.panel, true)
+    assert.equal(mobileOnboardingState.noOverflow, true)
+    assert.equal(mobileOnboardingState.panelFits, true)
+    await screenshot(tab, 'onboarding-mobile-open')
+
     await navigate(tab, '/missing-route', 1024, 768)
     const notFoundState = await evaluate(tab, `document.body.textContent.includes('Page not found') && !!document.querySelector('a[href="/"]')`)
     assert.equal(notFoundState, true)
@@ -449,11 +520,19 @@ async function main() {
       resolve(evidenceDir, 'browser-verification.json'),
       JSON.stringify({
         baseUrl,
-        screenshots: ['mobile-navigation-open', ...screenshotTargets.map(([name]) => name)].map((name) => `${name}.png`),
+        screenshots: ['mobile-navigation-open', 'dashboard-home-desktop', 'onboarding-assistant-open', 'onboarding-mobile-open', ...screenshotTargets.map(([name]) => name)].map((name) => `${name}.png`),
         viewportChecks,
         publicRoutesChecked: publicRoutes,
         homepageChecks: homepageState,
         dashboardChecks: dashboardState,
+        onboardingChecks: {
+          desktop: onboardingState,
+          resumeLater: resumeLaterState,
+          skip: skipState,
+          resume: resumeState,
+          prompt: promptState,
+          mobile: mobileOnboardingState,
+        },
         keyboardChecks: [
           'skip link focus and activation',
           'mobile menu keyboard open',

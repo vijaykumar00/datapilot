@@ -93,6 +93,8 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
       if (isGuest) {
         // Convert guest → user with data preservation
         await convertGuest(form.email, form.password, form.fullName, form.workspaceName, true);
+        localStorage.setItem('dp_guest_converted_success', 'true');
+        addToast?.('Account created. Your guest work is preserved in this workspace.', 'success');
         onClose();
       } else {
         await signup(form.email, form.password, form.fullName, form.workspaceName);

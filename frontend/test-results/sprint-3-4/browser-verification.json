@@ -1,0 +1,145 @@
+{
+  "baseUrl": "http://127.0.0.1:4173",
+  "screenshots": [
+    "mobile-navigation-open.png",
+    "dashboard-home-desktop.png",
+    "onboarding-assistant-open.png",
+    "onboarding-mobile-open.png",
+    "homepage-desktop.png",
+    "homepage-mobile.png",
+    "features-page.png",
+    "security-page.png",
+    "pricing-page.png",
+    "public-404-page.png"
+  ],
+  "viewportChecks": [
+    {
+      "width": 320,
+      "noHorizontalOverflow": true,
+      "shellScrollable": true,
+      "shellScrollMoves": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "16px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 375,
+      "noHorizontalOverflow": true,
+      "shellScrollable": true,
+      "shellScrollMoves": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "16px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 768,
+      "noHorizontalOverflow": true,
+      "shellScrollable": true,
+      "shellScrollMoves": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "17.92px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 1024,
+      "noHorizontalOverflow": true,
+      "shellScrollable": true,
+      "shellScrollMoves": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "17.92px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 1440,
+      "noHorizontalOverflow": true,
+      "shellScrollable": true,
+      "shellScrollMoves": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "17.92px",
+      "activeNav": "Product"
+    }
+  ],
+  "publicRoutesChecked": [
+    "/",
+    "/features",
+    "/use-cases",
+    "/security",
+    "/pricing",
+    "/about",
+    "/contact",
+    "/docs",
+    "/legal/privacy",
+    "/legal/terms",
+    "/legal/cookie-policy",
+    "/legal/acceptable-use"
+  ],
+  "homepageChecks": {
+    "hero": true,
+    "primaryCta": true,
+    "watchDemo": true,
+    "demo": true,
+    "problems": 6,
+    "timeline": 4,
+    "outcomes": 6,
+    "industries": 11,
+    "pricing": 4,
+    "faq": 7,
+    "paidPlansDisabled": 3
+  },
+  "dashboardChecks": {
+    "path": "/app",
+    "shell": true,
+    "uploadCta": true,
+    "quickActions": 5,
+    "prompts": 6,
+    "templates": 8,
+    "usage": true,
+    "onboarding": true,
+    "noOverflow": true,
+    "scrollable": true
+  },
+  "onboardingChecks": {
+    "desktop": {
+      "assistant": true,
+      "panel": true,
+      "progress": "0%",
+      "stepLinks": 5,
+      "promptLinks": 3,
+      "converted": true,
+      "successStates": true,
+      "noOverflow": true,
+      "focusable": true
+    },
+    "resumeLater": true,
+    "skip": {
+      "skipped": true,
+      "resumeVisible": true
+    },
+    "resume": true,
+    "prompt": {
+      "path": "/app/analyze",
+      "value": "Find process bottlenecks",
+      "focused": true
+    },
+    "mobile": {
+      "panel": true,
+      "noOverflow": true,
+      "panelFits": true
+    }
+  },
+  "keyboardChecks": [
+    "skip link focus and activation",
+    "mobile menu keyboard open",
+    "focus remains inside mobile menu",
+    "escape closes mobile menu",
+    "focus returns to trigger",
+    "desktop active nav state",
+    "signin and try free links navigate",
+    "protected app route redirects to login"
+  ]
+}

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useLocation } from 'react-router-dom'
 import { useDataPilot } from '../hooks/useDataPilot'
 import ExplainPanel from './ExplainPanel'
 import SmartSuggestions from './SmartSuggestions'
@@ -414,6 +415,7 @@ const QUICK_PROMPTS = [
 
 // ── Main ChatWindow Redesign ──────────────────────────────────────────────
 export default function ChatWindow() {
+  const location = useLocation()
   const {
     messages,
     isStreaming,
@@ -431,11 +433,20 @@ export default function ChatWindow() {
   const setInput = setChatPromptInput
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const routedPromptRef = useRef(null)
 
   // Auto-scroll on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    const prompt = location.state?.suggestedPrompt
+    if (!prompt || routedPromptRef.current === prompt) return
+    routedPromptRef.current = prompt
+    setInput(prompt)
+    window.setTimeout(() => inputRef.current?.focus(), 0)
+  }, [location.state, setInput])
 
   const handleSend = () => {
     const text = input.trim()
