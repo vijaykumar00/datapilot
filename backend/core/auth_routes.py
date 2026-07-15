@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -28,8 +28,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str
-    workspace_name: Optional[str] = None
+    password: str = Field(..., min_length=8, max_length=128,
+                          description="Password must be at least 8 characters.")
+    workspace_name: str | None = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -58,7 +59,8 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(..., min_length=8, max_length=128,
+                              description="New password must be at least 8 characters.")
 
 # ─────────────────────────────────────────────────────────────
 # Helper: Extract current user from Authorization header

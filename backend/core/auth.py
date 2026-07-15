@@ -5,7 +5,16 @@ import secrets
 from typing import Dict, Optional
 import jwt
 
-JWT_SECRET = os.getenv("JWT_SECRET", "datapilot-secret-jwt-key-2026-sprint-2")
+_raw_jwt_secret = os.getenv("JWT_SECRET", "")
+# Security gate: refuse to start with a missing or weak JWT secret.
+# In development, a minimum 32-char secret is still required.
+# Generate one with: python -c "import secrets; print(secrets.token_hex(64))"
+if not _raw_jwt_secret or len(_raw_jwt_secret) < 32:
+    raise ValueError(
+        "CRITICAL: JWT_SECRET env var is missing or too short (minimum 32 characters). "
+        "Generate a strong key: python -c \"import secrets; print(secrets.token_hex(64))\""
+    )
+JWT_SECRET = _raw_jwt_secret
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 REFRESH_TOKEN_EXPIRE_DAYS = 7

@@ -134,10 +134,10 @@ def get_plan_limits(plan_id: str, db: Session) -> dict:
         db_plan = db.query(PlanModel).filter(PlanModel.plan_id == plan_id, PlanModel.is_active == True).first()
         if db_plan:
             return {
-                "upload_count": db_plan.upload_count,
-                "query_count": db_plan.query_count,
-                "report_count": db_plan.report_count,
-                "export_count": db_plan.export_count,
+                "upload_count": db_plan.upload_limit,
+                "query_count": db_plan.query_limit,
+                "report_count": db_plan.report_limit,
+                "export_count": db_plan.export_limit,
                 "storage_bytes": db_plan.storage_limit_bytes,
                 "max_file_size_bytes": db_plan.file_size_limit_bytes,
             }

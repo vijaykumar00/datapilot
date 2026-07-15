@@ -193,31 +193,45 @@ export function TeamMembersSettings() {
 }
 
 export function ProvidersKeysSettings() {
-  const { provider, setProvider } = useDataPilot()
+  const { provider, switchProvider } = useDataPilot()
+  const [localProvider, setLocalProvider] = useState(provider || 'gemini')
   const [keys, setKeys] = useState({
-    gemini: '••••••••••••••••••••••',
+    gemini: '',
     openai: '',
     anthropic: ''
   })
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaving(true)
+    setError(null)
+    try {
+      const activeKey = keys[localProvider] || keys[localProvider === 'claude' ? 'anthropic' : localProvider]
+      // Switch provider via the store (which calls the API)
+      await switchProvider(localProvider, activeKey || undefined)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setError('Failed to save configuration. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div className="max-w-xl">
       <h3 className="text-base font-bold text-white mb-1">AI API Configurations</h3>
-      <p className="text-slate-500 text-xs mb-6">Manage external LLM keys securely using AES-256 client encryption.</p>
+      <p className="text-slate-500 text-xs mb-6">Manage your LLM provider and API keys. Keys are stored encrypted on the server.</p>
 
       <form onSubmit={handleSave} className="space-y-4">
         <div>
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Primary Provider</label>
           <select 
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+            value={localProvider}
+            onChange={(e) => setLocalProvider(e.target.value)}
             className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
           >
             <option value="gemini">✨ Google Gemini Pro</option>
@@ -228,11 +242,12 @@ export function ProvidersKeysSettings() {
         </div>
 
         <div className="border-t border-white/5 pt-4 mt-4 space-y-4">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Encrypted API Keys</h4>
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">API Keys</h4>
           <div>
             <label className="text-[10px] font-bold text-slate-500 block mb-1">Google Gemini API Key</label>
             <input 
               type="password" 
+              placeholder="AIza..."
               value={keys.gemini}
               onChange={(e) => setKeys({...keys, gemini: e.target.value})}
               className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
@@ -248,13 +263,26 @@ export function ProvidersKeysSettings() {
               className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
             />
           </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 block mb-1">Anthropic API Key</label>
+            <input 
+              type="password" 
+              placeholder="sk-ant-..."
+              value={keys.anthropic}
+              onChange={(e) => setKeys({...keys, anthropic: e.target.value})}
+              className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
+            />
+          </div>
         </div>
+
+        {error && <p className="text-[10px] text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">{error}</p>}
 
         <button 
           type="submit"
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold transition-all border border-brand-500/25 mt-4"
+          disabled={saving}
+          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all border border-brand-500/25 mt-4"
         >
-          {saved ? 'Keys Saved ✓' : 'Save Config Keys'}
+          {saving ? 'Saving...' : saved ? 'Config Saved ✓' : 'Save Configuration'}
         </button>
       </form>
     </div>

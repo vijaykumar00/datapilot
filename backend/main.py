@@ -14,11 +14,11 @@ import socket
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, Request
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import pandas as pd
 import time
 import traceback as tb
@@ -229,8 +229,12 @@ async def error_logging_middleware(request: Request, call_next):
             user_id="default_user",
             workspace_id="default_workspace"
         )
-        # Include CORS headers so browser doesn't show a CORS error
-        origin = request.headers.get("origin", "*")
+        # Include CORS headers so browser doesn't show a CORS error.
+        # SECURITY: only reflect origins that are in the configured allowlist.
+        origin = request.headers.get("origin", "")
+        allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173")
+        allowed_origins_list = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+        safe_origin = origin if origin in allowed_origins_list else ""
         resp = JSONResponse(
             status_code=500,
             content={
@@ -240,8 +244,9 @@ async def error_logging_middleware(request: Request, call_next):
                 "request_id": request_id
             }
         )
-        resp.headers["Access-Control-Allow-Origin"] = origin
-        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        if safe_origin:
+            resp.headers["Access-Control-Allow-Origin"] = safe_origin
+            resp.headers["Access-Control-Allow-Credentials"] = "true"
         return resp
 
 
@@ -347,14 +352,14 @@ def get_agents():
 
 # ── Request / Response models ─────────────────────────────────────────────────
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=32000, description="User message (max 32,000 chars)")
     file_ids: list[str] = []
     conversation_history: list[dict] = []
     session_id: str | None = None
 
 
 class ExportRowsRequest(BaseModel):
-    rows: list[dict]
+    rows: list[dict] = Field(..., max_length=50000, description="Max 50,000 rows per export")
     filename: str | None = None
 
 
@@ -392,7 +397,7 @@ class TransformApplyRequest(BaseModel):
 
 
 class TransformPipelineRequest(BaseModel):
-    pipeline: list[dict]
+    pipeline: list[dict] = Field(..., max_length=100, description="Max 100 pipeline steps")
 
 
 class ReportGenerateRequest(BaseModel):
@@ -510,8 +515,13 @@ class ProviderRequest(BaseModel):
 
 
 @app.post("/provider")
-async def switch_provider(req: ProviderRequest):
-    """Switch LLM provider at runtime. Saves API key to .env for persistence."""
+async def switch_provider(req: ProviderRequest, caller: CallerContext = Depends(get_caller)):
+    """Switch LLM provider at runtime (authenticated users only). Saves API key to .env for persistence."""
+    if not caller.is_authenticated:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to switch LLM provider."
+        )
     valid = {"gemini", "openai", "claude", "ollama"}
     if req.provider not in valid:
         raise HTTPException(400, f"Invalid provider. Choose from: {', '.join(valid)}")
@@ -524,7 +534,7 @@ async def switch_provider(req: ProviderRequest):
 
     llm = get_llm_client()
     online = await llm.is_online()
-    logger.info(f"Provider switched to '{req.provider}', online={online}")
+    logger.info(f"Provider switched to '{req.provider}' by user '{caller.user_id}', online={online}")
     return {"success": True, "provider": req.provider, "online": online}
 
 
@@ -638,8 +648,13 @@ async def upload_file(
 
 
 @app.get("/files")
-async def list_files():
-    """List all currently loaded files."""
+async def list_files(caller: CallerContext = Depends(get_caller)):
+    """List currently loaded files. Requires authenticated or guest session."""
+    if not caller.is_authenticated and not caller.is_guest:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication or guest session required to list files."
+        )
     return {"files": get_file_manager().list_files()}
 
 
@@ -858,14 +873,32 @@ async def clear_session(session_id: str):
 
 
 @app.delete("/files/{file_id}")
-async def delete_file(file_id: str):
-    """Remove a file from memory and disk."""
+async def delete_file(file_id: str, caller: CallerContext = Depends(get_caller)):
+    """Remove a file from memory and disk. Requires authentication."""
+    if not caller.is_authenticated:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to delete files."
+        )
     ok = get_file_manager().delete_file(file_id)
     return {"success": ok, "file_id": file_id}
 
 
 import uuid
-_staged_transformations: dict[str, tuple[list[dict], str]] = {}
+import time as _time
+
+# TTL-aware staged transformations: (pipeline, intent, created_at_epoch)
+# Entries are evicted if older than STAGED_TTL_SECONDS when a new entry is added.
+_staged_transformations: dict[str, tuple[list[dict], str, float]] = {}
+_STAGED_TTL_SECONDS = 1800  # 30 minutes
+
+
+def _evict_expired_staged() -> None:
+    """Evict staged transformation entries older than TTL."""
+    cutoff = _time.time() - _STAGED_TTL_SECONDS
+    expired = [k for k, v in _staged_transformations.items() if len(v) > 2 and v[2] < cutoff]
+    for k in expired:
+        _staged_transformations.pop(k, None)
 
 
 @app.post("/files/{file_id}/transform/preview")
@@ -898,9 +931,10 @@ async def transform_preview(file_id: str, req: TransformPreviewRequest):
     if affected_rows < 0:
         affected_rows = abs(affected_rows)
 
-    # Store in staged list
+    # Store in staged list with timestamp for TTL eviction
     trans_id = str(uuid.uuid4())[:8]
-    _staged_transformations[trans_id] = (proposed_actions, file_id)
+    _evict_expired_staged()
+    _staged_transformations[trans_id] = (proposed_actions, file_id, _time.time())
 
     # Clean previews for serialization
     rows_before = df_slice.head(50).fillna("").to_dict(orient="records")
@@ -939,7 +973,7 @@ async def transform_apply(file_id: str, req: TransformApplyRequest):
     if staged is None or staged[1] != file_id:
         raise HTTPException(404, "Transformation plan not found or expired")
 
-    actions, _ = staged
+    actions = staged[0]
     last_res = None
     for action in actions:
         desc = action.get("description", "Apply transformation")

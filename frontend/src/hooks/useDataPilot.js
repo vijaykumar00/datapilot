@@ -27,10 +27,10 @@ const browserWindow = typeof window !== 'undefined' ? window : null
 const API_HOST = browserWindow?.location?.hostname || '127.0.0.1'
 const API_PORT = browserWindow?.__DATAPILOT_API_PORT__ || '8001'
 const API_BASES = [
-  '',
   `http://${API_HOST}:${API_PORT}`,
   `http://${API_HOST}:8001`,
   `http://${API_HOST}:8000`,
+  '',
 ]
 
 async function apiFetch(path, options = {}) {

@@ -6,20 +6,29 @@ export default defineConfig(() => {
   const backendPort = process.env.BACKEND_PORT || '8001'
   const backendTarget = `http://${backendHost}:${backendPort}`
 
+  // All API route prefixes used by the frontend
+  const proxyRoutes = [
+    '/upload', '/chat', '/files', '/health',
+    '/ollama', '/provider', '/export', '/session', '/sessions',
+    '/auth', '/guest',
+    '/user', '/billing',
+    '/analyses', '/templates', '/reports',
+    '/history', '/datasets',
+  ]
+
+  const proxy = {}
+  for (const route of proxyRoutes) {
+    proxy[route] = {
+      target: backendTarget,
+      changeOrigin: true,
+    }
+  }
+
   return {
     plugins: [react()],
     server: {
       port: 5173,
-      proxy: {
-        '/upload': backendTarget,
-        '/chat': backendTarget,
-        '/files': backendTarget,
-        '/health': backendTarget,
-        '/ollama': backendTarget,
-        '/provider': backendTarget,
-        '/export': backendTarget,
-        '/session': backendTarget,
-      }
+      proxy,
     },
     optimizeDeps: {
       include: ['plotly.js-dist-min'],

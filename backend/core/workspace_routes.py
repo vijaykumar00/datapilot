@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, validator
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -29,8 +29,15 @@ VALID_ROLES = {"Owner", "Admin", "Member", "Viewer"}
 # ─────────────────────────────────────────────────────────────
 
 class CreateWorkspaceRequest(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=255)
     plan_tier: str = "free"
+
+    @validator('plan_tier')
+    def validate_plan_tier(cls, v):
+        allowed = {"free", "pro", "business", "enterprise"}
+        if v not in allowed:
+            raise ValueError(f"plan_tier must be one of: {', '.join(sorted(allowed))}")
+        return v
 
 
 class UpdateWorkspaceRequest(BaseModel):
@@ -87,9 +94,19 @@ def list_workspaces(
         WorkspaceMember.user_id == user.user_id
     ).all()
 
+    if not memberships:
+        return {"workspaces": [], "total": 0}
+
+    # Single IN query — avoids N+1 pattern
+    workspace_ids = [m.workspace_id for m in memberships]
+    workspaces_by_id = {
+        ws.workspace_id: ws
+        for ws in db.query(Workspace).filter(Workspace.workspace_id.in_(workspace_ids)).all()
+    }
+
     result = []
     for m in memberships:
-        ws = db.query(Workspace).filter(Workspace.workspace_id == m.workspace_id).first()
+        ws = workspaces_by_id.get(m.workspace_id)
         if ws:
             result.append(_workspace_to_dict(ws, m))
 

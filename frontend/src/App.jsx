@@ -26,6 +26,7 @@ import BillingPortal from './components/BillingPortal'
 import { PrivacyPolicy, TermsOfService, CookiePolicy, AcceptableUsePolicy } from './components/LegalPages'
 import DashboardHome from './components/DashboardHome'
 import SettingsLayout, { ProfileSettings, WorkspaceSettings, TeamMembersSettings, ProvidersKeysSettings, SecuritySessionsSettings } from './components/SettingsLayout'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // Modular Marketing Pages
 import FeaturesPage from './pages/marketing/FeaturesPage'
@@ -1408,7 +1409,7 @@ function TemplateView() {
                           
                           const hasExact = dfCols.some(c => c.name === targetCol)
                           if (!hasExact) {
-                            const hasCase = dfCols.some(c => c.name.toLowerCase() === targetCol.lower())
+                            const hasCase = dfCols.some(c => c.name.toLowerCase() === targetCol.toLowerCase())
                             if (hasCase) {
                               statusText = 'Case Match'
                               statusColor = 'bg-teal-500/10 text-teal-400 border-teal-500/20'
@@ -1418,11 +1419,12 @@ function TemplateView() {
                               let bestCol = null
                               let bestConf = 0.0
                               for (const [col, meta] of Object.entries(semanticMap)) {
-                                const semType = String(meta.semantic_type || '').lower()
-                                const label = String(meta.label || '').lower()
-                                const inferred = String(meta.inferred_meaning || '').lower()
+                                const semType = String(meta.semantic_type || '').toLowerCase()
+                                const label = String(meta.label || '').toLowerCase()
+                                const inferred = String(meta.inferred_meaning || '').toLowerCase()
                                 const conf = parseFloat(meta.confidence || 0.6)
-                                if (targetCol.toLowerCase() in (semType, label) || targetCol.toLowerCase() in inferred) {
+                                const targetLower = targetCol.toLowerCase()
+                                if ([semType, label].includes(targetLower) || inferred.includes(targetLower)) {
                                   if (conf > bestConf) {
                                     bestConf = conf
                                     bestCol = col
@@ -1823,7 +1825,7 @@ function AppLayout() {
             Ctrl+K Palette
           </kbd>
           <a
-            href="http://localhost:8000/docs"
+            href={`${import.meta.env.VITE_API_URL || ''}/docs`}
             target="_blank"
             rel="noreferrer"
             className="text-brand-400 hover:text-brand-300 transition-colors font-medium"
@@ -1910,61 +1912,63 @@ function SpreadsheetWrapper() {
 // ── Main App Router Entry Point ──────────────────────────────────────────────
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/demo" element={<DemoTrigger />} />
-        <Route path="/login" element={<AuthRouteWrapper tab="login" />} />
-        <Route path="/signup" element={<AuthRouteWrapper tab="signup" />} />
-        
-        {/* Marketing sub-pages */}
-        <Route path="/features" element={<FeaturesPage />} />
-        <Route path="/use-cases" element={<UseCasesPage />} />
-        <Route path="/security" element={<SecurityPage />} />
-        <Route path="/pricing" element={<PricingPage />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/contact" element={<ContactPage />} />
-        <Route path="/docs" element={<DocsPage />} />
-
-        {/* Legal pages */}
-        <Route path="/legal/privacy" element={<PrivacyPolicy />} />
-        <Route path="/legal/terms" element={<TermsOfService />} />
-        <Route path="/legal/cookie-policy" element={<CookiePolicy />} />
-        <Route path="/legal/acceptable-use" element={<AcceptableUsePolicy />} />
-        <Route path="/onboarding" element={<OnboardingFlow />} />
-        
-        {/* Protected App Routes */}
-        <Route path="/app" element={<RouteGuard><AppLayout /></RouteGuard>}>
-          <Route path="analyze" element={<ChatWindow />} />
-          <Route path="dashboard" element={<DashboardView />} />
-          <Route path="report" element={<ReportView />} />
-          <Route path="spreadsheet" element={<SpreadsheetWrapper />} />
-          <Route path="presentation" element={<PresentationView />} />
-          <Route path="templates" element={<TemplateView />} />
-          <Route path="saved" element={<SavedAnalyses />} />
-          <Route path="reports" element={<SavedReports />} />
-          <Route path="history" element={<QueryHistory />} />
-          <Route path="datasets" element={<DatasetManager />} />
-          <Route path="billing" element={<BillingPortal />} />
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/demo" element={<DemoTrigger />} />
+          <Route path="/login" element={<AuthRouteWrapper tab="login" />} />
+          <Route path="/signup" element={<AuthRouteWrapper tab="signup" />} />
           
-          {/* Settings Sub-routes */}
-          <Route path="settings" element={<SettingsLayout />}>
-            <Route path="profile" element={<ProfileSettings />} />
-            <Route path="workspace" element={<WorkspaceSettings />} />
-            <Route path="members" element={<TeamMembersSettings />} />
-            <Route path="providers" element={<ProvidersKeysSettings />} />
-            <Route path="security" element={<SecuritySessionsSettings />} />
+          {/* Marketing sub-pages */}
+          <Route path="/features" element={<FeaturesPage />} />
+          <Route path="/use-cases" element={<UseCasesPage />} />
+          <Route path="/security" element={<SecurityPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/docs" element={<DocsPage />} />
+
+          {/* Legal pages */}
+          <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+          <Route path="/legal/terms" element={<TermsOfService />} />
+          <Route path="/legal/cookie-policy" element={<CookiePolicy />} />
+          <Route path="/legal/acceptable-use" element={<AcceptableUsePolicy />} />
+          <Route path="/onboarding" element={<OnboardingFlow />} />
+          
+          {/* Protected App Routes */}
+          <Route path="/app" element={<RouteGuard><AppLayout /></RouteGuard>}>
+            <Route path="analyze" element={<ChatWindow />} />
+            <Route path="dashboard" element={<DashboardView />} />
+            <Route path="report" element={<ReportView />} />
+            <Route path="spreadsheet" element={<SpreadsheetWrapper />} />
+            <Route path="presentation" element={<PresentationView />} />
+            <Route path="templates" element={<TemplateView />} />
+            <Route path="saved" element={<SavedAnalyses />} />
+            <Route path="reports" element={<SavedReports />} />
+            <Route path="history" element={<QueryHistory />} />
+            <Route path="datasets" element={<DatasetManager />} />
             <Route path="billing" element={<BillingPortal />} />
-            <Route index element={<Navigate to="profile" replace />} />
+            
+            {/* Settings Sub-routes */}
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route path="profile" element={<ProfileSettings />} />
+              <Route path="workspace" element={<WorkspaceSettings />} />
+              <Route path="members" element={<TeamMembersSettings />} />
+              <Route path="providers" element={<ProvidersKeysSettings />} />
+              <Route path="security" element={<SecuritySessionsSettings />} />
+              <Route path="billing" element={<BillingPortal />} />
+              <Route index element={<Navigate to="profile" replace />} />
+            </Route>
+
+            <Route index element={<DashboardHome />} />
           </Route>
 
-          <Route index element={<DashboardHome />} />
-        </Route>
-
-        {/* Fallback redirect */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+          {/* Fallback redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }
 

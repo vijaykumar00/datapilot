@@ -1,18 +1,26 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataPilot } from '../hooks/useDataPilot'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function DashboardHome() {
-  const { files, queryHistory, reports, trackEvent } = useDataPilot()
+  const { files, historyMessages, historyTotal, reports, trackEvent, loadHistory, loadReports } = useDataPilot()
   const { user } = useAuth()
   const navigate = useNavigate()
+
+  // Load history and reports so checklist and stats are accurate
+  useEffect(() => {
+    loadHistory?.()
+    loadReports?.()
+  }, [])
+
+  const queryCount = historyTotal || historyMessages?.length || 0
 
   // Calculate setup checklist progress
   const checklist = [
     { id: 'signup', label: 'Create your account', completed: true, desc: 'Completed on registration' },
     { id: 'dataset', label: 'Upload your first dataset', completed: files.length > 0, desc: 'CSV or Excel spreadsheet', link: '/app/datasets' },
-    { id: 'query', label: 'Ask your first analytics question', completed: queryHistory && queryHistory.length > 0, desc: 'Natural language analysis', link: '/app/analyze' },
+    { id: 'query', label: 'Ask your first analytics question', completed: queryCount > 0, desc: 'Natural language analysis', link: '/app/analyze' },
     { id: 'report', label: 'Generate a narrative report', completed: reports && reports.length > 0, desc: 'Create summary document', link: '/app/report' }
   ]
 
@@ -100,7 +108,7 @@ export default function DashboardHome() {
               </div>
               <div className="bg-[#0d1222] p-3 rounded-xl border border-white/5">
                 <span className="text-[10px] text-slate-500 block">Total Queries Run</span>
-                <span className="text-base font-bold text-white mt-1 block font-mono">{queryHistory?.length || 0}</span>
+                <span className="text-base font-bold text-white mt-1 block font-mono">{queryCount}</span>
               </div>
             </div>
             <Link 

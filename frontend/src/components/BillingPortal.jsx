@@ -7,7 +7,21 @@ export default function BillingPortal() {
   const [loading, setLoading] = useState(true)
   const [upgrading, setUpgrading] = useState(false)
 
+  const [billingError, setBillingError] = useState(null)
+
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001'
+
+  // Trusted redirect domains — only Stripe and own origin are allowed
+  const TRUSTED_REDIRECT_DOMAINS = ['stripe.com', 'checkout.stripe.com', window.location.hostname]
+
+  function isTrustedUrl(urlStr) {
+    try {
+      const parsed = new URL(urlStr)
+      return TRUSTED_REDIRECT_DOMAINS.some(d => parsed.hostname === d || parsed.hostname.endsWith('.' + d))
+    } catch {
+      return false
+    }
+  }
 
   useEffect(() => {
     fetchUsage()
@@ -21,9 +35,11 @@ export default function BillingPortal() {
       if (resp.ok) {
         const data = await resp.json()
         setUsage(data)
+      } else {
+        setBillingError('Failed to load billing information. Please refresh.')
       }
     } catch (err) {
-      console.error('Failed to fetch usage:', err)
+      setBillingError('Could not connect to billing service.')
     } finally {
       setLoading(false)
     }
@@ -31,6 +47,7 @@ export default function BillingPortal() {
 
   const handleUpgrade = async (planId) => {
     setUpgrading(true)
+    setBillingError(null)
     try {
       const resp = await fetch(`${API_BASE}/billing/checkout`, {
         method: 'POST',
@@ -39,17 +56,23 @@ export default function BillingPortal() {
       })
       const data = await resp.json()
       if (data.checkout_url) {
-        // Redirect to checkout portal (Stripe checkout session)
+        if (!isTrustedUrl(data.checkout_url)) {
+          setBillingError('Invalid checkout URL returned by server. Please contact support.')
+          return
+        }
         window.location.href = data.checkout_url
+      } else {
+        setBillingError(data.detail || data.error || 'Checkout session could not be created.')
       }
     } catch (err) {
-      console.error('Checkout error:', err)
+      setBillingError('Checkout failed. Please try again or contact support.')
     } finally {
       setUpgrading(false)
     }
   }
 
   const handlePortalRedirect = async () => {
+    setBillingError(null)
     try {
       const resp = await fetch(`${API_BASE}/billing/portal`, {
         method: 'POST',
@@ -57,10 +80,16 @@ export default function BillingPortal() {
       })
       const data = await resp.json()
       if (data.portal_url) {
+        if (!isTrustedUrl(data.portal_url)) {
+          setBillingError('Invalid portal URL returned by server. Please contact support.')
+          return
+        }
         window.location.href = data.portal_url
+      } else {
+        setBillingError(data.detail || data.error || 'Could not open billing portal.')
       }
     } catch (err) {
-      console.error('Portal redirect error:', err)
+      setBillingError('Portal redirect failed. Please try again.')
     }
   }
 
@@ -82,6 +111,13 @@ export default function BillingPortal() {
 
   return (
     <div className="h-full overflow-y-auto px-6 py-5 space-y-6 custom-scrollbar animate-fade-in bg-[#030712]">
+      {billingError && (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-xs text-rose-300 flex items-start gap-2">
+          <span>⚠️</span>
+          <span>{billingError}</span>
+          <button onClick={() => setBillingError(null)} className="ml-auto text-rose-400 hover:text-rose-300">✕</button>
+        </div>
+      )}
       <div>
         <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
           💳 Billing & Quota Manager
