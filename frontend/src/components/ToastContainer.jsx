@@ -1,51 +1,64 @@
 /**
- * ToastContainer.jsx — Global toast notification system.
- * Reads from AuthContext.toasts and renders them in the bottom-right.
+ * Global toast notification system.
+ * Reads from AuthContext.toasts and renders consistent status messages.
  */
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext'
 
 const ICONS = {
-  success: '✓',
-  error: '✕',
-  info: 'ℹ',
-  warning: '⚠',
-};
+  success: 'OK',
+  error: '!',
+  info: 'i',
+  warning: '!',
+}
 
 const COLORS = {
-  success: '#10b981',
-  error: '#ef4444',
-  info: '#6366f1',
-  warning: '#f59e0b',
-};
+  success: 'var(--success)',
+  error: 'var(--error)',
+  info: 'var(--information)',
+  warning: 'var(--warning)',
+}
 
-function Toast({ id, message, type, onDismiss }) {
+function Toast({ id, message, type = 'info', onDismiss }) {
+  const toastType = COLORS[type] ? type : 'info'
+
   return (
     <div
-      className={`toast toast-${type}`}
-      style={{ '--toast-color': COLORS[type] || COLORS.info }}
+      className={`toast toast-${toastType}`}
+      style={{ '--toast-color': COLORS[toastType] }}
       onClick={() => onDismiss(id)}
-      role="alert"
+      role={toastType === 'error' ? 'alert' : 'status'}
       aria-live="polite"
+      tabIndex={0}
     >
-      <span className="toast-icon">{ICONS[type] || ICONS.info}</span>
+      <span className="toast-icon" aria-hidden="true">{ICONS[toastType]}</span>
       <span className="toast-msg">{message}</span>
-      <button className="toast-close" onClick={() => onDismiss(id)}>✕</button>
+      <button
+        type="button"
+        className="toast-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDismiss(id)
+        }}
+        aria-label="Dismiss notification"
+      >
+        x
+      </button>
     </div>
-  );
+  )
 }
 
 function ToastContainer() {
-  const { toasts, dismissToast } = useAuth();
+  const { toasts, dismissToast } = useAuth()
 
-  if (!toasts.length) return null;
+  if (!toasts.length) return null
 
   return (
     <div className="toast-container" aria-label="Notifications">
-      {toasts.map(t => (
-        <Toast key={t.id} {...t} onDismiss={dismissToast} />
+      {toasts.map((toast) => (
+        <Toast key={toast.id} {...toast} onDismiss={dismissToast} />
       ))}
     </div>
-  );
+  )
 }
 
-export default ToastContainer;
+export default ToastContainer

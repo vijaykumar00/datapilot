@@ -251,3 +251,49 @@ test('Sprint 3.4 guest conversion and accessibility affordances are present', ()
   assert.match(styles, /prefers-reduced-motion: reduce/)
   assert.match(styles, /max-width: 640px/)
 })
+
+test('Sprint 3.5 polish layer standardizes shared design tokens and focus behavior', () => {
+  const styles = read('../src/index.css')
+
+  for (const token of [
+    '--space-1',
+    '--space-2',
+    '--space-3',
+    '--space-4',
+    '--space-6',
+    '--radius-pill',
+    '--motion-fast',
+    '--motion-base',
+    '--focus-ring',
+    'Sprint 3.5 product polish',
+    ':focus-visible',
+  ]) {
+    assert.match(styles, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  assert.match(styles, /\.auth-modal,\s*\n\.onboarding-panel,\s*\n\.user-dropdown/)
+  assert.match(styles, /\.toast-container/)
+  assert.match(styles, /max-width: 640px/)
+})
+
+test('Sprint 3.5 toast system uses token colors and accessible dismissal', () => {
+  const toast = read('../src/components/ToastContainer.jsx')
+
+  assert.match(toast, /var\(--success\)/)
+  assert.match(toast, /var\(--error\)/)
+  assert.match(toast, /role=\{toastType === 'error' \? 'alert' : 'status'\}/)
+  assert.match(toast, /aria-label="Dismiss notification"/)
+  assert.match(toast, /tabIndex=\{0\}/)
+  assert.doesNotMatch(toast, /#[0-9a-fA-F]{6}/)
+})
+
+test('Sprint 3.5 browser verification records design consistency and 1280px responsive checks', () => {
+  const browser = read('./browser-verify.mjs')
+
+  assert.match(browser, /sprint-3-5/)
+  assert.match(browser, /1280/)
+  assert.match(browser, /consistencyChecks/)
+  assert.match(browser, /radiusButton/)
+  assert.match(browser, /focusVisibleRule/)
+  assert.match(browser, /reducedMotionRule/)
+})

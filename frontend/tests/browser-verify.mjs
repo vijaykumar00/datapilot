@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const evidenceDir = resolve(root, 'test-results', 'sprint-3-4')
+const evidenceDir = resolve(root, 'test-results', 'sprint-3-5')
 const previewPort = 4173
 const debugPort = 9333
 const baseUrl = `http://127.0.0.1:${previewPort}`
@@ -249,7 +249,7 @@ async function main() {
     ])
 
     const viewportChecks = []
-    for (const width of [320, 375, 768, 1024, 1440]) {
+    for (const width of [320, 375, 768, 1024, 1280, 1440]) {
       await navigate(tab, '/', width, 900)
       viewportChecks.push(await evaluate(tab, `(() => ({
         width: ${width},
@@ -437,6 +437,44 @@ async function main() {
     assert.equal(dashboardState.scrollable, true)
     await screenshot(tab, 'dashboard-home-desktop')
 
+    const consistencyState = await evaluate(tab, `(() => {
+      const root = getComputedStyle(document.documentElement);
+      const radiusButton = root.getPropertyValue('--radius-button').trim();
+      const radiusCard = root.getPropertyValue('--radius-card').trim();
+      const focusRing = root.getPropertyValue('--focus-ring').trim();
+      const primaryButton = document.querySelector('.btn-primary');
+      const dashboardCard = document.querySelector('.app-card');
+      const uploadCta = Array.from(document.querySelectorAll('a, button')).find((item) => item.textContent.includes('Upload Dataset'));
+      return {
+        radiusButton,
+        radiusCard,
+        focusRingPresent: focusRing.length > 0,
+        primaryButtonRadius: primaryButton ? getComputedStyle(primaryButton).borderRadius : null,
+        dashboardCardRadius: dashboardCard ? getComputedStyle(dashboardCard).borderRadius : null,
+        uploadCtaReadable: uploadCta ? getComputedStyle(uploadCta).fontSize : null,
+        focusVisibleRule: Array.from(document.styleSheets).some((sheet) => {
+          try {
+            return Array.from(sheet.cssRules || []).some((rule) => String(rule.selectorText || '').includes(':focus-visible'))
+          } catch {
+            return false
+          }
+        }),
+        reducedMotionRule: Array.from(document.styleSheets).some((sheet) => {
+          try {
+            return Array.from(sheet.cssRules || []).some((rule) => String(rule.conditionText || '').includes('prefers-reduced-motion'))
+          } catch {
+            return false
+          }
+        })
+      }
+    })()`)
+    assert.equal(consistencyState.radiusButton, '8px')
+    assert.equal(consistencyState.radiusCard, '8px')
+    assert.equal(consistencyState.focusRingPresent, true)
+    assert.equal(consistencyState.primaryButtonRadius, '8px')
+    assert.equal(consistencyState.focusVisibleRule, true)
+    assert.equal(consistencyState.reducedMotionRule, true)
+
     await evaluate(tab, `document.querySelector('.onboarding-assistant-toggle')?.click()`)
     await sleep(300)
     const onboardingState = await evaluate(tab, `(() => ({
@@ -525,6 +563,7 @@ async function main() {
         publicRoutesChecked: publicRoutes,
         homepageChecks: homepageState,
         dashboardChecks: dashboardState,
+        consistencyChecks: consistencyState,
         onboardingChecks: {
           desktop: onboardingState,
           resumeLater: resumeLaterState,

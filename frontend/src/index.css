@@ -38,9 +38,21 @@
 
   --page-max-width: 1180px;
   --section-spacing: clamp(4rem, 8vw, 7rem);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
   --radius-card: 8px;
   --radius-button: 8px;
   --radius-input: 8px;
+  --radius-pill: 999px;
+  --motion-fast: 160ms;
+  --motion-base: 220ms;
+  --motion-slow: 320ms;
+  --focus-ring: 0 0 0 3px rgba(129, 140, 248, 0.42);
   --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.25);
   --shadow-md: 0 18px 50px rgba(0, 0, 0, 0.34);
   --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.48);
@@ -64,6 +76,11 @@ html, body, #root {
 
 body.mobile-nav-open {
   overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 3px;
 }
 
 /* ── Custom Premium Scrollbars ───────────────────────────────────────────── */
@@ -1778,6 +1795,170 @@ body.mobile-nav-open {
 .toast-close {
   background: none; border: none; color: var(--text-muted);
   cursor: pointer; font-size: 13px; flex-shrink: 0;
+}
+
+/* Sprint 3.5 product polish and consistency refinements */
+.auth-modal,
+.user-dropdown,
+.onboarding-panel,
+.toast,
+.guest-upgrade-card,
+.glass,
+.glass-sm,
+.glass-highlight {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-md);
+}
+
+.auth-modal,
+.onboarding-panel,
+.user-dropdown {
+  border-radius: var(--radius-card);
+}
+
+.auth-modal {
+  background: linear-gradient(180deg, rgba(16, 22, 38, 0.96), rgba(8, 12, 24, 0.98));
+  padding: var(--space-6);
+}
+
+.auth-modal-close,
+.auth-tab,
+.auth-field input,
+.auth-submit-btn,
+.auth-alert,
+.guest-usage-toggle,
+.guest-login-btn,
+.guest-signup-btn,
+.toast,
+.toast-close,
+.user-avatar-btn,
+.onboarding-assistant-toggle,
+.onboarding-panel-header button,
+.onboarding-panel-actions button,
+.onboarding-step-list a,
+.onboarding-prompt-box a {
+  border-radius: var(--radius-button);
+}
+
+.auth-field label,
+.auth-switch,
+.auth-forgot-desc,
+.toast-msg,
+.guest-banner,
+.onboarding-step-list a small {
+  line-height: 1.5;
+}
+
+.auth-field input,
+.guest-login-btn,
+.guest-signup-btn,
+.toast,
+.toast-close,
+.onboarding-assistant-toggle,
+.onboarding-panel button,
+.onboarding-panel a {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+}
+
+.auth-field input:focus,
+.auth-tab:focus-visible,
+.auth-submit-btn:focus-visible,
+.auth-modal-close:focus-visible,
+.auth-link:focus-visible,
+.guest-usage-toggle:focus-visible,
+.guest-login-btn:focus-visible,
+.guest-signup-btn:focus-visible,
+.toast:focus-visible,
+.toast-close:focus-visible,
+.user-avatar-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.auth-field input {
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+}
+
+.auth-submit-btn,
+.guest-signup-btn {
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  box-shadow: 0 10px 26px rgba(99, 102, 241, 0.26);
+}
+
+.auth-submit-btn:hover:not(:disabled),
+.guest-signup-btn:hover {
+  box-shadow: 0 14px 32px rgba(99, 102, 241, 0.36);
+}
+
+.auth-alert-error,
+.auth-alert-success,
+.auth-guest-banner,
+.guest-upgrade-card,
+.onboarding-success,
+.onboarding-celebration {
+  border-radius: var(--radius-card);
+}
+
+.toast-container {
+  right: var(--space-6);
+  bottom: var(--space-6);
+  gap: var(--space-3);
+}
+
+.toast {
+  background: rgba(16, 22, 38, 0.96);
+  border-left-width: 4px;
+  padding: var(--space-3) var(--space-4);
+}
+
+.toast-icon {
+  inline-size: 24px;
+  block-size: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--toast-color, var(--information)) 42%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--toast-color, var(--information)) 13%, transparent);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.toast-close {
+  inline-size: 28px;
+  block-size: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toast-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.onboarding-assistant-toggle {
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 640px) {
+  .toast-container {
+    right: var(--space-3);
+    bottom: var(--space-3);
+    left: var(--space-3);
+  }
+
+  .toast {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
 }
 
 
