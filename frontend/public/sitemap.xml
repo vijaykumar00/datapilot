@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Static local-development sitemap. Replace localhost with VITE_PUBLIC_SITE_URL during production sitemap generation. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://localhost:5173/</loc></url>
+  <url><loc>http://localhost:5173/features</loc></url>
+  <url><loc>http://localhost:5173/use-cases</loc></url>
+  <url><loc>http://localhost:5173/security</loc></url>
+  <url><loc>http://localhost:5173/pricing</loc></url>
+  <url><loc>http://localhost:5173/about</loc></url>
+  <url><loc>http://localhost:5173/contact</loc></url>
+  <url><loc>http://localhost:5173/docs</loc></url>
+  <url><loc>http://localhost:5173/legal/privacy</loc></url>
+  <url><loc>http://localhost:5173/legal/terms</loc></url>
+  <url><loc>http://localhost:5173/legal/cookie-policy</loc></url>
+  <url><loc>http://localhost:5173/legal/acceptable-use</loc></url>
+</urlset>

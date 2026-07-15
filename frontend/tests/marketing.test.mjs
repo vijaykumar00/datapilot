@@ -1,0 +1,99 @@
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import { test } from 'node:test'
+import {
+  legalRouteMetadata,
+  marketingNavItems,
+  publicRouteMetadata,
+  publicSitemapRoutes,
+} from '../src/data/marketing.js'
+
+const requiredPublicRoutes = [
+  '/',
+  '/features',
+  '/use-cases',
+  '/security',
+  '/pricing',
+  '/about',
+  '/contact',
+  '/docs',
+  '/legal/privacy',
+  '/legal/terms',
+  '/legal/cookie-policy',
+  '/legal/acceptable-use',
+]
+
+function read(path) {
+  return readFileSync(new URL(path, import.meta.url), 'utf8')
+}
+
+test('all Sprint 3.1 public routes have metadata and sitemap entries', () => {
+  for (const route of requiredPublicRoutes) {
+    const metadata = publicRouteMetadata[route] || legalRouteMetadata[route]
+    assert.ok(metadata, `${route} is missing route metadata`)
+    assert.ok(metadata.title?.length > 2, `${route} needs a title`)
+    assert.ok(metadata.description?.length > 48, `${route} needs a useful description`)
+    assert.ok(publicSitemapRoutes.includes(route), `${route} is missing from sitemap route data`)
+  }
+})
+
+test('marketing navigation exposes accessible public links and auth CTAs', () => {
+  const header = read('../src/components/marketing/MarketingHeader.jsx')
+  const mobile = read('../src/components/marketing/MobileNavigation.jsx')
+
+  assert.deepEqual(
+    marketingNavItems.map((item) => item.path),
+    ['/', '/features', '/use-cases', '/security', '/pricing', '/docs', '/about', '/contact']
+  )
+  assert.match(header, /aria-expanded/)
+  assert.match(header, /aria-controls="mobile-navigation"/)
+  assert.match(mobile, /Escape/)
+  assert.match(mobile, /document.body.style.overflow = 'hidden'/)
+  assert.match(mobile, /aria-label="Mobile navigation"/)
+  assert.match(header, /to="\/login"/)
+  assert.match(header, /to="\/signup"/)
+})
+
+test('router keeps app protected, registers public routes, and renders public 404', () => {
+  const app = read('../src/App.jsx')
+
+  for (const route of requiredPublicRoutes) {
+    if (route === '/') {
+      assert.match(app, /path="\/" element={<HomePage \/>}/)
+    } else {
+      assert.match(app, new RegExp(`path="${route.replaceAll('/', '\\/')}"`))
+    }
+  }
+
+  assert.match(app, /path="\/app" element={<RouteGuard><AppLayout \/><\/RouteGuard>}/)
+  assert.match(app, /path="\*" element={<NotFoundPage \/>}/)
+  assert.doesNotMatch(app, /path="\*" element={<Navigate to="\/" replace \/>}/)
+})
+
+test('SEO foundation sets canonical, OG, Twitter, and noindex metadata', () => {
+  const seo = read('../src/components/marketing/SEO.jsx')
+  const app = read('../src/App.jsx')
+
+  assert.match(seo, /link\[rel="canonical"\]/)
+  assert.match(seo, /og:title/)
+  assert.match(seo, /og:description/)
+  assert.match(seo, /og:image/)
+  assert.match(seo, /twitter:card/)
+  assert.match(seo, /noindex, nofollow/)
+  assert.match(app, /canonicalPath="\/app"[\s\S]*noindex/)
+  assert.match(app, /canonicalPath=.*\/login/)
+})
+
+test('public assets exist and avoid emoji favicon branding', () => {
+  const index = read('../index.html')
+  const robots = read('../public/robots.txt')
+  const sitemap = read('../public/sitemap.xml')
+
+  assert.match(index, /href="\/favicon\.svg"/)
+  assert.doesNotMatch(index, /data:image\/svg\+xml/)
+  assert.match(robots, /Disallow: \/app\//)
+  assert.match(sitemap, /http:\/\/localhost:5173\/features/)
+  assert.ok(existsSync(new URL('../public/assets/logo-mark.svg', import.meta.url)))
+  assert.ok(existsSync(new URL('../public/assets/logo-horizontal.svg', import.meta.url)))
+  assert.ok(existsSync(new URL('../public/assets/og-image.png', import.meta.url)))
+})

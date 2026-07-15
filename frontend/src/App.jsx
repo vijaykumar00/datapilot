@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import ChatWindow from './components/ChatWindow'
 import DataPreview from './components/DataPreview'
 import FileUploader from './components/FileUploader'
@@ -20,15 +20,16 @@ import ToastContainer from './components/ToastContainer'
 import UserMenu from './components/UserMenu'
 import { useAuth } from './contexts/AuthContext'
 
-import LandingPage from './components/LandingPage'
 import OnboardingFlow from './components/OnboardingFlow'
 import BillingPortal from './components/BillingPortal'
 import { PrivacyPolicy, TermsOfService, CookiePolicy, AcceptableUsePolicy } from './components/LegalPages'
 import DashboardHome from './components/DashboardHome'
 import SettingsLayout, { ProfileSettings, WorkspaceSettings, TeamMembersSettings, ProvidersKeysSettings, SecuritySessionsSettings } from './components/SettingsLayout'
 import ErrorBoundary from './components/ErrorBoundary'
+import SEO from './components/marketing/SEO'
 
 // Modular Marketing Pages
+import HomePage from './pages/marketing/HomePage'
 import FeaturesPage from './pages/marketing/FeaturesPage'
 import UseCasesPage from './pages/marketing/UseCasesPage'
 import SecurityPage from './pages/marketing/SecurityPage'
@@ -36,6 +37,7 @@ import PricingPage from './pages/marketing/PricingPage'
 import AboutPage from './pages/marketing/AboutPage'
 import ContactPage from './pages/marketing/ContactPage'
 import DocsPage from './pages/marketing/DocsPage'
+import NotFoundPage from './pages/marketing/NotFoundPage'
 
 
 
@@ -1672,6 +1674,12 @@ function AuthRouteWrapper({ tab }) {
 
   return (
     <div className="min-h-screen bg-[#030712] flex items-center justify-center">
+      <SEO
+        title={tab === 'signup' ? 'Create Account' : tab === 'forgot' ? 'Reset Password' : 'Sign In'}
+        description="Secure DataPilot authentication screen."
+        canonicalPath={tab === 'signup' ? '/signup' : tab === 'forgot' ? '/forgot-password' : '/login'}
+        noindex
+      />
       <AuthModal open={true} onClose={() => navigate('/')} defaultTab={tab} />
     </div>
   )
@@ -1719,8 +1727,6 @@ function RouteGuard({ children }) {
 }
 
 // ── Shared Application Layout Shell ──────────────────────────────────────────
-import { Outlet } from 'react-router-dom'
-
 function AppLayout() {
   const {
     activeTab,
@@ -1763,6 +1769,12 @@ function AppLayout() {
 
   return (
     <div className="noise flex h-screen overflow-hidden bg-[#030712]">
+      <SEO
+        title="Workspace"
+        description="Private DataPilot analytics workspace."
+        canonicalPath="/app"
+        noindex
+      />
       {/* Ambient purple blurs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="ambient-glow top-[-20%] left-[-15%] opacity-15"
@@ -1915,10 +1927,11 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/demo" element={<DemoTrigger />} />
           <Route path="/login" element={<AuthRouteWrapper tab="login" />} />
           <Route path="/signup" element={<AuthRouteWrapper tab="signup" />} />
+          <Route path="/forgot-password" element={<AuthRouteWrapper tab="forgot" />} />
           
           {/* Marketing sub-pages */}
           <Route path="/features" element={<FeaturesPage />} />
@@ -1964,11 +1977,10 @@ export default function App() {
             <Route index element={<DashboardHome />} />
           </Route>
 
-          {/* Fallback redirect */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Public fallback */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>
   )
 }
-

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">DataPilot logo mark</title>
+  <desc id="desc">A navigation arrow inside a data grid.</desc>
+  <rect width="64" height="64" rx="14" fill="#030712"/>
+  <path d="M16 44V20l32 12-14 4-6 12-4-10-8 6Z" fill="#818cf8"/>
+  <path d="M18 20h28M18 32h28M18 44h18M18 20v24M32 20v20M46 20v14" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" opacity=".44"/>
+</svg>

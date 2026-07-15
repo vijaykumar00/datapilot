@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 232 64" role="img" aria-labelledby="title desc">
+  <title id="title">DataPilot</title>
+  <desc id="desc">DataPilot horizontal logo with navigation-arrow data mark.</desc>
+  <rect width="64" height="64" rx="14" fill="#080c18"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#818cf8" stroke-opacity=".42" stroke-width="2"/>
+  <path d="M16 44V20l32 12-14 4-6 12-4-10-8 6Z" fill="#818cf8"/>
+  <path d="M18 20h28M18 32h28M18 44h18M18 20v24M32 20v20M46 20v14" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" opacity=".44"/>
+  <text x="80" y="38" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="0">DataPilot</text>
+  <text x="82" y="52" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="600" letter-spacing=".8">SAAS ANALYTICS PLATFORM</text>
+</svg>

@@ -1,115 +1,93 @@
-import React from 'react'
 import { Link } from 'react-router-dom'
+import { legalRouteMetadata } from '../data/marketing'
+import MarketingLayout from './marketing/MarketingLayout'
+import SEO from './marketing/SEO'
+import { Alert } from './marketing/MarketingPrimitives'
+
+const legalPages = {
+  '/legal/privacy': {
+    title: 'Privacy Policy',
+    sections: [
+      ['Data storage and processing', 'DataPilot processes calculations in workspace context and stores files inside the configured backend workspace storage.'],
+      ['Guest data expiration', 'Guest sessions and associated uploads are designed for temporary evaluation workflows.'],
+      ['Third-party AI integrations', 'When external AI providers are configured, prompts may be sent to the selected provider endpoint. Stored provider keys are encrypted by the application layer.'],
+      ['Cookies and local storage', 'DataPilot uses functional session storage and browser preferences. Advertising trackers are not part of the current product foundation.'],
+    ],
+  },
+  '/legal/terms': {
+    title: 'Terms of Service',
+    sections: [
+      ['Usage entitlements', 'Workspace usage is subject to configured limits, account status, and platform integrity protections.'],
+      ['User responsibilities', 'Users are responsible for verifying important business, financial, or operational conclusions before acting on generated analysis.'],
+      ['Service limitations', 'Generated answers may include AI-assisted reasoning and should be reviewed against source data for high-stakes decisions.'],
+    ],
+  },
+  '/legal/cookie-policy': {
+    title: 'Cookie Policy',
+    sections: [
+      ['Functional storage', 'DataPilot uses functional cookies and browser storage for authentication state, preferences, and workspace continuity.'],
+      ['Tracking posture', 'The current product foundation does not include behavioral advertising networks.'],
+    ],
+  },
+  '/legal/acceptable-use': {
+    title: 'Acceptable Use Policy',
+    sections: [
+      ['Platform safety', 'Users must not upload malicious files, attempt unauthorized access, or stress test workspace infrastructure without written approval.'],
+      ['Data responsibility', 'Users should only upload datasets they are permitted to process and analyze.'],
+      ['Workspace boundaries', 'Attempts to bypass authentication, usage controls, or workspace isolation are prohibited.'],
+    ],
+  },
+}
+
+function LegalPage({ path }) {
+  const metadata = legalRouteMetadata[path]
+  const page = legalPages[path]
+
+  return (
+    <MarketingLayout>
+      <SEO title={metadata.title} description={metadata.description} canonicalPath={path} />
+      <section className="section-container">
+        <article className="section-inner max-w-3xl">
+          <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-default)] pb-5">
+            <Link to="/" className="btn-ghost">
+              Return Home
+            </Link>
+            <Alert title="Draft pending legal review" tone="warning">
+              This page is a product foundation and is not final legal advice.
+            </Alert>
+          </div>
+
+          <h1 className="text-3xl font-black text-[var(--text-primary)]">{page.title}</h1>
+          <p className="mt-3 text-sm font-mono text-[var(--text-muted)]">Last updated: July 2026</p>
+
+          <div className="mt-10 space-y-8">
+            {page.sections.map(([title, body], index) => (
+              <section key={title}>
+                <h2 className="text-lg font-bold text-[var(--text-primary)]">
+                  {index + 1}. {title}
+                </h2>
+                <p className="mt-3 text-base leading-7 text-[var(--text-secondary)]">{body}</p>
+              </section>
+            ))}
+          </div>
+        </article>
+      </section>
+    </MarketingLayout>
+  )
+}
 
 export function PrivacyPolicy() {
-  return (
-    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans p-8 overflow-y-auto custom-scrollbar">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between border-b border-white/5 pb-4">
-          <Link to="/" className="text-xs text-brand-400 hover:underline">← Return Home</Link>
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-mono">DRAFT — PENDING LEGAL REVIEW</span>
-        </div>
-
-        <h1 className="text-2xl font-black text-white">Privacy Policy</h1>
-        <p className="text-xs text-slate-400 font-mono">Last Updated: July 2026</p>
-
-        <section className="space-y-3.5 text-xs text-slate-300 leading-relaxed">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">1. Data Storage & Local Processing</h2>
-          <p>
-            DataPilot processes your calculations locally in memory. Stored files are retained inside your tenant workspace directory on the backend server.
-          </p>
-
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">2. Guest Data Expiration</h2>
-          <p>
-            Guest sessions and all associated uploaded spreadsheets expire automatically after 24 hours of inactivity. Permanent user account data is stored securely until requested for deletion.
-          </p>
-
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">3. Third-Party AI Integrations</h2>
-          <p>
-            When utilizing Gemini, OpenAI, or Claude providers, prompts are forwarded to the respective LLM API endpoint. No database files are used for training models. Stored API keys are encrypted at the application layer before storage.
-          </p>
-
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">4. Cookies & Trackers</h2>
-          <p>
-            We use functional session cookies and local storage tokens to persist authenticated states and preferences. No ad tracking networks are implemented. See our Cookie Policy for more details.
-          </p>
-        </section>
-      </div>
-    </div>
-  )
+  return <LegalPage path="/legal/privacy" />
 }
 
 export function TermsOfService() {
-  return (
-    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans p-8 overflow-y-auto custom-scrollbar">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between border-b border-white/5 pb-4">
-          <Link to="/" className="text-xs text-brand-400 hover:underline">← Return Home</Link>
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-mono">DRAFT — PENDING LEGAL REVIEW</span>
-        </div>
-
-        <h1 className="text-2xl font-black text-white">Terms of Service</h1>
-        <p className="text-xs text-slate-400 font-mono">Last Updated: July 2026</p>
-
-        <section className="space-y-3.5 text-xs text-slate-300 leading-relaxed">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">1. Usage Entitlements</h2>
-          <p>
-            DataPilot reserves the right to terminate guest or free-tier workspaces that violate storage quotas or system integrity.
-          </p>
-
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">2. Limitation of Liability</h2>
-          <p>
-            Calculations and generated reports are AI-driven. While DataPilot provides progressive mathematical proof details (explainability drawers), users must verify crucial financial figures independently.
-          </p>
-        </section>
-      </div>
-    </div>
-  )
+  return <LegalPage path="/legal/terms" />
 }
 
 export function CookiePolicy() {
-  return (
-    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans p-8 overflow-y-auto custom-scrollbar">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between border-b border-white/5 pb-4">
-          <Link to="/" className="text-xs text-brand-400 hover:underline">← Return Home</Link>
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-mono">DRAFT — PENDING LEGAL REVIEW</span>
-        </div>
-
-        <h1 className="text-2xl font-black text-white">Cookie Policy</h1>
-        <p className="text-xs text-slate-400 font-mono">Last Updated: July 2026</p>
-
-        <section className="space-y-3.5 text-xs text-slate-300 leading-relaxed">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">1. Usage of Cookies</h2>
-          <p>
-            We only utilize functional session cookies and local browser storage to retain authentication tokens, theme configurations, and default workspaces. We do not run any behavioral ad targeting or tracking cookies.
-          </p>
-        </section>
-      </div>
-    </div>
-  )
+  return <LegalPage path="/legal/cookie-policy" />
 }
 
 export function AcceptableUsePolicy() {
-  return (
-    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans p-8 overflow-y-auto custom-scrollbar">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between border-b border-white/5 pb-4">
-          <Link to="/" className="text-xs text-brand-400 hover:underline">← Return Home</Link>
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-mono">DRAFT — PENDING LEGAL REVIEW</span>
-        </div>
-
-        <h1 className="text-2xl font-black text-white">Acceptable Use Policy</h1>
-        <p className="text-xs text-slate-400 font-mono">Last Updated: July 2026</p>
-
-        <section className="space-y-3.5 text-xs text-slate-300 leading-relaxed">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">1. Resource Usage Boundaries</h2>
-          <p>
-            Users must not submit scripts or datasets containing malicious commands, virus attachments, or automated stress-test macros. Scraping, brute-forcing auth screens, or bypassing workspace isolates is strictly prohibited.
-          </p>
-        </section>
-      </div>
-    </div>
-  )
+  return <LegalPage path="/legal/acceptable-use" />
 }
-
