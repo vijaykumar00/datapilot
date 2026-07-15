@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useDataPilot } from '../hooks/useDataPilot'
-import ChartRenderer from './ChartRenderer'
 import ExplainPanel from './ExplainPanel'
 import SmartSuggestions from './SmartSuggestions'
 import SaveAnalysisModal from './SaveAnalysisModal'
 import ErrorIntelligencePanel from './ErrorIntelligencePanel'
 import SchemaWarnings from './SchemaWarnings'
+
+const ChartRenderer = lazy(() => import('./ChartRenderer'))
 
 // ── Typing/Thinking Indicator ─────────────────────────────────────────────
 function ThinkingIndicator({ text = 'Analyzing spreadsheet...' }) {
@@ -299,10 +300,12 @@ function BotMessage({ msg, onAskFollowup }) {
         {/* Interactive Charts render */}
         {msg.chart_data && (
           <div className="mt-1 bg-[#050811] rounded-2xl border border-white/5 overflow-hidden">
-            <ChartRenderer
-              spec={msg.chart_data}
-              onDataPointClick={(point) => onAskFollowup(`Investigate outlier data point: ${JSON.stringify(point)}`)}
-            />
+            <Suspense fallback={<div className="p-6 text-xs text-slate-500">Loading chart...</div>}>
+              <ChartRenderer
+                spec={msg.chart_data}
+                onDataPointClick={(point) => onAskFollowup(`Investigate outlier data point: ${JSON.stringify(point)}`)}
+              />
+            </Suspense>
           </div>
         )}
 

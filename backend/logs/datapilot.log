@@ -3244,3 +3244,4 @@ SQL: SELECT SUM(revenuee) as total FROM file_mock
 2026-07-15 22:10:09,297 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv
 2026-07-15 22:16:59,145 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
 2026-07-15 22:55:53,719 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-16 01:02:13,794 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.

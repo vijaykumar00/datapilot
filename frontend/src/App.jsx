@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import ChatWindow from './components/ChatWindow'
 import DataPreview from './components/DataPreview'
@@ -7,7 +7,6 @@ import ProviderSelector from './components/ProviderSelector'
 import StepIndicator from './components/StepIndicator'
 import SessionManager from './components/SessionManager'
 import CommandPalette from './components/CommandPalette'
-import ChartRenderer from './components/ChartRenderer'
 import SavedAnalyses from './components/SavedAnalyses'
 import SavedReports from './components/SavedReports'
 import QueryHistory from './components/QueryHistory'
@@ -38,6 +37,8 @@ import AboutPage from './pages/marketing/AboutPage'
 import ContactPage from './pages/marketing/ContactPage'
 import DocsPage from './pages/marketing/DocsPage'
 import NotFoundPage from './pages/marketing/NotFoundPage'
+
+const ChartRenderer = lazy(() => import('./components/ChartRenderer'))
 
 
 
@@ -449,7 +450,9 @@ function DashboardView() {
                 <span className="text-[9px] text-slate-500 font-mono">{new Date(msg.ts).toLocaleTimeString()}</span>
               </div>
               <div className="w-full bg-[#050811] rounded-xl border border-white/5 overflow-hidden">
-                <ChartRenderer spec={msg.chart_data} />
+                <Suspense fallback={<div className="p-6 text-xs text-slate-500">Loading chart...</div>}>
+                  <ChartRenderer spec={msg.chart_data} />
+                </Suspense>
               </div>
               {msg.content && (
                 <div className="text-[11px] text-slate-400 bg-white/[0.01] p-3 rounded-lg border border-white/5 leading-relaxed">
@@ -1032,7 +1035,9 @@ function PresentationView() {
 
         {/* Main Render Screen */}
         <div className="bg-[#050811] rounded-2xl border border-white/5 overflow-hidden p-2 flex items-center justify-center">
-          <ChartRenderer spec={currentChart.chart_data} />
+          <Suspense fallback={<div className="p-6 text-xs text-slate-500">Loading chart...</div>}>
+            <ChartRenderer spec={currentChart.chart_data} />
+          </Suspense>
         </div>
 
         {/* Carousel controls */}

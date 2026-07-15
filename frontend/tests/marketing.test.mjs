@@ -109,3 +109,35 @@ test('Open Graph asset is the approved beta image size and public routes referen
   assert.match(marketingData, /ogImage: '\/assets\/og-image\.png'/)
   assert.match(seo, /siteConfig\.ogImage/)
 })
+
+test('Sprint 3.2 homepage includes premium product experience sections', () => {
+  const home = read('../src/pages/marketing/HomePage.jsx')
+
+  for (const text of [
+    'Stop Fighting Spreadsheets. Start Talking To Your Data.',
+    'Animated DataPilot product walkthrough',
+    'What were our highest profit products?',
+    'Business problems',
+    'Upload. Ask. Understand. Share.',
+    'Built around the result, not the menu item',
+    'Replace workbook busywork with a focused answer loop',
+    'Industry use cases',
+    'A clearer path than manual spreadsheet analysis',
+    'Trust and security',
+    'Pricing preview',
+    'FAQ',
+    'Ready To Stop Spending Hours Inside Excel?',
+  ]) {
+    assert.match(home, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+})
+
+test('marketing path does not statically import Plotly chart renderer', () => {
+  const app = read('../src/App.jsx')
+  const chat = read('../src/components/ChatWindow.jsx')
+
+  assert.doesNotMatch(app, /import ChartRenderer from/)
+  assert.doesNotMatch(chat, /import ChartRenderer from/)
+  assert.match(app, /lazy\(\(\) => import\('\.\/components\/ChartRenderer'\)\)/)
+  assert.match(chat, /lazy\(\(\) => import\('\.\/ChartRenderer'\)\)/)
+})

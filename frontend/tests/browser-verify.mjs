@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const evidenceDir = resolve(root, 'test-results', 'sprint-3-1')
+const evidenceDir = resolve(root, 'test-results', 'sprint-3-2')
 const previewPort = 4173
 const debugPort = 9333
 const baseUrl = `http://127.0.0.1:${previewPort}`
@@ -160,6 +160,7 @@ async function createBrowserTab(chrome) {
   await tab.open()
   await tab.send('Page.enable')
   await tab.send('Runtime.enable')
+  await tab.send('Log.enable')
   await tab.send('Input.setIgnoreInputEvents', { ignore: false })
   return tab
 }
@@ -237,6 +238,15 @@ async function main() {
   try {
     await waitForHttp(`${baseUrl}/`)
     tab = await createBrowserTab(chrome)
+    const browserErrors = []
+    tab.events.set('Runtime.exceptionThrown', [
+      (params) => browserErrors.push(params.exceptionDetails?.text || 'Runtime exception'),
+    ])
+    tab.events.set('Log.entryAdded', [
+      (params) => {
+        if (params.entry?.level === 'error') browserErrors.push(params.entry.text)
+      },
+    ])
 
     const viewportChecks = []
     for (const width of [320, 375, 768, 1024, 1440]) {
@@ -244,15 +254,52 @@ async function main() {
       viewportChecks.push(await evaluate(tab, `(() => ({
         width: ${width},
         noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+        shellScrollable: document.querySelector('.marketing-shell').scrollHeight > document.querySelector('.marketing-shell').clientHeight,
+        shellScrollMoves: (() => {
+          const shell = document.querySelector('.marketing-shell');
+          shell.scrollTop = 0;
+          shell.scrollTop = 420;
+          const moved = shell.scrollTop > 0;
+          shell.scrollTop = 0;
+          return moved;
+        })(),
         headerVisible: !!document.querySelector('.marketing-header')?.getBoundingClientRect().height,
         footerVisible: !!document.querySelector('.marketing-footer')?.getBoundingClientRect().height,
-        readableHero: getComputedStyle(document.querySelector('.marketing-hero p')).fontSize,
+        readableHero: getComputedStyle(document.querySelector('.premium-hero-copy p')).fontSize,
         activeNav: document.querySelector('.marketing-nav-link.is-active')?.textContent?.trim() || null
       }))()`))
     }
 
+    await navigate(tab, '/', 1440, 900)
+    const homepageState = await evaluate(tab, `(() => ({
+      hero: document.body.textContent.includes('Stop Fighting Spreadsheets. Start Talking To Your Data.'),
+      primaryCta: !!document.querySelector('a[href="/signup"]'),
+      watchDemo: !!document.querySelector('a[href="#product-demo"]'),
+      demo: !!document.querySelector('.product-preview'),
+      problems: document.querySelectorAll('.problem-card').length,
+      timeline: document.querySelectorAll('.timeline-step').length,
+      outcomes: document.querySelectorAll('.outcome-card').length,
+      industries: document.querySelectorAll('.industry-card').length,
+      pricing: document.querySelectorAll('.pricing-card').length,
+      faq: document.querySelectorAll('.faq-item').length,
+      paidPlansDisabled: Array.from(document.querySelectorAll('.pricing-card button[disabled]')).length
+    }))()`)
+    assert.equal(homepageState.hero, true)
+    assert.equal(homepageState.primaryCta, true)
+    assert.equal(homepageState.watchDemo, true)
+    assert.equal(homepageState.demo, true)
+    assert.ok(homepageState.problems >= 6)
+    assert.equal(homepageState.timeline, 4)
+    assert.ok(homepageState.outcomes >= 6)
+    assert.ok(homepageState.industries >= 11)
+    assert.equal(homepageState.pricing, 4)
+    assert.ok(homepageState.faq >= 7)
+    assert.equal(homepageState.paidPlansDisabled, 3)
+
     for (const check of viewportChecks) {
       assert.equal(check.noHorizontalOverflow, true, `horizontal overflow at ${check.width}px`)
+      assert.equal(check.shellScrollable, true, `marketing shell is not scrollable at ${check.width}px`)
+      assert.equal(check.shellScrollMoves, true, `marketing shell scrollTop does not move at ${check.width}px`)
       assert.equal(check.headerVisible, true, `header missing at ${check.width}px`)
       assert.equal(check.footerVisible, true, `footer missing at ${check.width}px`)
       assert.ok(parseFloat(check.readableHero) >= 16, `hero text too small at ${check.width}px`)
@@ -341,6 +388,9 @@ async function main() {
     await sleep(400)
     assert.match(await evaluate(tab, `location.pathname`), /^\/signup/)
 
+    assert.deepEqual(browserErrors, [])
+    browserErrors.length = 0
+
     await navigate(tab, '/app/analyze', 1024, 768)
     await sleep(900)
     const protectedState = await evaluate(tab, `({ path: location.pathname, signInVisible: document.body.textContent.includes('Welcome back') || document.body.textContent.includes('Sign In') })`)
@@ -364,6 +414,7 @@ async function main() {
         screenshots: ['mobile-navigation-open', ...screenshotTargets.map(([name]) => name)].map((name) => `${name}.png`),
         viewportChecks,
         publicRoutesChecked: publicRoutes,
+        homepageChecks: homepageState,
         keyboardChecks: [
           'skip link focus and activation',
           'mobile menu keyboard open',
