@@ -87,13 +87,25 @@ test('SEO foundation sets canonical, OG, Twitter, and noindex metadata', () => {
 test('public assets exist and avoid emoji favicon branding', () => {
   const index = read('../index.html')
   const robots = read('../public/robots.txt')
-  const sitemap = read('../public/sitemap.xml')
 
   assert.match(index, /href="\/favicon\.svg"/)
   assert.doesNotMatch(index, /data:image\/svg\+xml/)
   assert.match(robots, /Disallow: \/app\//)
-  assert.match(sitemap, /http:\/\/localhost:5173\/features/)
   assert.ok(existsSync(new URL('../public/assets/logo-mark.svg', import.meta.url)))
   assert.ok(existsSync(new URL('../public/assets/logo-horizontal.svg', import.meta.url)))
   assert.ok(existsSync(new URL('../public/assets/og-image.png', import.meta.url)))
+  assert.ok(existsSync(new URL('../public/assets/og-image.README.md', import.meta.url)))
+})
+
+test('Open Graph asset is the approved beta image size and public routes reference it', () => {
+  const png = readFileSync(new URL('../public/assets/og-image.png', import.meta.url))
+  const width = png.readUInt32BE(16)
+  const height = png.readUInt32BE(20)
+  const seo = read('../src/components/marketing/SEO.jsx')
+  const marketingData = read('../src/data/marketing.js')
+
+  assert.equal(width, 1200)
+  assert.equal(height, 630)
+  assert.match(marketingData, /ogImage: '\/assets\/og-image\.png'/)
+  assert.match(seo, /siteConfig\.ogImage/)
 })

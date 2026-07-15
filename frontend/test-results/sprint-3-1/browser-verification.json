@@ -1,0 +1,78 @@
+{
+  "baseUrl": "http://127.0.0.1:4173",
+  "screenshots": [
+    "mobile-navigation-open.png",
+    "homepage-desktop.png",
+    "homepage-mobile.png",
+    "features-page.png",
+    "security-page.png",
+    "pricing-page.png",
+    "public-404-page.png"
+  ],
+  "viewportChecks": [
+    {
+      "width": 320,
+      "noHorizontalOverflow": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "16px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 375,
+      "noHorizontalOverflow": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "16px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 768,
+      "noHorizontalOverflow": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "16.896px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 1024,
+      "noHorizontalOverflow": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "18.88px",
+      "activeNav": "Product"
+    },
+    {
+      "width": 1440,
+      "noHorizontalOverflow": true,
+      "headerVisible": true,
+      "footerVisible": true,
+      "readableHero": "18.88px",
+      "activeNav": "Product"
+    }
+  ],
+  "publicRoutesChecked": [
+    "/",
+    "/features",
+    "/use-cases",
+    "/security",
+    "/pricing",
+    "/about",
+    "/contact",
+    "/docs",
+    "/legal/privacy",
+    "/legal/terms",
+    "/legal/cookie-policy",
+    "/legal/acceptable-use"
+  ],
+  "keyboardChecks": [
+    "skip link focus and activation",
+    "mobile menu keyboard open",
+    "focus remains inside mobile menu",
+    "escape closes mobile menu",
+    "focus returns to trigger",
+    "desktop active nav state",
+    "signin and try free links navigate",
+    "protected app route redirects to login"
+  ]
+}

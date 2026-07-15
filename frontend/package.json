@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test tests/marketing.test.mjs",
+    "generate:sitemap": "node scripts/generate-sitemap.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node tests/browser-verify.mjs",
+    "prebuild": "npm run generate:sitemap",
     "build": "vite build",
     "preview": "vite preview"
   },

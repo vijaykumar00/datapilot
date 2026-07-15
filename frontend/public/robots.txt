@@ -6,4 +6,4 @@ Disallow: /login
 Disallow: /signup
 Disallow: /forgot-password
 
-Sitemap: /sitemap.xml
+Sitemap: http://localhost:5173/sitemap.xml
