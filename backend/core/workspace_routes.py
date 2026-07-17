@@ -34,7 +34,7 @@ class CreateWorkspaceRequest(BaseModel):
 
     @validator('plan_tier')
     def validate_plan_tier(cls, v):
-        allowed = {"free", "pro", "business", "enterprise"}
+        allowed = {"free", "pro", "team", "business", "enterprise"}
         if v not in allowed:
             raise ValueError(f"plan_tier must be one of: {', '.join(sorted(allowed))}")
         return v

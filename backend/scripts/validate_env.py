@@ -18,8 +18,8 @@ OPTIONAL_SECRETS = {
     "GEMINI_API_KEY": "Required when AI_PROVIDER=gemini.",
     "OPENAI_API_KEY": "Required when AI_PROVIDER=openai.",
     "ANTHROPIC_API_KEY": "Required when AI_PROVIDER=claude.",
-    "STRIPE_SECRET_KEY": "Required when billing is enabled.",
-    "STRIPE_WEBHOOK_SECRET": "Required when billing webhooks are enabled.",
+    "STRIPE_SECRET_KEY": "Reserved for the future payment-provider phase.",
+    "STRIPE_WEBHOOK_SECRET": "Reserved for the future payment-provider phase.",
 }
 
 

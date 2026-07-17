@@ -14,7 +14,13 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from core.models import GuestSession, UsageStats, WorkspaceMember, Workspace
+from core.models import GuestSession, UsageStats, Workspace
+from core.subscriptions import (
+    enforce_quota,
+    get_plan_limits as get_subscription_plan_limits,
+    record_usage,
+    subscription_summary,
+)
 
 logger = logging.getLogger("datapilot.usage")
 
@@ -130,17 +136,9 @@ def get_plan_limits(plan_id: str, db: Session) -> dict:
     Get plan limits from the database 'plans' table, falling back to static config.
     """
     try:
-        from core.models import Plan as PlanModel
-        db_plan = db.query(PlanModel).filter(PlanModel.plan_id == plan_id, PlanModel.is_active == True).first()
-        if db_plan:
-            return {
-                "upload_count": db_plan.upload_limit,
-                "query_count": db_plan.query_limit,
-                "report_count": db_plan.report_limit,
-                "export_count": db_plan.export_limit,
-                "storage_bytes": db_plan.storage_limit_bytes,
-                "max_file_size_bytes": db_plan.file_size_limit_bytes,
-            }
+        limits = get_subscription_plan_limits(plan_id, db)
+        if limits:
+            return limits
     except Exception as e:
         logger.warning(f"Failed to query Plan limits from DB (using static fallback): {e}")
     return PLAN_LIMITS.get(plan_id, PLAN_LIMITS["free"])
@@ -148,29 +146,7 @@ def get_plan_limits(plan_id: str, db: Session) -> dict:
 
 def check_workspace_limit(workspace_id: str, action: str, db: Session) -> None:
     """Check if workspace has exceeded their plan limit for a given action. Raises 429 if exceeded."""
-    plan = get_workspace_plan(workspace_id, db)
-    limits = get_plan_limits(plan, db)
-    limit = limits.get(f"{action}_count", 0)
-
-    if limit == -1:  # Unlimited
-        return
-
-    stats = _get_or_create_usage_stats(workspace_id, db)
-    current = getattr(stats, f"{action}_count", 0)
-
-    if current >= limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "PLAN_LIMIT_EXCEEDED",
-                "action": action,
-                "current": current,
-                "limit": limit,
-                "plan": plan,
-                "message": f"You have reached the {plan} plan limit for {action}. Upgrade for more.",
-                "upgrade_prompt": plan != "pro",
-            }
-        )
+    enforce_quota(workspace_id, action, db)
 
 
 
@@ -183,8 +159,12 @@ def increment_workspace_usage(
     """Increment a workspace usage counter."""
     try:
         stats = _get_or_create_usage_stats(workspace_id, db)
-        current = getattr(stats, f"{action}_count", 0)
-        setattr(stats, f"{action}_count", current + increment_by)
+        attr = f"{action}_count"
+        if hasattr(stats, attr):
+            current = getattr(stats, attr, 0)
+            setattr(stats, attr, current + increment_by)
+        else:
+            record_usage(workspace_id, action, db, increment_by=increment_by, source="workspace_usage")
         db.commit()
     except Exception as e:
         logger.error(f"Failed to increment workspace usage for {action}: {e}")
@@ -193,38 +173,14 @@ def increment_workspace_usage(
 
 def get_usage_summary(workspace_id: str, db: Session) -> dict:
     """Get full usage summary for a workspace including limits."""
-    plan = get_workspace_plan(workspace_id, db)
-    limits = get_plan_limits(plan, db)
-    period = _get_current_period()
-
-    stats = db.query(UsageStats).filter(
-        UsageStats.workspace_id == workspace_id,
-        UsageStats.period == period,
-    ).first()
-
-    def fmt_limit(val):
-        return None if val == -1 else val
-
-    current = {
-        "upload_count": stats.upload_count if stats else 0,
-        "query_count": stats.query_count if stats else 0,
-        "report_count": stats.report_count if stats else 0,
-        "export_count": stats.export_count if stats else 0,
-        "storage_bytes": stats.storage_bytes if stats else 0,
-        "ai_tokens_used": stats.ai_tokens_used if stats else 0,
-    }
-
+    summary = subscription_summary(workspace_id, db)
     return {
-        "plan": plan,
-        "period": period,
-        "current": current,
-        "limits": {
-            "upload_count": fmt_limit(limits.get("upload_count")),
-            "query_count": fmt_limit(limits.get("query_count")),
-            "report_count": fmt_limit(limits.get("report_count")),
-            "export_count": fmt_limit(limits.get("export_count")),
-            "storage_bytes": fmt_limit(limits.get("storage_bytes")),
-            "max_file_size_bytes": limits.get("max_file_size_bytes"),
-        },
+        "plan": summary["subscription"]["plan_id"],
+        "period": _get_current_period(),
+        "current": summary["usage"],
+        "limits": summary["limits"],
+        "remaining_quota": summary["remaining_quota"],
+        "features": summary["features"],
+        "subscription": summary["subscription"],
+        "trial": summary["trial"],
     }
-

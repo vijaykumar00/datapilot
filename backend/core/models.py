@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, BigInteger
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, BigInteger, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -337,8 +337,9 @@ class ErrorLog(Base):
 class Plan(Base):
     __tablename__ = "plans"
 
-    plan_id = Column(String(50), primary_key=True)  # free, pro, business
+    plan_id = Column(String(50), primary_key=True)  # free, pro, team, enterprise
     name = Column(String(100), nullable=False)
+    description = Column(Text, default="", nullable=False)
     monthly_price_cents = Column(Integer, nullable=False)
     annual_price_cents = Column(Integer, nullable=False)
     query_limit = Column(Integer, nullable=False)
@@ -348,7 +349,147 @@ class Plan(Base):
     report_limit = Column(Integer, nullable=False)
     export_limit = Column(Integer, nullable=False)
     member_limit = Column(Integer, nullable=False)
+    dataset_limit = Column(Integer, default=-1, nullable=False)
+    chart_limit = Column(Integer, default=-1, nullable=False)
+    api_usage_limit = Column(Integer, default=0, nullable=False)
+    workspace_limit = Column(Integer, default=1, nullable=False)
+    ai_prompt_limit = Column(Integer, default=-1, nullable=False)
+    reset_interval = Column(String(20), default="monthly", nullable=False)
+    trial_days = Column(Integer, default=14, nullable=False)
+    is_public = Column(Boolean, default=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    display_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    features = relationship("PlanFeature", back_populates="plan", cascade="all, delete-orphan")
+    limits = relationship("PlanLimit", back_populates="plan", cascade="all, delete-orphan")
+
+
+class Feature(Base):
+    __tablename__ = "features"
+
+    feature_key = Column(String(100), primary_key=True)
+    name = Column(String(150), nullable=False)
+    description = Column(Text, default="", nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+
+class PlanFeature(Base):
+    __tablename__ = "plan_features"
+
+    id = Column(String(50), primary_key=True)
+    plan_id = Column(String(50), ForeignKey("plans.plan_id", ondelete="CASCADE"), nullable=False)
+    feature_key = Column(String(100), ForeignKey("features.feature_key", ondelete="CASCADE"), nullable=False)
+    enabled = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    plan = relationship("Plan", back_populates="features")
+
+    __table_args__ = (UniqueConstraint("plan_id", "feature_key", name="uq_plan_feature"),)
+
+
+class PlanLimit(Base):
+    __tablename__ = "plan_limits"
+
+    id = Column(String(50), primary_key=True)
+    plan_id = Column(String(50), ForeignKey("plans.plan_id", ondelete="CASCADE"), nullable=False)
+    metric = Column(String(100), nullable=False)
+    limit_value = Column(BigInteger, nullable=False)
+    reset_interval = Column(String(20), default="monthly", nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    plan = relationship("Plan", back_populates="limits")
+
+    __table_args__ = (UniqueConstraint("plan_id", "metric", name="uq_plan_limit"),)
+
+
+class WorkspaceSubscription(Base):
+    __tablename__ = "workspace_subscriptions"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), unique=True, nullable=False)
+    plan_id = Column(String(50), ForeignKey("plans.plan_id"), nullable=False)
+    status = Column(String(50), default="trialing", nullable=False)
+    previous_plan_id = Column(String(50), ForeignKey("plans.plan_id"), nullable=True)
+    pending_plan_id = Column(String(50), ForeignKey("plans.plan_id"), nullable=True)
+    trial_started_at = Column(DateTime, nullable=True)
+    trial_ends_at = Column(DateTime, nullable=True)
+    grace_period_ends_at = Column(DateTime, nullable=True)
+    current_period_start = Column(DateTime, nullable=False)
+    current_period_end = Column(DateTime, nullable=False)
+    renews_at = Column(DateTime, nullable=True)
+    canceled_at = Column(DateTime, nullable=True)
+    cancel_at_period_end = Column(Boolean, default=False, nullable=False)
+    metadata_json = Column(Text, default="{}", nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    plan = relationship("Plan", foreign_keys=[plan_id])
+
+
+class UsageRecord(Base):
+    __tablename__ = "usage_records"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False, index=True)
+    metric = Column(String(100), nullable=False)
+    quantity = Column(BigInteger, default=1, nullable=False)
+    period = Column(String(20), nullable=False)
+    source = Column(String(100), nullable=True)
+    metadata_json = Column(Text, default="{}", nullable=False)
+    recorded_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class Quota(Base):
+    __tablename__ = "quotas"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False)
+    metric = Column(String(100), nullable=False)
+    limit_value = Column(BigInteger, nullable=False)
+    used_value = Column(BigInteger, default=0, nullable=False)
+    period = Column(String(20), nullable=False)
+    reset_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("workspace_id", "metric", "period", name="uq_quota_workspace_metric_period"),)
+
+
+class Trial(Base):
+    __tablename__ = "trials"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False, index=True)
+    plan_id = Column(String(50), ForeignKey("plans.plan_id"), nullable=False)
+    status = Column(String(50), default="active", nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    ends_at = Column(DateTime, nullable=False)
+    grace_period_ends_at = Column(DateTime, nullable=True)
+    converted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+
+class SubscriptionHistory(Base):
+    __tablename__ = "subscription_history"
+
+    id = Column(String(50), primary_key=True)
+    workspace_subscription_id = Column(String(50), ForeignKey("workspace_subscriptions.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(String(50), ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False, index=True)
+    from_plan_id = Column(String(50), nullable=True)
+    to_plan_id = Column(String(50), nullable=True)
+    from_status = Column(String(50), nullable=True)
+    to_status = Column(String(50), nullable=True)
+    event_type = Column(String(100), nullable=False)
+    reason = Column(Text, nullable=True)
+    metadata_json = Column(Text, default="{}", nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
 
 class BillingCustomer(Base):
@@ -394,4 +535,3 @@ class WebhookEvent(Base):
     stripe_event_id = Column(String(255), unique=True, nullable=False)
     processed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-
