@@ -18,8 +18,9 @@ OPTIONAL_SECRETS = {
     "GEMINI_API_KEY": "Required when AI_PROVIDER=gemini.",
     "OPENAI_API_KEY": "Required when AI_PROVIDER=openai.",
     "ANTHROPIC_API_KEY": "Required when AI_PROVIDER=claude.",
-    "STRIPE_SECRET_KEY": "Reserved for the future payment-provider phase.",
-    "STRIPE_WEBHOOK_SECRET": "Reserved for the future payment-provider phase.",
+    "STRIPE_SECRET_KEY": "Required when Stripe billing is enabled.",
+    "STRIPE_PUBLISHABLE_KEY": "Required when Stripe billing is enabled.",
+    "STRIPE_WEBHOOK_SECRET": "Required when Stripe webhooks are enabled.",
 }
 
 
@@ -66,6 +67,22 @@ def validate(env: dict[str, str]) -> list[str]:
     }.get(provider)
     if production and provider_key and not env.get(provider_key):
         errors.append(f"{provider_key} is required when AI_PROVIDER={provider}.")
+
+    stripe_enabled = env.get("STRIPE_BILLING_ENABLED", "true").lower() in {"1", "true", "yes"}
+    if production and stripe_enabled:
+        for key in ("STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET"):
+            if not env.get(key):
+                errors.append(f"{key} is required when Stripe billing is enabled in production.")
+        stripe_environment = env.get("STRIPE_ENVIRONMENT", "test").lower()
+        if stripe_environment not in {"test", "live"}:
+            errors.append("STRIPE_ENVIRONMENT must be either test or live.")
+        if stripe_environment == "live" and env.get("STRIPE_SECRET_KEY", "").startswith("sk_test_"):
+            errors.append("STRIPE_ENVIRONMENT=live cannot use a test secret key.")
+        for plan_id in ("PRO", "TEAM"):
+            for interval in ("MONTHLY", "ANNUAL"):
+                key = f"STRIPE_PRICE_{plan_id}_{interval}"
+                if not env.get(key):
+                    errors.append(f"{key} is required for Stripe plan mapping.")
 
     return errors
 

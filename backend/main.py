@@ -119,7 +119,9 @@ app = FastAPI(
 @app.on_event("startup")
 def startup_event():
     from core.db import init_db
+    from core.stripe_billing import validate_stripe_startup
     init_db()
+    validate_stripe_startup()
 
 from core.auth_routes import router as auth_router
 from core.guest_routes import router as guest_router

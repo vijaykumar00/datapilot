@@ -8,6 +8,7 @@ into these services later instead of becoming the billing source of truth.
 from __future__ import annotations
 
 import datetime
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -203,6 +204,31 @@ def fmt_limit(value: int | None) -> int | None:
     return None if value == UNLIMITED else value
 
 
+def _load_metadata(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _dump_metadata(value: dict[str, Any]) -> str:
+    return json.dumps(value, sort_keys=True)
+
+
+def _dt_from_timestamp(value: Any) -> datetime.datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime.datetime):
+        return value
+    try:
+        return datetime.datetime.utcfromtimestamp(int(value))
+    except (TypeError, ValueError, OSError):
+        return None
+
+
 def seed_subscription_catalog(db: Session) -> None:
     for feature_key in FEATURE_KEYS:
         feature = db.query(Feature).filter(Feature.feature_key == feature_key).first()
@@ -381,6 +407,137 @@ def refresh_subscription_status(sub: WorkspaceSubscription, db: Session) -> Work
     return sub
 
 
+def sync_provider_subscription(
+    workspace_id: str,
+    plan_id: str,
+    status: str,
+    db: Session,
+    *,
+    provider: str,
+    provider_subscription_id: str | None = None,
+    provider_customer_id: str | None = None,
+    payment_status: str | None = None,
+    current_period_start: datetime.datetime | int | None = None,
+    current_period_end: datetime.datetime | int | None = None,
+    trial_start: datetime.datetime | int | None = None,
+    trial_end: datetime.datetime | int | None = None,
+    cancel_at_period_end: bool = False,
+    canceled_at: datetime.datetime | int | None = None,
+    reason: str = "provider_sync",
+) -> WorkspaceSubscription:
+    """Synchronize provider state into the provider-neutral subscription domain."""
+    plan = db.query(Plan).filter(Plan.plan_id == plan_id, Plan.is_active == True).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    sub = ensure_workspace_subscription(workspace_id, db)
+    old_plan = sub.plan_id
+    old_status = sub.status
+    now = datetime.datetime.utcnow()
+    period_start = _dt_from_timestamp(current_period_start) or sub.current_period_start or now
+    period_end_value = _dt_from_timestamp(current_period_end) or sub.current_period_end or period_end(now)
+    trial_started = _dt_from_timestamp(trial_start) or sub.trial_started_at
+    trial_ends = _dt_from_timestamp(trial_end) or sub.trial_ends_at
+    canceled = _dt_from_timestamp(canceled_at)
+
+    sub.previous_plan_id = old_plan if old_plan != plan_id else sub.previous_plan_id
+    sub.plan_id = plan_id
+    sub.status = status
+    sub.current_period_start = period_start
+    sub.current_period_end = period_end_value
+    sub.renews_at = None if status in {"canceled", "incomplete_expired"} else period_end_value
+    sub.trial_started_at = trial_started
+    sub.trial_ends_at = trial_ends
+    sub.cancel_at_period_end = bool(cancel_at_period_end)
+    sub.canceled_at = canceled or (now if status == "canceled" else sub.canceled_at)
+    sub.updated_at = now
+
+    metadata = _load_metadata(sub.metadata_json)
+    metadata.update({
+        "payment_provider": provider,
+        "payment_status": payment_status or metadata.get("payment_status") or status,
+        "provider_subscription_id": provider_subscription_id or metadata.get("provider_subscription_id"),
+        "provider_customer_id": provider_customer_id or metadata.get("provider_customer_id"),
+        "last_provider_sync_at": now.isoformat(),
+    })
+    sub.metadata_json = _dump_metadata(metadata)
+
+    workspace = db.query(Workspace).filter(Workspace.workspace_id == workspace_id).first()
+    if workspace:
+        workspace.plan_tier = plan_id
+
+    trial = db.query(Trial).filter(
+        Trial.workspace_id == workspace_id,
+        Trial.plan_id == plan_id,
+    ).order_by(Trial.created_at.desc()).first()
+    if trial_ends:
+        if not trial:
+            trial = Trial(
+                id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
+                plan_id=plan_id,
+                started_at=trial_started or now,
+                ends_at=trial_ends,
+            )
+            db.add(trial)
+        trial.status = "active" if status == "trialing" else ("converted" if status == "active" else status)
+        trial.converted_at = now if status == "active" and not trial.converted_at else trial.converted_at
+        trial.updated_at = now
+
+    db.add(SubscriptionHistory(
+        id=str(uuid.uuid4()),
+        workspace_subscription_id=sub.id,
+        workspace_id=workspace_id,
+        from_plan_id=old_plan,
+        to_plan_id=plan_id,
+        from_status=old_status,
+        to_status=status,
+        event_type=reason,
+        reason=f"{provider} subscription synchronization.",
+        metadata_json=_dump_metadata({
+            "provider": provider,
+            "provider_subscription_id": provider_subscription_id,
+            "provider_customer_id": provider_customer_id,
+            "payment_status": payment_status,
+        }),
+    ))
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+def update_payment_status(
+    workspace_id: str,
+    payment_status: str,
+    db: Session,
+    *,
+    provider: str = "stripe",
+    reason: str = "payment_status_updated",
+) -> WorkspaceSubscription:
+    sub = ensure_workspace_subscription(workspace_id, db)
+    old_status = _load_metadata(sub.metadata_json).get("payment_status")
+    metadata = _load_metadata(sub.metadata_json)
+    metadata["payment_provider"] = provider
+    metadata["payment_status"] = payment_status
+    metadata["last_payment_status_at"] = datetime.datetime.utcnow().isoformat()
+    sub.metadata_json = _dump_metadata(metadata)
+    db.add(SubscriptionHistory(
+        id=str(uuid.uuid4()),
+        workspace_subscription_id=sub.id,
+        workspace_id=workspace_id,
+        from_plan_id=sub.plan_id,
+        to_plan_id=sub.plan_id,
+        from_status=old_status,
+        to_status=payment_status,
+        event_type=reason,
+        reason=f"{provider} payment status changed.",
+        metadata_json=_dump_metadata({"provider": provider, "payment_status": payment_status}),
+    ))
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
 def can_use_feature(workspace_id: str, feature_key: str, db: Session) -> bool:
     sub = refresh_subscription_status(ensure_workspace_subscription(workspace_id, db), db)
     if sub.status in {"expired", "canceled"}:
@@ -471,6 +628,7 @@ def subscription_summary(workspace_id: str, db: Session) -> dict[str, Any]:
     limits = get_plan_limits(sub.plan_id, db)
     features = get_plan_features(sub.plan_id, db)
     quotas = quota_snapshots(workspace_id, db)
+    metadata = _load_metadata(sub.metadata_json)
 
     return {
         "workspace_id": workspace_id,
@@ -493,6 +651,12 @@ def subscription_summary(workspace_id: str, db: Session) -> dict[str, Any]:
             "ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
             "expired": sub.status == "expired",
             "grace_period_ends_at": sub.grace_period_ends_at.isoformat() if sub.grace_period_ends_at else None,
+        },
+        "billing": {
+            "payment_provider": metadata.get("payment_provider"),
+            "payment_status": metadata.get("payment_status", sub.status),
+            "portal_available": bool(metadata.get("provider_customer_id")),
+            "provider_subscription_id": metadata.get("provider_subscription_id"),
         },
         "usage": usage_totals(workspace_id, db),
         "limits": {metric: fmt_limit(value) for metric, value in limits.items()},

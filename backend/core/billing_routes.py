@@ -11,7 +11,7 @@ import datetime
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,14 @@ from core.subscriptions import (
     quota_snapshots,
     seed_subscription_catalog,
     subscription_summary,
+)
+from core.stripe_billing import (
+    construct_webhook_event,
+    create_checkout_session,
+    create_portal_session,
+    get_stripe_settings,
+    handle_webhook_event,
+    plan_mapping_report,
 )
 
 router = APIRouter(prefix="/billing", tags=["subscription"])
@@ -54,6 +62,21 @@ class GrantSubscriptionRequest(BaseModel):
     reason: str = "manual_grant"
 
 
+class CheckoutRequest(BaseModel):
+    plan_id: str
+    interval: str = Field("monthly", pattern="^(monthly|annual|yearly|year)$")
+    success_url: str | None = None
+    cancel_url: str | None = None
+
+
+class PortalRequest(BaseModel):
+    return_url: str | None = None
+    action: str | None = Field(
+        None,
+        description="Optional caller intent. Stripe Billing Portal configuration controls the available actions.",
+    )
+
+
 def _require_workspace_owner(caller: CallerContext, db: Session) -> None:
     if not caller.is_authenticated or not caller.user or not caller.workspace_id:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -70,6 +93,12 @@ def _audit(db: Session, caller: CallerContext, event_type: str, description: str
     ))
 
 
+def _require_workspace_member(caller: CallerContext, db: Session) -> None:
+    if not caller.is_authenticated or not caller.user or not caller.workspace_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    get_workspace_member(caller.user, caller.workspace_id, db)
+
+
 @router.get("/current")
 def current_subscription(
     caller: CallerContext = Depends(get_caller),
@@ -78,6 +107,58 @@ def current_subscription(
     if not caller.is_authenticated or not caller.workspace_id:
         raise HTTPException(status_code=401, detail="Authentication required")
     return subscription_summary(caller.workspace_id, db)
+
+
+@router.get("/stripe/config")
+def stripe_public_config():
+    settings = get_stripe_settings()
+    return {
+        "publishable_key": settings.publishable_key,
+        "environment": settings.environment,
+        "configured": settings.configured,
+    }
+
+
+@router.get("/stripe/plan-mapping")
+def stripe_plan_mapping(db: Session = Depends(get_db)):
+    return {"mapping": plan_mapping_report(db)}
+
+
+@router.post("/checkout")
+def checkout(
+    payload: CheckoutRequest,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
+    _require_workspace_member(caller, db)
+    response = create_checkout_session(caller, caller.workspace_id, payload, db)
+    _audit(db, caller, "STRIPE_CHECKOUT_CREATED", f"Stripe checkout created for plan '{payload.plan_id}'.")
+    db.commit()
+    return response
+
+
+@router.post("/portal")
+def portal(
+    payload: PortalRequest | None = None,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
+    _require_workspace_member(caller, db)
+    response = create_portal_session(caller, caller.workspace_id, payload or PortalRequest(), db)
+    _audit(db, caller, "STRIPE_PORTAL_CREATED", "Stripe customer portal session created.")
+    db.commit()
+    return response
+
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str | None = Header(None, alias="Stripe-Signature"),
+    db: Session = Depends(get_db),
+):
+    payload = await request.body()
+    event = construct_webhook_event(payload, stripe_signature)
+    return handle_webhook_event(event, db)
 
 
 @router.get("/plans")
@@ -181,6 +262,7 @@ def subscription_status(
         "workspace_id": caller.workspace_id,
         "subscription": summary["subscription"],
         "trial": summary["trial"],
+        "billing": summary["billing"],
     }
 
 

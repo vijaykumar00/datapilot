@@ -143,9 +143,6 @@ class TestSubscriptionFoundation(unittest.TestCase):
         self.assertEqual(plans.status_code, 200)
         self.assertGreaterEqual(len(plans.json()["plans"]), 4)
 
-        checkout = self.client.post("/billing/checkout", headers=self.headers, json={"plan_id": "pro"})
-        self.assertEqual(checkout.status_code, 404)
-
 
 if __name__ == "__main__":
     unittest.main()
