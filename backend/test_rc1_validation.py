@@ -5,6 +5,10 @@ import urllib.request
 import urllib.error
 import json
 
+if __name__ != "__main__":
+    import unittest
+    raise unittest.SkipTest("script-style live validation test; run directly against a live backend")
+
 # Force UTF-8 on stdout to avoid Windows cp1252 issues
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 

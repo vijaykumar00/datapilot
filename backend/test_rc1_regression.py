@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
 # Add current directory to python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BACKEND_DIR)
 
 from main import app
 from core.db import get_db, SessionLocal
@@ -40,7 +41,7 @@ class TestRC1Regression(unittest.TestCase):
         env = os.environ.copy()
         env["JWT_SECRET"] = ""
         cmd = [sys.executable, "-c", "from core.auth import JWT_SECRET"]
-        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        res = subprocess.run(cmd, env=env, cwd=BACKEND_DIR, capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("ValueError", res.stderr)
         self.assertIn("JWT_SECRET env var is missing or too short", res.stderr)
@@ -50,7 +51,7 @@ class TestRC1Regression(unittest.TestCase):
         env = os.environ.copy()
         env["JWT_SECRET"] = "short_secret_key"
         cmd = [sys.executable, "-c", "from core.auth import JWT_SECRET"]
-        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        res = subprocess.run(cmd, env=env, cwd=BACKEND_DIR, capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("ValueError", res.stderr)
         self.assertIn("JWT_SECRET env var is missing or too short", res.stderr)
@@ -60,7 +61,7 @@ class TestRC1Regression(unittest.TestCase):
         env = os.environ.copy()
         env["JWT_SECRET"] = "a" * 32
         cmd = [sys.executable, "-c", "from core.auth import JWT_SECRET; print('OK')" ]
-        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        res = subprocess.run(cmd, env=env, cwd=BACKEND_DIR, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("OK", res.stdout)
         # Ensure it does not print the secret itself in the stderr/stdout

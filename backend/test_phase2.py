@@ -15,6 +15,10 @@ import sys
 import requests
 import json
 
+if __name__ != "__main__":
+    import unittest
+    raise unittest.SkipTest("script-style live integration test; run directly against a live backend")
+
 BASE = "http://localhost:8001"
 PASS_COLOR = "\033[92m"
 FAIL_COLOR = "\033[91m"

@@ -500,6 +500,41 @@ async def health():
     }
 
 
+@app.get("/live")
+async def live():
+    """Kubernetes/container liveness probe. Avoids external provider calls."""
+    return {"status": "alive"}
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness probe for dependencies required to serve authenticated traffic."""
+    checks = {
+        "database": False,
+        "uploads_writable": False,
+        "jwt_secret": False,
+    }
+
+    try:
+      from sqlalchemy import text
+      from core.db import engine
+      with engine.connect() as connection:
+          connection.execute(text("SELECT 1"))
+      checks["database"] = True
+    except Exception as exc:
+      logger.warning("Readiness database check failed: %s", exc)
+
+    checks["uploads_writable"] = os.access(UPLOAD_DIR, os.W_OK)
+    jwt_secret = os.getenv("JWT_SECRET", "")
+    checks["jwt_secret"] = len(jwt_secret) >= 32
+
+    ready_state = all(checks.values())
+    payload = {"status": "ready" if ready_state else "not_ready", "checks": checks}
+    if not ready_state:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
+
+
 @app.get("/provider")
 async def get_provider():
     """Get current LLM provider and its status."""

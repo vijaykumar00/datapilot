@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const evidenceDir = resolve(root, 'test-results', 'sprint-3-5')
+const evidenceDir = resolve(root, 'test-results', 'rc-2')
 const previewPort = 4173
 const debugPort = 9333
 const baseUrl = `http://127.0.0.1:${previewPort}`

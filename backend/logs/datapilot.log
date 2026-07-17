@@ -3245,3 +3245,71 @@ SQL: SELECT SUM(revenuee) as total FROM file_mock
 2026-07-15 22:16:59,145 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
 2026-07-15 22:55:53,719 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
 2026-07-16 01:02:13,794 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-16 01:54:26,201 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-16 01:55:20,863 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-07-16 01:55:20,873 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-07-16 01:55:20,878 [INFO] datapilot.main: Intent: 'summary' | files=['test_ds_1'] | msg='Summarize my dataset'
+2026-07-16 01:55:20,996 [INFO] datapilot.data_store: Registered table 'file_mock' with 3 rows
+2026-07-16 01:55:21,015 [ERROR] datapilot.data_store: SQL execution failed: Binder Error: Referenced column "revenuee" not found in FROM clause!
+Candidate bindings: "file_mock.revenue"
+LINE 1: SELECT SUM(revenuee) as total FROM file_mock
+                   ^
+SQL: SELECT SUM(revenuee) as total FROM file_mock
+2026-07-16 01:55:21,019 [INFO] datapilot.agent.insight: Auto-recovery: retrying SQL with 'revenue' instead of 'revenuee'
+2026-07-16 01:55:21,556 [WARNING] asyncio: Executing <Task finished name='Task-107' coro=<TestErrorRecoverySystem.test_incorrect_sheet_name() done, defined at C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\test_error_recovery.py:56> result=None created at C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:100> took 0.500 seconds
+2026-07-16 01:55:21,593 [INFO] datapilot.template_store: Loaded 0 custom templates from SQLite
+2026-07-16 01:55:21,598 [INFO] datapilot.template_store: Created template custom_9c49cb50 in SQLite
+2026-07-16 01:55:21,604 [INFO] datapilot.template_store: Deleted template custom_9c49cb50 from SQLite
+2026-07-16 01:55:21,607 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
+2026-07-16 01:55:21,609 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv
+2026-07-16 01:56:08,880 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-16 01:56:10,374 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-07-16 01:56:10,384 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-07-16 01:56:10,389 [INFO] datapilot.main: Intent: 'summary' | files=['test_ds_1'] | msg='Summarize my dataset'
+2026-07-16 01:56:10,449 [INFO] datapilot.data_store: Registered table 'file_mock' with 3 rows
+2026-07-16 01:56:10,454 [ERROR] datapilot.data_store: SQL execution failed: Binder Error: Referenced column "revenuee" not found in FROM clause!
+Candidate bindings: "file_mock.revenue"
+LINE 1: SELECT SUM(revenuee) as total FROM file_mock
+                   ^
+SQL: SELECT SUM(revenuee) as total FROM file_mock
+2026-07-16 01:56:10,456 [INFO] datapilot.agent.insight: Auto-recovery: retrying SQL with 'revenue' instead of 'revenuee'
+2026-07-16 01:56:10,717 [WARNING] asyncio: Executing <Task finished name='Task-107' coro=<TestErrorRecoverySystem.test_incorrect_sheet_name() done, defined at C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\test_error_recovery.py:56> result=None created at C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:100> took 0.250 seconds
+2026-07-16 01:56:10,754 [INFO] datapilot.template_store: Loaded 0 custom templates from SQLite
+2026-07-16 01:56:10,758 [INFO] datapilot.template_store: Created template custom_1b6404dc in SQLite
+2026-07-16 01:56:10,763 [INFO] datapilot.template_store: Deleted template custom_1b6404dc from SQLite
+2026-07-16 01:56:10,765 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
+2026-07-16 01:56:10,769 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv
+2026-07-16 01:56:32,655 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-16 01:56:32,878 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-07-16 01:56:32,886 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-07-16 01:56:32,890 [INFO] datapilot.main: Intent: 'summary' | files=['test_ds_1'] | msg='Summarize my dataset'
+2026-07-16 01:56:32,930 [INFO] datapilot.data_store: Registered table 'file_mock' with 3 rows
+2026-07-16 01:56:32,935 [ERROR] datapilot.data_store: SQL execution failed: Binder Error: Referenced column "revenuee" not found in FROM clause!
+Candidate bindings: "file_mock.revenue"
+LINE 1: SELECT SUM(revenuee) as total FROM file_mock
+                   ^
+SQL: SELECT SUM(revenuee) as total FROM file_mock
+2026-07-16 01:56:32,937 [INFO] datapilot.agent.insight: Auto-recovery: retrying SQL with 'revenue' instead of 'revenuee'
+2026-07-16 01:56:33,118 [WARNING] asyncio: Executing <Task finished name='Task-107' coro=<TestErrorRecoverySystem.test_incorrect_sheet_name() done, defined at C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\test_error_recovery.py:56> result=None created at C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:100> took 0.172 seconds
+2026-07-16 01:56:33,146 [INFO] datapilot.template_store: Loaded 0 custom templates from SQLite
+2026-07-16 01:56:33,150 [INFO] datapilot.template_store: Created template custom_5505f609 in SQLite
+2026-07-16 01:56:33,153 [INFO] datapilot.template_store: Deleted template custom_5505f609 from SQLite
+2026-07-16 01:56:33,155 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
+2026-07-16 01:56:33,158 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv
+2026-07-16 01:58:35,944 [WARNING] datapilot.billing: STRIPE_SECRET_KEY not set. Operating in Stripe SANDBOX MOCK MODE.
+2026-07-16 01:58:36,350 [INFO] datapilot.llm_client: LLM client initialized: gemini
+2026-07-16 01:58:36,364 [INFO] datapilot.data_store: DuckDB in-memory store initialized
+2026-07-16 01:58:36,370 [INFO] datapilot.main: Intent: 'summary' | files=['test_ds_1'] | msg='Summarize my dataset'
+2026-07-16 01:58:36,466 [INFO] datapilot.data_store: Registered table 'file_mock' with 3 rows
+2026-07-16 01:58:36,474 [ERROR] datapilot.data_store: SQL execution failed: Binder Error: Referenced column "revenuee" not found in FROM clause!
+Candidate bindings: "file_mock.revenue"
+LINE 1: SELECT SUM(revenuee) as total FROM file_mock
+                   ^
+SQL: SELECT SUM(revenuee) as total FROM file_mock
+2026-07-16 01:58:36,476 [INFO] datapilot.agent.insight: Auto-recovery: retrying SQL with 'revenue' instead of 'revenuee'
+2026-07-16 01:58:36,959 [WARNING] asyncio: Executing <Task finished name='Task-107' coro=<TestErrorRecoverySystem.test_incorrect_sheet_name() done, defined at C:\Users\vc892\.gemini\antigravity\scratch\datapilot\backend\test_error_recovery.py:56> result=None created at C:\Users\vc892\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:100> took 0.469 seconds
+2026-07-16 01:58:37,007 [INFO] datapilot.template_store: Loaded 0 custom templates from SQLite
+2026-07-16 01:58:37,010 [INFO] datapilot.template_store: Created template custom_b4da790d in SQLite
+2026-07-16 01:58:37,016 [INFO] datapilot.template_store: Deleted template custom_b4da790d from SQLite
+2026-07-16 01:58:37,018 [INFO] datapilot.storage: Saved file locally: /uploads/test_ws/test_ds/test_file.csv
+2026-07-16 01:58:37,021 [INFO] datapilot.storage: Deleted local file: test_ws/test_ds/test_file.csv

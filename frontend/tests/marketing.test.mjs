@@ -290,7 +290,7 @@ test('Sprint 3.5 toast system uses token colors and accessible dismissal', () =>
 test('Sprint 3.5 browser verification records design consistency and 1280px responsive checks', () => {
   const browser = read('./browser-verify.mjs')
 
-  assert.match(browser, /sprint-3-5/)
+  assert.match(browser, /rc-2/)
   assert.match(browser, /1280/)
   assert.match(browser, /consistencyChecks/)
   assert.match(browser, /radiusButton/)
