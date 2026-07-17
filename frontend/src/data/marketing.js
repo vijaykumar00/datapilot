@@ -85,11 +85,11 @@ export const publicRouteMetadata = {
   '/pricing': {
     title: 'Pricing',
     description:
-      'Review the pricing page foundation for DataPilot plans, trial flows, and team-ready analytics packaging.',
+      'Compare DataPilot plans, usage limits, trial status, and secure upgrade paths backed by the subscription API.',
     eyebrow: 'Plan foundation',
-    heading: 'Pricing page foundation',
+    heading: 'Pricing',
     summary:
-      'Detailed billing and checkout are intentionally out of scope for Sprint 3.1. This shell keeps the public route ready.',
+      'Public plan data is loaded from the backend catalog, with checkout and billing management routed through secure server-generated Stripe sessions.',
     ctaLabel: 'Try free',
     ctaTo: '/signup',
     secondaryCtaLabel: 'Talk to sales',

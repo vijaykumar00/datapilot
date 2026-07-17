@@ -310,7 +310,7 @@ export default function DashboardHome() {
             <UsageMeter label="Storage" value={Math.round(storageBytes / 1024 / 1024)} limit={isGuest ? 5 : 1024} />
             <UsageMeter label="Queries" value={queryCount} limit={guestLimits?.query_count || 200} tone="sky" />
             <UsageMeter label="Reports" value={reportCount} limit={guestLimits?.report_count || 20} tone="emerald" />
-            <Link to="/app/billing" className="upgrade-cta">Upgrade when paid plans are ready</Link>
+            <Link to="/app/billing" className="upgrade-cta">Review plan and usage</Link>
           </DashboardCard>
 
           <DashboardCard>

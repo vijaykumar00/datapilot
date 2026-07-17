@@ -79,10 +79,10 @@ const trustItems = [
 ]
 
 const pricing = [
-  ['Free', 'Start Free', 'Try DataPilot with the public free signup path.', true],
-  ['Pro', 'Coming Soon', 'Paid plan packaging is not enabled in this sprint.', false],
-  ['Business', 'Coming Soon', 'Team and administration packaging will come later.', false],
-  ['Enterprise', 'Coming Soon', 'Custom deployment conversations can begin through contact.', false],
+  ['Free', 'Start Free', 'Try DataPilot with the public free signup path.', '/signup'],
+  ['Pro', 'View Plans', 'Upgrade through server-generated Stripe Checkout when ready.', '/pricing'],
+  ['Team', 'View Plans', 'Collaborative workspace limits and billing management live in the plan catalog.', '/pricing'],
+  ['Enterprise', 'Contact Sales', 'Custom deployment conversations can begin through contact.', '/contact'],
 ]
 
 const faqs = [
@@ -351,15 +351,15 @@ export default function HomePage() {
       <SectionContainer className="home-band">
         <HomeSectionHeader
           eyebrow="Pricing preview"
-          title="Start free while paid packaging is prepared"
-          description="Billing checkout is intentionally not part of Sprint 3.2. Paid plans are presented as coming soon."
+          title="Start free, upgrade through secure billing"
+          description="Paid plans now use backend subscription data and server-generated Stripe Checkout or Customer Portal redirects."
         />
         <div className="pricing-preview-grid">
-          {pricing.map(([plan, action, description, enabled]) => (
-            <Card key={plan} className={enabled ? 'pricing-card is-featured' : 'pricing-card'}>
+          {pricing.map(([plan, action, description, to], index) => (
+            <Card key={plan} className={index === 0 ? 'pricing-card is-featured' : 'pricing-card'}>
               <h3>{plan}</h3>
               <p>{description}</p>
-              {enabled ? <Button to="/signup">{action}</Button> : <button type="button" disabled>{action}</button>}
+              <Button to={to} variant={index === 0 ? 'primary' : 'secondary'}>{action}</Button>
             </Card>
           ))}
         </div>

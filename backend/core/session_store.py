@@ -234,7 +234,7 @@ def append_message(session_id: str, role: str, content: str, extra: dict | None 
         extra = extra or {}
 
         # Extract fields from extra or defaults
-        msg_id = str(extra.get("id") or int(datetime.utcnow().timestamp() * 1000))
+        msg_id = str(extra.get("id") or uuid.uuid4().hex)
         msg_type = extra.get("type", "text")
         chart_data = json.dumps(extra.get("chart_data")) if extra.get("chart_data") is not None else None
         table_data = json.dumps(extra.get("table_data")) if extra.get("table_data") is not None else None

@@ -84,6 +84,7 @@ class TestQueryHistory(unittest.TestCase):
         # Fetch history and assert
         history = session_store.get_history(sid)
         self.assertEqual(len(history), 2)
+        self.assertEqual(len({m["id"] for m in history}), 2)
         
         bot_msg = next(m for m in history if m["role"] == "bot")
         self.assertEqual(bot_msg["content"], "It is sunny.")

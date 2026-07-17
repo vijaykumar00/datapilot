@@ -263,10 +263,13 @@ class TestRC1Regression(unittest.TestCase):
     # ─────────────────────────────────────────────────────────────
     def test_billing_redirect_domain_validation_logic(self):
         """Verify domain protection logic blocks lookalike domains and unsafe protocols."""
-        with open(os.path.join(os.path.dirname(__file__), "../frontend/src/components/BillingPortal.jsx"), "r", encoding="utf-8") as f:
+        with open(os.path.join(os.path.dirname(__file__), "../frontend/src/lib/billingClient.js"), "r", encoding="utf-8") as f:
             content = f.read()
-            self.assertIn("TRUSTED_REDIRECT_DOMAINS = ['stripe.com', 'checkout.stripe.com', window.location.hostname]", content)
-            self.assertIn("parsed.hostname === d || parsed.hostname.endsWith('.' + d)", content)
+            self.assertIn("export function isSafeBillingRedirect(url)", content)
+            self.assertIn("parsed.hostname === window.location.hostname", content)
+            self.assertIn("parsed.hostname === 'checkout.stripe.com'", content)
+            self.assertIn("parsed.hostname.endsWith('.stripe.com')", content)
+            self.assertIn("parsed.protocol !== 'https:'", content)
 
 if __name__ == "__main__":
     unittest.main()

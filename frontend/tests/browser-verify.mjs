@@ -294,7 +294,7 @@ async function main() {
     assert.ok(homepageState.industries >= 11)
     assert.equal(homepageState.pricing, 4)
     assert.ok(homepageState.faq >= 7)
-    assert.equal(homepageState.paidPlansDisabled, 3)
+    assert.equal(homepageState.paidPlansDisabled, 0)
 
     for (const check of viewportChecks) {
       assert.equal(check.noHorizontalOverflow, true, `horizontal overflow at ${check.width}px`)

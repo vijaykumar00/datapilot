@@ -1,0 +1,37 @@
+{
+  "baseUrl": "http://127.0.0.1:4174",
+  "screenshots": [
+    "pricing-desktop.png",
+    "pricing-mobile.png",
+    "free-plan-billing-page.png",
+    "trial-billing-page.png",
+    "paid-plan-billing-page.png",
+    "usage-near-limit.png",
+    "usage-exhausted.png",
+    "past-due-warning.png",
+    "expired-trial-state.png",
+    "checkout-loading-state.png",
+    "portal-loading-state.png"
+  ],
+  "statesChecked": [
+    "free",
+    "trial",
+    "paid",
+    "past_due",
+    "exhausted",
+    "past_due",
+    "exhausted"
+  ],
+  "viewportsChecked": [
+    320,
+    375,
+    768,
+    1024,
+    1280,
+    1440
+  ],
+  "security": {
+    "noSecrets": true,
+    "checkoutViaBackend": true
+  }
+}
