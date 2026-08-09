@@ -1,6 +1,10 @@
 """
 file_manager.py - Upload, parse, cache, and register CSV/Excel files.
-Uses chunked reading for large files and an LRU cache for speed.
+Uses chunked reading for large files and a TTL+LRU bounded cache for speed.
+
+Cache configuration (via environment variables):
+    FM_CACHE_TTL_SECONDS  : How long a file record stays in cache (default 3600 s / 1 h).
+    FM_CACHE_MAX_ENTRIES  : Maximum number of concurrent entries (default 50).
 """
 
 import logging
@@ -24,7 +28,8 @@ class ColumnMappingError(Exception):
 
 import numpy as np
 import pandas as pd
-from cachetools import LRUCache
+import os
+from cachetools import TTLCache
 from fastapi import UploadFile
 
 from core.data_store import get_store
@@ -44,7 +49,22 @@ logger = logging.getLogger("datapilot.file_manager")
 # Config
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 CHUNK_THRESHOLD = 5 * 1024 * 1024  # 5 MB -> use chunked reading
-MAX_CACHE_ENTRIES = 10
+
+# Cache config — read once at import time so tests can override via env before importing.
+def _cache_ttl() -> int:
+    """TTL for file records in seconds (default 1 hour)."""
+    try:
+        return max(1, int(os.getenv("FM_CACHE_TTL_SECONDS", "3600")))
+    except (ValueError, TypeError):
+        return 3600
+
+def _cache_max() -> int:
+    """Maximum concurrent file-record entries (default 50)."""
+    try:
+        return max(1, int(os.getenv("FM_CACHE_MAX_ENTRIES", "50")))
+    except (ValueError, TypeError):
+        return 50
+
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 MAGIC_BYTES = {
     b"PK\x03\x04": "xlsx",   # ZIP-based (xlsx)
@@ -101,7 +121,8 @@ class FileRecord:
 
 class FileManager:
     def __init__(self):
-        self._cache: LRUCache = LRUCache(maxsize=MAX_CACHE_ENTRIES)
+        # TTLCache: LRU eviction when maxsize is reached; entries also expire after ttl seconds.
+        self._cache: TTLCache = TTLCache(maxsize=_cache_max(), ttl=_cache_ttl())
         self._store = get_store()
 
     def _validate_extension(self, filename: str) -> str:
@@ -555,11 +576,11 @@ class FileManager:
         return True
 
     def delete_file(self, file_id: str) -> bool:
-        """Delete a file from cache, disk, and DuckDB."""
+        """Delete a file from cache, disk, DuckDB, and the dataset registry."""
         record = self._cache.pop(file_id, None)
         if record is None:
             return False
-        
+
         # Remove from disk
         workspace_id = getattr(record, "workspace_id", "default_workspace")
         storage = get_storage_provider()
@@ -575,13 +596,45 @@ class FileManager:
         finally:
             conn.close()
 
-        # Drop from store
+        # Drop from DuckDB analytical store
         try:
             self._store.drop_table(record.table_name)
         except Exception as e:
-            logger.warning(f"Could not drop table for deleted file: {e}")
+            logger.warning(f"Could not drop DuckDB table for deleted file: {e}")
+
         logger.info(f"Deleted file {file_id} ({record.filename})")
         return True
+
+    def evict_workspace(self, workspace_id: str) -> int:
+        """Remove all cached records belonging to *workspace_id*.
+
+        Called when a workspace is deleted so memory is freed immediately
+        without waiting for TTL expiry.
+        Returns the number of evicted entries.
+        """
+        to_evict = [
+            fid for fid, rec in list(self._cache.items())
+            if getattr(rec, "workspace_id", None) == workspace_id
+        ]
+        for fid in to_evict:
+            record = self._cache.pop(fid, None)
+            if record is not None:
+                try:
+                    self._store.drop_table(record.table_name)
+                except Exception:
+                    pass
+        if to_evict:
+            logger.info("Evicted %d cache entries for workspace '%s'", len(to_evict), workspace_id)
+        return len(to_evict)
+
+    def get_cache_stats(self) -> dict:
+        """Return current cache statistics for monitoring / health endpoints."""
+        return {
+            "current_entries": len(self._cache),
+            "max_entries": self._cache.maxsize,
+            "ttl_seconds": self._cache.ttl,
+            "file_ids": list(self._cache.keys()),
+        }
 
     async def reload_from_disk(self) -> int:
         """On startup, reload any files persisted in the uploads directory (legacy + namespaced)."""

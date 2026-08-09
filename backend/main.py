@@ -161,6 +161,7 @@ def _audit_log(
 
 
 from collections import defaultdict
+from core.rate_limiter import check_rate_limit, get_rate_limiter
 
 allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173")
 allowed_origins = [orig.strip() for orig in allowed_origins_str.split(",") if orig.strip()]
@@ -185,29 +186,24 @@ async def limit_request_size(request: Request, call_next):
             )
     return await call_next(request)
 
-# Rate Limiting Middleware (IP-based, in-memory sliding window, max 100 req/min)
-RATE_LIMIT_WINDOW_SECONDS = 60
-RATE_LIMIT_MAX_REQUESTS = 100
-request_history = defaultdict(list)
+# Rate Limiting Middleware (shared sliding-window: Redis when available, in-memory fallback)
+# Configure via: RATE_LIMITER_BACKEND, REDIS_URL, RATE_LIMIT_WINDOW_SECONDS, RATE_LIMIT_MAX_REQUESTS
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "100"))
 
 @app.middleware("http")
 async def rate_limiting_middleware(request: Request, call_next):
-    if request.url.path in ("/health", "/uploads"):
+    if request.url.path in ("/health", "/uploads", "/live", "/ready"):
         return await call_next(request)
-        
+
     ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    
-    # Clean old requests
-    request_history[ip] = [ts for ts in request_history[ip] if now - ts < RATE_LIMIT_WINDOW_SECONDS]
-    
-    if len(request_history[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+
+    if not check_rate_limit(ip, request.url.path):
         return JSONResponse(
             status_code=429,
             content={"detail": "Too many requests. Please try again later."}
         )
-    
-    request_history[ip].append(now)
+
     return await call_next(request)
 
 # Structured Error Logging Middleware

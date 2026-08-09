@@ -99,7 +99,7 @@
     "industries": 11,
     "pricing": 4,
     "faq": 7,
-    "paidPlansDisabled": 3
+    "paidPlansDisabled": 0
   },
   "dashboardChecks": {
     "path": "/app",
