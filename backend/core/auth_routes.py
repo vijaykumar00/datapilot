@@ -279,7 +279,12 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
 
     # Find their first/current workspace
     membership = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.user_id).first()
-    workspace_id = membership.workspace_id if membership else "default_workspace"
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found.",
+        )
+    workspace_id = membership.workspace_id
 
     # Generate new tokens
     new_access_token = create_access_token(user.user_id, user.email, workspace_id)

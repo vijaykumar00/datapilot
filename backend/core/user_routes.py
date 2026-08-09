@@ -339,13 +339,22 @@ def track_event(
     db: Session = Depends(get_db)
 ):
     """Log client-side user analytics tracking events directly to backend audit logs."""
+    workspace_id = payload.workspace_id
+    if workspace_id:
+        from core.rbac import get_workspace_member
+        get_workspace_member(user, workspace_id, db)
+    else:
+        membership = db.query(WorkspaceMember).filter(
+            WorkspaceMember.user_id == user.user_id,
+        ).first()
+        workspace_id = membership.workspace_id if membership else None
+
     db.add(AuditLog(
         id=str(uuid.uuid4()),
         user_id=user.user_id,
-        workspace_id=payload.workspace_id,
+        workspace_id=workspace_id,
         event_type=payload.event_type,
         description=payload.description
     ))
     db.commit()
     return {"success": True}
-

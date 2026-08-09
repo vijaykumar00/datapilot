@@ -13,6 +13,9 @@ class TestQueryHistory(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
         self.test_sessions = []
+        guest = self.client.post("/guest/session").json()
+        self.guest_headers = {"X-Guest-Token": guest["guest_token"]}
+        self.guest_id = guest["guest_session_id"]
 
     def tearDown(self):
         for sid in self.test_sessions:
@@ -29,16 +32,19 @@ class TestQueryHistory(unittest.TestCase):
         ]
         
         created_ids = []
+        guest_user = self.guest_id
+        guest_workspace = self.guest_id
+
         for name in names:
-            sess = session_store.create_session(name=name, user_id="test_history_user", workspace_id="test_history_ws")
+            sess = session_store.create_session(name=name, user_id=guest_user, workspace_id=guest_workspace)
             self.assertIn("session_id", sess)
             created_ids.append(sess["session_id"])
             self.test_sessions.append(sess["session_id"])
 
         # Test limit and offset on helper
         res = session_store.get_sessions_paginated(
-            user_id="test_history_user",
-            workspace_id="test_history_ws",
+            user_id=guest_user,
+            workspace_id=guest_workspace,
             limit=2,
             offset=0
         )
@@ -47,15 +53,15 @@ class TestQueryHistory(unittest.TestCase):
 
         # Test search on helper
         res_search = session_store.get_sessions_paginated(
-            user_id="test_history_user",
-            workspace_id="test_history_ws",
+            user_id=guest_user,
+            workspace_id=guest_workspace,
             search="Insight"
         )
         self.assertEqual(res_search["total"], 1)
         self.assertEqual(res_search["sessions"][0]["name"], "Cherry Insight Session")
 
         # Test API endpoint GET /sessions with limit & offset
-        resp = self.client.get("/sessions?limit=3&offset=1")
+        resp = self.client.get("/sessions?limit=3&offset=1", headers=self.guest_headers)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertTrue(data["success"])

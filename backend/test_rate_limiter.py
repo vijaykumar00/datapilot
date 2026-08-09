@@ -3,11 +3,11 @@ test_rate_limiter.py — Unit tests for core/rate_limiter.py
 
 Covers:
   - InMemoryRateLimiter: allow, block, window expiry
-  - RedisRateLimiter: allow, block when mocked, fail-open on error
+  - RedisRateLimiter: allow, block when mocked, fail-open in dev and fail-closed in prod
   - Factory: correct backend selected via RATE_LIMITER_BACKEND env var
   - check_rate_limit convenience function
   - No sensitive data in Redis keys
-  - Fail-open behaviour (Redis down = allow)
+  - Redis readiness behavior
   - reset_rate_limiter() resets singleton
 """
 
@@ -93,6 +93,12 @@ class TestInMemoryRateLimiter(unittest.TestCase):
         rl = self._make()
         self.assertEqual(rl.backend_name, "memory")
 
+    def test_scopes_are_independent(self):
+        rl = self._make(max_req=1)
+        self.assertTrue(rl.is_allowed("1.2.3.4", scope="auth_login"))
+        self.assertFalse(rl.is_allowed("1.2.3.4", scope="auth_login"))
+        self.assertTrue(rl.is_allowed("1.2.3.4", scope="auth_signup"))
+
 
 class TestRedisRateLimiterMocked(unittest.TestCase):
     """Test RedisRateLimiter with a mocked redis client."""
@@ -133,18 +139,31 @@ class TestRedisRateLimiterMocked(unittest.TestCase):
         rl = RedisRateLimiter()
         self.assertEqual(rl.backend_name, "redis")
 
-    def test_fail_open_on_redis_error(self):
-        """When Redis raises an exception, request should be allowed (fail open)."""
+    def test_fail_open_on_redis_error_in_development(self):
+        """Development Redis errors are allowed so local work is not blocked."""
         from core.rate_limiter import RedisRateLimiter
 
         mock_redis = MagicMock()
         mock_redis.pipeline.side_effect = Exception("Connection refused")
 
-        rl = RedisRateLimiter(window_seconds=60, max_requests=100)
+        rl = RedisRateLimiter(window_seconds=60, max_requests=100, fail_open=True)
         rl._redis = mock_redis
 
         result = rl.is_allowed("8.8.8.8")
         self.assertTrue(result, "Should fail open when Redis is down")
+
+    def test_fail_closed_on_redis_error_in_production(self):
+        """Production Redis errors fail closed for security-critical limiting."""
+        from core.rate_limiter import RedisRateLimiter
+
+        mock_redis = MagicMock()
+        mock_redis.pipeline.side_effect = Exception("Connection refused")
+
+        rl = RedisRateLimiter(window_seconds=60, max_requests=100, fail_open=False)
+        rl._redis = mock_redis
+
+        result = rl.is_allowed("8.8.4.4")
+        self.assertFalse(result, "Should fail closed when Redis is down in production")
 
     def test_redis_connection_resets_after_error(self):
         """After an error, self._redis is reset to None for reconnect on next call."""
@@ -189,6 +208,12 @@ class TestRedisKeyFormat(unittest.TestCase):
         rl = RedisRateLimiter(env_label="prod")
         key = rl._key("10.0.0.5", 9999)
         self.assertIn("9999", key)
+
+    def test_scoped_key_contains_endpoint_scope(self):
+        from core.rate_limiter import RedisRateLimiter
+        rl = RedisRateLimiter(env_label="prod")
+        key = rl._key("10.0.0.5", 9999, scope="auth_login")
+        self.assertEqual(key, "dp:prod:rl:auth_login:10.0.0.5:9999")
 
 
 class TestFactorySelection(unittest.TestCase):
@@ -243,16 +268,30 @@ class TestCheckRateLimitFunction(unittest.TestCase):
             self.rl.check_rate_limit("2.2.2.2")
         self.assertFalse(self.rl.check_rate_limit("2.2.2.2"))
 
+    def test_path_specific_limit_uses_independent_scope(self):
+        _restore(self.old)
+        rl, self.old = _fresh_module({
+            "RATE_LIMITER_BACKEND": "memory",
+            "RATE_LIMIT_AUTH_LOGIN_MAX_REQUESTS": "1",
+            "RATE_LIMIT_AUTH_WINDOW_SECONDS": "60",
+            "RATE_LIMIT_MAX_REQUESTS": "100",
+        })
+        self.rl = rl
 
-class TestRedisUnavailableFailOpen(unittest.TestCase):
-    """RedisRateLimiter fails open when Redis is not reachable."""
+        self.assertTrue(self.rl.check_rate_limit("5.5.5.5", "/auth/login"))
+        self.assertFalse(self.rl.check_rate_limit("5.5.5.5", "/auth/login"))
+        self.assertTrue(self.rl.check_rate_limit("5.5.5.5", "/auth/signup"))
+
+
+class TestRedisUnavailableModes(unittest.TestCase):
+    """RedisRateLimiter has explicit development and production failure modes."""
 
     def setUp(self):
         for name in list(sys.modules.keys()):
             if "rate_limiter" in name:
                 del sys.modules[name]
 
-    def test_fails_open_when_redis_package_missing(self):
+    def test_dev_fails_open_when_redis_package_missing(self):
         """Simulate redis package not installed."""
         import builtins
         real_import = builtins.__import__
@@ -264,11 +303,11 @@ class TestRedisUnavailableFailOpen(unittest.TestCase):
 
         with patch("builtins.__import__", side_effect=mock_import):
             from core.rate_limiter import RedisRateLimiter
-            rl = RedisRateLimiter()
+            rl = RedisRateLimiter(fail_open=True)
             result = rl.is_allowed("3.3.3.3")
             self.assertTrue(result, "Should fail open when redis package is missing")
 
-    def test_fails_open_when_redis_connection_refused(self):
+    def test_dev_fails_open_when_redis_connection_refused(self):
         """Simulate Redis connection failure."""
         from core.rate_limiter import RedisRateLimiter
 
@@ -278,9 +317,46 @@ class TestRedisUnavailableFailOpen(unittest.TestCase):
         mock_redis_module.Redis.from_url.return_value = mock_redis_instance
 
         with patch.dict("sys.modules", {"redis": mock_redis_module}):
-            rl = RedisRateLimiter(redis_url="redis://badhost:9999/0")
+            rl = RedisRateLimiter(redis_url="redis://badhost:9999/0", fail_open=True)
             result = rl.is_allowed("4.4.4.4")
             self.assertTrue(result, "Should fail open when Redis connection is refused")
+
+    def test_prod_fails_closed_when_redis_package_missing(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "redis":
+                raise ImportError("No module named 'redis'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            from core.rate_limiter import RedisRateLimiter
+            rl = RedisRateLimiter(fail_open=False)
+            result = rl.is_allowed("3.3.3.4")
+            self.assertFalse(result, "Should fail closed when redis package is missing in production")
+
+    def test_health_reports_unavailable_redis(self):
+        rl, old = _fresh_module({
+            "APP_ENV": "production",
+            "RATE_LIMITER_BACKEND": "redis",
+            "REDIS_URL": "redis://badhost:9999/0",
+        })
+
+        mock_redis_module = MagicMock()
+        mock_redis_instance = MagicMock()
+        mock_redis_instance.ping.side_effect = Exception("Connection refused")
+        mock_redis_module.Redis.from_url.return_value = mock_redis_instance
+
+        try:
+            with patch.dict("sys.modules", {"redis": mock_redis_module}):
+                health = rl.rate_limiter_health()
+            self.assertFalse(health["ok"])
+            self.assertEqual(health["backend"], "redis")
+            self.assertTrue(health["required"])
+            self.assertFalse(health["fail_open"])
+        finally:
+            _restore(old)
 
 
 if __name__ == "__main__":

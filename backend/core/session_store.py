@@ -128,39 +128,51 @@ def create_session(session_id: str | None = None, name: str = None, user_id: str
         conn.close()
 
 
-def update_session(session_id: str, name: str = None, pinned: bool = None) -> bool:
+def update_session(
+    session_id: str,
+    name: str = None,
+    pinned: bool = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
+) -> bool:
     """Update session details (rename or pin/unpin)."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         now = datetime.utcnow().isoformat()
 
+        scope_sql = ""
+        scope_params = []
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            scope_params = [user_id, workspace_id]
+
         if name is not None and pinned is not None:
             cursor.execute(
-                """
+                f"""
                 UPDATE sessions
                 SET name = ?, pinned = ?, updated_at = ?
-                WHERE session_id = ?;
+                WHERE session_id = ?{scope_sql};
                 """,
-                (name, 1 if pinned else 0, now, session_id),
+                (name, 1 if pinned else 0, now, session_id, *scope_params),
             )
         elif name is not None:
             cursor.execute(
-                """
+                f"""
                 UPDATE sessions
                 SET name = ?, updated_at = ?
-                WHERE session_id = ?;
+                WHERE session_id = ?{scope_sql};
                 """,
-                (name, now, session_id),
+                (name, now, session_id, *scope_params),
             )
         elif pinned is not None:
             cursor.execute(
-                """
+                f"""
                 UPDATE sessions
                 SET pinned = ?, updated_at = ?
-                WHERE session_id = ?;
+                WHERE session_id = ?{scope_sql};
                 """,
-                (1 if pinned else 0, now, session_id),
+                (1 if pinned else 0, now, session_id, *scope_params),
             )
         else:
             return False
@@ -174,12 +186,17 @@ def update_session(session_id: str, name: str = None, pinned: bool = None) -> bo
         conn.close()
 
 
-def delete_session(session_id: str) -> bool:
+def delete_session(session_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Delete a session entirely (cascade deletes all messages)."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM sessions WHERE session_id = ?;", (session_id,))
+        params = [session_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
+        cursor.execute(f"DELETE FROM sessions WHERE session_id = ?{scope_sql};", tuple(params))
         conn.commit()
         return cursor.rowcount > 0
     except Exception as e:
@@ -189,21 +206,26 @@ def delete_session(session_id: str) -> bool:
         conn.close()
 
 
-def get_history(session_id: str) -> list[dict]:
+def get_history(session_id: str, user_id: str | None = None, workspace_id: str | None = None) -> list[dict]:
     """Retrieve all messages for a session, deserializing JSON structures."""
     if not session_id:
         return []
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        scope_sql = ""
+        params = [session_id]
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
         cursor.execute(
-            """
+            f"""
             SELECT id, role, content, type, chart_data, table_data, metadata, created_at as ts
             FROM messages
-            WHERE session_id = ?
+            WHERE session_id = ?{scope_sql}
             ORDER BY created_at ASC;
             """,
-            (session_id,),
+            tuple(params),
         )
         messages = []
         for row in cursor.fetchall():
@@ -249,9 +271,14 @@ def append_message(session_id: str, role: str, content: str, extra: dict | None 
         )
 
         # Touch updated_at for the session
+        touch_params = [now, session_id]
+        touch_scope = ""
+        if user_id is not None and workspace_id is not None:
+            touch_scope = " AND user_id = ? AND workspace_id = ?"
+            touch_params.extend([user_id, workspace_id])
         cursor.execute(
-            "UPDATE sessions SET updated_at = ? WHERE session_id = ?;",
-            (now, session_id),
+            f"UPDATE sessions SET updated_at = ? WHERE session_id = ?{touch_scope};",
+            tuple(touch_params),
         )
         conn.commit()
     except Exception as e:
@@ -260,12 +287,17 @@ def append_message(session_id: str, role: str, content: str, extra: dict | None 
         conn.close()
 
 
-def clear_session(session_id: str) -> bool:
+def clear_session(session_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Clear all messages inside a session."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM messages WHERE session_id = ?;", (session_id,))
+        params = [session_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
+        cursor.execute(f"DELETE FROM messages WHERE session_id = ?{scope_sql};", tuple(params))
         # Touch updated_at
         now = datetime.utcnow().isoformat()
         cursor.execute(
@@ -400,13 +432,18 @@ def search_history(
         conn.close()
 
 
-def delete_message(message_id: str) -> bool:
+def delete_message(message_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Delete a user query and its corresponding assistant response."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         # Find the message first
-        cursor.execute("SELECT session_id, created_at FROM messages WHERE id = ?;", (message_id,))
+        params = [message_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
+        cursor.execute(f"SELECT session_id, created_at FROM messages WHERE id = ?{scope_sql};", tuple(params))
         row = cursor.fetchone()
         if not row:
             return False
@@ -417,13 +454,18 @@ def delete_message(message_id: str) -> bool:
         cursor.execute("DELETE FROM messages WHERE id = ?;", (message_id,))
         
         # Delete the immediate next bot response
+        bot_params = [session_id, created_at]
+        bot_scope = ""
+        if user_id is not None and workspace_id is not None:
+            bot_scope = " AND user_id = ? AND workspace_id = ?"
+            bot_params.extend([user_id, workspace_id])
         cursor.execute(
-            """
+            f"""
             DELETE FROM messages 
-            WHERE session_id = ? AND role = 'bot' AND created_at >= ?
+            WHERE session_id = ? AND role = 'bot' AND created_at >= ?{bot_scope}
             LIMIT 1;
             """,
-            (session_id, created_at)
+            tuple(bot_params)
         )
         conn.commit()
         return True
@@ -434,12 +476,17 @@ def delete_message(message_id: str) -> bool:
         conn.close()
 
 
-def pin_message(message_id: str) -> bool:
+def pin_message(message_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Toggle the 'pinned' status inside a message's metadata JSON."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT metadata FROM messages WHERE id = ?;", (message_id,))
+        params = [message_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
+        cursor.execute(f"SELECT metadata FROM messages WHERE id = ?{scope_sql};", tuple(params))
         row = cursor.fetchone()
         if not row:
             return False
@@ -447,9 +494,14 @@ def pin_message(message_id: str) -> bool:
         meta = json.loads(row["metadata"]) if row["metadata"] else {}
         meta["pinned"] = not meta.get("pinned", False)
         
+        update_params = [json.dumps(meta), message_id]
+        update_scope = ""
+        if user_id is not None and workspace_id is not None:
+            update_scope = " AND user_id = ? AND workspace_id = ?"
+            update_params.extend([user_id, workspace_id])
         cursor.execute(
-            "UPDATE messages SET metadata = ? WHERE id = ?;",
-            (json.dumps(meta), message_id)
+            f"UPDATE messages SET metadata = ? WHERE id = ?{update_scope};",
+            tuple(update_params)
         )
         conn.commit()
         return True

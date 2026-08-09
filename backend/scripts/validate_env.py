@@ -11,6 +11,7 @@ REQUIRED_PRODUCTION = {
     "JWT_SECRET": "At least 32 characters; 64 random bytes hex encoded is recommended.",
     "DATABASE_URL": "PostgreSQL connection URL for production.",
     "ALLOWED_ORIGINS": "Comma-separated HTTPS frontend origins.",
+    "REDIS_URL": "Redis connection URL for shared rate limiting.",
 }
 
 OPTIONAL_SECRETS = {
@@ -26,7 +27,11 @@ OPTIONAL_SECRETS = {
 
 def _has_localhost(value: str) -> bool:
     lowered = value.lower()
-    return "localhost" in lowered or "127.0.0.1" in lowered
+    return "localhost" in lowered or "127.0.0.1" in lowered or "0.0.0.0" in lowered or "[::1]" in lowered
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def validate(env: dict[str, str]) -> list[str]:
@@ -58,6 +63,28 @@ def validate(env: dict[str, str]) -> list[str]:
                 errors.append(f"ALLOWED_ORIGINS entry must be HTTPS in production: {origin}")
             if _has_localhost(origin):
                 errors.append(f"ALLOWED_ORIGINS must not contain localhost in production: {origin}")
+
+    if production:
+        rate_limiter_backend = env.get("RATE_LIMITER_BACKEND", "redis").lower()
+        if rate_limiter_backend != "redis":
+            errors.append("RATE_LIMITER_BACKEND must be redis in production.")
+        if _truthy(env.get("RATE_LIMITER_FAIL_OPEN")):
+            errors.append("RATE_LIMITER_FAIL_OPEN must not be enabled in production.")
+        redis_url = env.get("REDIS_URL", "")
+        if redis_url:
+            parsed = urlparse(redis_url)
+            if parsed.scheme not in {"redis", "rediss"}:
+                errors.append("REDIS_URL must use redis:// or rediss://.")
+            if _has_localhost(redis_url):
+                errors.append("REDIS_URL must not point at localhost in production.")
+
+        storage_provider = env.get("STORAGE_PROVIDER", "local").lower()
+        if storage_provider not in {"s3", "r2", "minio", "local"}:
+            errors.append("STORAGE_PROVIDER must be one of: s3, r2, minio, local.")
+        if storage_provider == "local" and not _truthy(env.get("ALLOW_LOCAL_STORAGE_IN_PRODUCTION")):
+            errors.append("STORAGE_PROVIDER=local is not allowed in production without ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true.")
+        if storage_provider in {"s3", "r2", "minio"} and not env.get("S3_BUCKET"):
+            errors.append("S3_BUCKET is required when STORAGE_PROVIDER uses an S3-compatible backend.")
 
     provider = env.get("AI_PROVIDER", "gemini").lower()
     provider_key = {

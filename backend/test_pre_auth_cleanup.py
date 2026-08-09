@@ -6,18 +6,37 @@ from fastapi.testclient import TestClient
 # Add current directory to path to import backend core modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from main import app, request_history
+from main import app
 from core.db import get_connection, log_api_error
 import core.session_store as session_store
 import core.template_store as template_store
 import core.storage as storage
-import core.file_manager as file_manager
+from core.rate_limiter import reset_rate_limiter
 
 
 class TestPreAuthCleanup(unittest.TestCase):
     def setUp(self):
+        self._old_rate_limiter_backend = os.environ.get("RATE_LIMITER_BACKEND")
+        self._old_rate_limit_max = os.environ.get("RATE_LIMIT_MAX_REQUESTS")
+        os.environ["RATE_LIMITER_BACKEND"] = "memory"
+        os.environ["RATE_LIMIT_MAX_REQUESTS"] = "100"
+        reset_rate_limiter()
         self.client = TestClient(app)
-        request_history.clear()
+        guest = self.client.post("/guest/session").json()
+        self.guest_headers = {"X-Guest-Token": guest["guest_token"]}
+
+    def tearDown(self):
+        if self._old_rate_limiter_backend is None:
+            os.environ.pop("RATE_LIMITER_BACKEND", None)
+        else:
+            os.environ["RATE_LIMITER_BACKEND"] = self._old_rate_limiter_backend
+
+        if self._old_rate_limit_max is None:
+            os.environ.pop("RATE_LIMIT_MAX_REQUESTS", None)
+        else:
+            os.environ["RATE_LIMIT_MAX_REQUESTS"] = self._old_rate_limit_max
+
+        reset_rate_limiter()
 
     def test_connection_pooling(self):
         """Test that get_connection returns a valid connection and connection pool works."""
@@ -31,7 +50,11 @@ class TestPreAuthCleanup(unittest.TestCase):
 
     def test_server_side_session_generation(self):
         """Test session creation generates a UUID server-side when omitted."""
-        resp = self.client.post("/sessions", json={"name": "Test Generated Session"})
+        resp = self.client.post(
+            "/sessions",
+            json={"name": "Test Generated Session"},
+            headers=self.guest_headers,
+        )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertTrue(data["success"])
@@ -65,7 +88,7 @@ class TestPreAuthCleanup(unittest.TestCase):
         # Note: rate limit middleware ignores /health and /uploads, let's hit /sessions instead
         blocked = False
         for i in range(110):
-            resp = self.client.get("/sessions")
+            resp = self.client.get("/sessions", headers=self.guest_headers)
             if resp.status_code == 429:
                 blocked = True
                 break

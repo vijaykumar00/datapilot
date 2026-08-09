@@ -12,8 +12,7 @@
  *   - apiHeaders() → Headers object with correct auth
  */
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+import { apiUrl } from '../lib/apiConfig';
 
 const AuthContext = createContext(null);
 
@@ -25,6 +24,26 @@ const STORAGE_KEYS = {
   GUEST_TOKEN: 'dp_guest_token',
   GUEST_SESSION_ID: 'dp_guest_session_id',
 };
+
+function readRefreshToken() {
+  const sessionToken = sessionStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  const legacyToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  if (legacyToken) {
+    sessionStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, legacyToken);
+    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+  }
+  return sessionToken || legacyToken;
+}
+
+function storeRefreshToken(token) {
+  sessionStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, token);
+  localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+}
+
+function clearRefreshToken() {
+  sessionStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+  localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+}
 
 // ─────────────────────────────────────────────────────────────
 // Provider
@@ -57,7 +76,7 @@ export function AuthProvider({ children }) {
   // ── Hydrate from storage on mount ──────────────────────────
   useEffect(() => {
     const storedToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-    const storedRefresh = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    const storedRefresh = readRefreshToken();
     const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
     const storedWs = localStorage.getItem(STORAGE_KEYS.WORKSPACE_ID);
     const storedGuestToken = sessionStorage.getItem(STORAGE_KEYS.GUEST_TOKEN);
@@ -71,6 +90,7 @@ export function AuthProvider({ children }) {
         setWorkspaceId(storedWs);
       } catch {
         localStorage.clear();
+        clearRefreshToken();
       }
     } else if (storedGuestToken) {
       setGuestToken(storedGuestToken);
@@ -110,7 +130,7 @@ export function AuthProvider({ children }) {
   // ── Guest Session ───────────────────────────────────────────
   const fetchGuestInfo = async (token) => {
     try {
-      const res = await fetch(`${API_BASE}/guest/session`, {
+      const res = await fetch(apiUrl('/guest/session'), {
         headers: { 'X-Guest-Token': token },
       });
       if (res.ok) {
@@ -133,7 +153,7 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/guest/session`, {
+      const res = await fetch(apiUrl('/guest/session'), {
         method: 'POST',
         // Short timeout — don't block UI if backend is down
         signal: AbortSignal.timeout(5000),
@@ -164,7 +184,7 @@ export function AuthProvider({ children }) {
     setRefreshTokenVal(data.refresh_token);
     setWorkspaceId(data.workspace_id);
     localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-    localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
+    storeRefreshToken(data.refresh_token);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
     localStorage.setItem(STORAGE_KEYS.WORKSPACE_ID, data.workspace_id);
     // Clear guest data
@@ -175,7 +195,7 @@ export function AuthProvider({ children }) {
   };
 
   const login = useCallback(async (email, password) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await fetch(apiUrl('/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -188,7 +208,7 @@ export function AuthProvider({ children }) {
   }, [addToast]);
 
   const signup = useCallback(async (email, password, fullName, workspaceName) => {
-    const res = await fetch(`${API_BASE}/auth/signup`, {
+    const res = await fetch(apiUrl('/auth/signup'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, full_name: fullName, workspace_name: workspaceName }),
@@ -199,7 +219,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const convertGuest = useCallback(async (email, password, fullName, workspaceName, preserveData = true) => {
-    const res = await fetch(`${API_BASE}/guest/convert`, {
+    const res = await fetch(apiUrl('/guest/convert'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Guest-Token': guestToken },
       body: JSON.stringify({ email, password, full_name: fullName, workspace_name: workspaceName, preserve_data: preserveData }),
@@ -214,7 +234,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     if (refreshTokenVal) {
       try {
-        await fetch(`${API_BASE}/auth/logout`, {
+        await fetch(apiUrl('/auth/logout'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
           body: JSON.stringify({ refresh_token: refreshTokenVal }),
@@ -226,17 +246,17 @@ export function AuthProvider({ children }) {
     setRefreshTokenVal(null);
     setWorkspaceId(null);
     localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+    clearRefreshToken();
     localStorage.removeItem(STORAGE_KEYS.USER);
     localStorage.removeItem(STORAGE_KEYS.WORKSPACE_ID);
     addToast('You have been logged out.', 'info');
   }, [refreshTokenVal, accessToken, addToast]);
 
   const silentRefresh = useCallback(async () => {
-    const stored = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    const stored = readRefreshToken();
     if (!stored) return null;
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetch(apiUrl('/auth/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: stored }),
@@ -247,7 +267,7 @@ export function AuthProvider({ children }) {
       setRefreshTokenVal(data.refresh_token);
       setWorkspaceId(data.workspace_id);
       localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
+      storeRefreshToken(data.refresh_token);
       localStorage.setItem(STORAGE_KEYS.WORKSPACE_ID, data.workspace_id);
       return data.access_token;
     } catch {
@@ -256,7 +276,7 @@ export function AuthProvider({ children }) {
   }, [logout]);
 
   const forgotPassword = useCallback(async (email) => {
-    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+    const res = await fetch(apiUrl('/auth/forgot-password'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -267,7 +287,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const resetPassword = useCallback(async (token, newPassword) => {
-    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+    const res = await fetch(apiUrl('/auth/reset-password'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, new_password: newPassword }),
@@ -278,7 +298,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const verifyEmail = useCallback(async (token) => {
-    const res = await fetch(`${API_BASE}/auth/verify-email`, {
+    const res = await fetch(apiUrl('/auth/verify-email'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),

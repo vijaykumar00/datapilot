@@ -33,6 +33,10 @@ class TestRC2Readiness(unittest.TestCase):
         self.assertTrue(body["checks"]["database"])
         self.assertTrue(body["checks"]["uploads_writable"])
         self.assertTrue(body["checks"]["jwt_secret"])
+        self.assertTrue(body["checks"]["rate_limiter"])
+        self.assertTrue(body["checks"]["storage"])
+        self.assertIn("rate_limiter", body["details"])
+        self.assertIn("storage", body["details"])
 
     def test_production_env_validator_rejects_localhost(self):
         errors = validate({
@@ -46,6 +50,29 @@ class TestRC2Readiness(unittest.TestCase):
 
         self.assertTrue(any("DATABASE_URL must not point at localhost" in error for error in errors))
         self.assertTrue(any("ALLOWED_ORIGINS entry must be HTTPS" in error for error in errors))
+
+    def test_production_env_validator_requires_redis_and_nonlocal_storage(self):
+        errors = validate({
+            "APP_ENV": "production",
+            "JWT_SECRET": "a" * 64,
+            "DATABASE_URL": "postgresql+psycopg2://user:pass@postgres:5432/datapilot",
+            "ALLOWED_ORIGINS": "https://app.datapilot.test",
+            "AI_PROVIDER": "gemini",
+            "GEMINI_API_KEY": "placeholder",
+            "STRIPE_BILLING_ENABLED": "false",
+            "RATE_LIMITER_BACKEND": "memory",
+            "STORAGE_PROVIDER": "local",
+        })
+
+        self.assertTrue(any("REDIS_URL is required" in error for error in errors))
+        self.assertTrue(any("RATE_LIMITER_BACKEND must be redis" in error for error in errors))
+        self.assertTrue(any("STORAGE_PROVIDER=local is not allowed" in error for error in errors))
+
+    def test_production_database_guard_rejects_sqlite(self):
+        from core.db import validate_database_url_for_runtime
+
+        with self.assertRaises(RuntimeError):
+            validate_database_url_for_runtime("sqlite:///prod.db", app_env="production")
 
 
 if __name__ == "__main__":

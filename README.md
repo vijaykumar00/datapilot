@@ -53,6 +53,25 @@ Open **http://localhost:5173** (or 5174 if 5173 is busy).
 
 ---
 
+## Production
+
+Production requires PostgreSQL, Redis, and S3-compatible object storage. The backend rejects production SQLite and local storage defaults, and frontend builds use same-origin `/api` by default.
+
+Start with:
+
+- [Production operations](docs/production-operations.md)
+- [Production release checklist](docs/production-release-checklist.md)
+
+Key gates:
+
+```bash
+python backend/scripts/validate_env.py
+cd backend && python -m pytest -q
+cd frontend && npm test && npm run build && npm run test:prod-api-bundle
+```
+
+---
+
 ## 📋 Usage
 
 ```

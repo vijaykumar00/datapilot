@@ -67,7 +67,23 @@ class CallerContext:
             return self.workspace_id
         if self.guest:
             return self.guest.guest_session_id
-        return "default_workspace"
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication or guest session required.",
+        )
+
+    def require_active_context(self) -> None:
+        """Require either an authenticated workspace or a valid guest session."""
+        if self.is_anonymous:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication or guest session required.",
+            )
+        if self.is_authenticated and not self.workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workspace not found.",
+            )
 
     def check_limit(self, action: str, db: Session) -> None:
         """
@@ -130,7 +146,17 @@ def get_caller(
                 if user:
                     # Resolve workspace_id
                     workspace_id = x_workspace_id or claims.get("current_workspace_id")
-                    if not workspace_id:
+                    if workspace_id:
+                        membership = db.query(WorkspaceMember).filter(
+                            WorkspaceMember.user_id == user.user_id,
+                            WorkspaceMember.workspace_id == workspace_id,
+                        ).first()
+                        if not membership:
+                            raise HTTPException(
+                                status_code=status.HTTP_404_NOT_FOUND,
+                                detail="Workspace not found.",
+                            )
+                    else:
                         membership = db.query(WorkspaceMember).filter(
                             WorkspaceMember.user_id == user.user_id
                         ).first()

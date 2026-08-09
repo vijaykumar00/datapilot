@@ -12,6 +12,8 @@ import tempfile
 import time
 import uuid
 import asyncio
+import io
+import zipfile
 from pathlib import Path
 from typing import Any
 import json
@@ -49,6 +51,33 @@ logger = logging.getLogger("datapilot.file_manager")
 # Config
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 CHUNK_THRESHOLD = 5 * 1024 * 1024  # 5 MB -> use chunked reading
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_timeout_seconds() -> int:
+    return _int_env("FILE_PARSE_TIMEOUT_SECONDS", 30)
+
+
+def _max_dataset_rows() -> int:
+    return _int_env("MAX_DATASET_ROWS", 250_000)
+
+
+def _max_dataset_columns() -> int:
+    return _int_env("MAX_DATASET_COLUMNS", 500)
+
+
+def _max_excel_sheets() -> int:
+    return _int_env("MAX_EXCEL_SHEETS", 25)
+
+
+def _max_workbook_decompressed_bytes() -> int:
+    return _int_env("MAX_WORKBOOK_DECOMPRESSED_BYTES", 200 * 1024 * 1024)
 
 # Cache config — read once at import time so tests can override via env before importing.
 def _cache_ttl() -> int:
@@ -142,6 +171,27 @@ class FileManager:
                 return
         raise ValueError("File content does not match Excel format")
 
+    def _validate_workbook_expansion(self, raw: bytes, ext: str) -> None:
+        """Reject XLSX zip containers that expand beyond supported limits."""
+        if ext != ".xlsx":
+            return
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as workbook_zip:
+                total = sum(item.file_size for item in workbook_zip.infolist())
+        except zipfile.BadZipFile as exc:
+            raise ValueError("Invalid XLSX container") from exc
+        if total > _max_workbook_decompressed_bytes():
+            raise ValueError(
+                "Excel workbook expands beyond the supported decompressed size limit."
+            )
+
+    def _validate_dataframe_bounds(self, df: pd.DataFrame) -> None:
+        """Ensure parsed datasets stay within supported operational bounds."""
+        if len(df) > _max_dataset_rows():
+            raise ValueError(f"Dataset has too many rows. Maximum supported rows: {_max_dataset_rows()}")
+        if len(df.columns) > _max_dataset_columns():
+            raise ValueError(f"Dataset has too many columns. Maximum supported columns: {_max_dataset_columns()}")
+
     def _read_file(
         self,
         path: Path,
@@ -170,6 +220,8 @@ class FileManager:
             engine = "openpyxl" if ext == ".xlsx" else "xlrd"
             workbook = pd.ExcelFile(path, engine=engine)
             sheet_names = workbook.sheet_names
+            if len(sheet_names) > _max_excel_sheets():
+                raise ValueError(f"Excel workbook has too many sheets. Maximum supported sheets: {_max_excel_sheets()}")
             active_sheet = sheet_names[0] if sheet_names else None
             df = workbook.parse(sheet_name=active_sheet)
             return df, {
@@ -235,6 +287,7 @@ class FileManager:
                 f"File too large ({len(raw) // (1024 * 1024)}MB). Max: {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB"
             )
         self._validate_magic(raw, ext)
+        self._validate_workbook_expansion(raw, ext)
 
         file_id = str(uuid.uuid4())[:8]
         
@@ -243,7 +296,14 @@ class FileManager:
         save_path, uri = storage.save_file(workspace_id, file_id, filename, raw)
 
         try:
-            df, metadata = self._read_file(save_path, ext, len(raw))
+            df, metadata = await asyncio.wait_for(
+                asyncio.to_thread(self._read_file, save_path, ext, len(raw)),
+                timeout=_parse_timeout_seconds(),
+            )
+            self._validate_dataframe_bounds(df)
+        except asyncio.TimeoutError as e:
+            storage.delete_dataset_dir(workspace_id, file_id)
+            raise ValueError(f"File parsing timed out after {_parse_timeout_seconds()} seconds.") from e
         except Exception as e:
             # Clean up namespaced directory
             storage.delete_dataset_dir(workspace_id, file_id)
@@ -483,7 +543,7 @@ class FileManager:
             return pd.to_datetime(raw_value)
         return raw_value
 
-    def list_files(self) -> list[dict[str, Any]]:
+    def list_files(self, workspace_id: str | None = None) -> list[dict[str, Any]]:
         return [
             {
                 "file_id": r.file_id,
@@ -496,6 +556,7 @@ class FileManager:
                 "uploaded_at": r.uploaded_at,
             }
             for r in self._cache.values()
+            if workspace_id is None or getattr(r, "workspace_id", None) == workspace_id
         ]
 
     async def switch_sheet(self, file_id: str, sheet_name: str) -> dict[str, Any] | None:

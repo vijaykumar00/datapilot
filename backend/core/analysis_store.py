@@ -131,6 +131,8 @@ def update_analysis(
     title: str | None = None,
     tags: list[str] | None = None,
     starred: bool | None = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> bool:
     """
     Partially update a saved analysis (rename, re-tag, star/unstar).
@@ -156,7 +158,11 @@ def update_analysis(
             values.append(1 if starred else 0)
 
         values.append(analysis_id)
-        sql = f"UPDATE saved_analyses SET {', '.join(parts)} WHERE analysis_id = ?;"
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            values.extend([user_id, workspace_id])
+        sql = f"UPDATE saved_analyses SET {', '.join(parts)} WHERE analysis_id = ?{scope_sql};"
         cursor = conn.execute(sql, values)
         conn.commit()
         return cursor.rowcount > 0
@@ -167,13 +173,18 @@ def update_analysis(
         conn.close()
 
 
-def delete_analysis(analysis_id: str) -> bool:
+def delete_analysis(analysis_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Permanently delete a saved analysis. Returns True if found."""
     conn = get_connection()
     try:
+        params = [analysis_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
         cursor = conn.execute(
-            "DELETE FROM saved_analyses WHERE analysis_id = ?;",
-            (analysis_id,),
+            f"DELETE FROM saved_analyses WHERE analysis_id = ?{scope_sql};",
+            tuple(params),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -230,13 +241,18 @@ def list_analyses(
         conn.close()
 
 
-def get_analysis(analysis_id: str) -> dict | None:
+def get_analysis(analysis_id: str, user_id: str | None = None, workspace_id: str | None = None) -> dict | None:
     """Fetch a single saved analysis by ID. Returns None if not found."""
     conn = get_connection()
     try:
+        params = [analysis_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
         cursor = conn.execute(
-            "SELECT * FROM saved_analyses WHERE analysis_id = ?;",
-            (analysis_id,),
+            f"SELECT * FROM saved_analyses WHERE analysis_id = ?{scope_sql};",
+            tuple(params),
         )
         row = cursor.fetchone()
         return _row_to_dict(row) if row else None

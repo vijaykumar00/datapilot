@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { indexedDBHelper } from '../utils/indexedDBHelper'
+import { apiUrl } from '../lib/apiConfig'
 
 // ── Session & persistence helpers ─────────────────────────────────────────────
 async function loadPersistedMessages(sessionId) {
@@ -23,16 +24,6 @@ async function persistMessages(sessionId, messages) {
 }
 
 
-const browserWindow = typeof window !== 'undefined' ? window : null
-const API_HOST = browserWindow?.location?.hostname || '127.0.0.1'
-const API_PORT = browserWindow?.__DATAPILOT_API_PORT__ || '8001'
-const API_BASES = [
-  `http://${API_HOST}:${API_PORT}`,
-  `http://${API_HOST}:8001`,
-  `http://${API_HOST}:8000`,
-  '',
-]
-
 async function apiFetch(path, options = {}) {
   const headers = { ...options.headers }
   
@@ -52,26 +43,7 @@ async function apiFetch(path, options = {}) {
   }
 
   const finalOptions = { ...options, headers }
-  let lastError = null
-  let lastResponse = null
-
-  for (const base of API_BASES) {
-    try {
-      const response = await fetch(`${base}${path}`, finalOptions)
-      if (response.status === 404 || response.status === 405) {
-        lastResponse = response
-        continue
-      }
-      return response
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  if (lastResponse) {
-    return lastResponse
-  }
-  throw lastError || new Error(`Request failed for ${path}`)
+  return fetch(apiUrl(path), finalOptions)
 }
 
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useDataPilot } from '../hooks/useDataPilot'
 import ReactMarkdown from 'react-markdown'
+import { apiUrl } from '../lib/apiConfig'
 
 function formatRelativeTime(iso) {
   if (!iso) return ''
@@ -22,10 +23,7 @@ function formatRelativeTime(iso) {
 const getBackendUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http')) return path
-  const browserWindow = typeof window !== 'undefined' ? window : null
-  const API_HOST = browserWindow?.location?.hostname || '127.0.0.1'
-  const API_PORT = browserWindow?.__DATAPILOT_API_PORT__ || '8001'
-  return `http://${API_HOST}:${API_PORT}${path}`
+  return apiUrl(path)
 }
 
 export default function SavedReports() {

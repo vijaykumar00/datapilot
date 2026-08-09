@@ -6,7 +6,9 @@ RUN npm ci
 
 COPY . .
 ARG VITE_PUBLIC_SITE_URL=http://localhost:5173
+ARG VITE_API_URL=/api
 ENV VITE_PUBLIC_SITE_URL=$VITE_PUBLIC_SITE_URL
+ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime

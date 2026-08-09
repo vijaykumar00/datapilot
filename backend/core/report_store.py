@@ -105,12 +105,14 @@ def create_version(
     chart_data: Any = None,
     kpis: Optional[List[dict]] = None,
     metadata: Optional[dict] = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> dict:
     """Create a new version of an existing report, incrementing the version counter."""
     conn = get_connection()
     try:
         # Get base report
-        base = get_report(report_id)
+        base = get_report(report_id, user_id=user_id, workspace_id=workspace_id)
         if not base:
             raise ValueError(f"Report '{report_id}' not found")
             
@@ -181,6 +183,8 @@ def update_report(
     starred: Optional[bool] = None,
     scheduled: Optional[bool] = None,
     schedule_cron: Optional[str] = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> bool:
     """Update general fields of a report."""
     conn = get_connection()
@@ -209,7 +213,11 @@ def update_report(
             values.append(schedule_cron)
             
         values.append(report_id)
-        sql = f"UPDATE reports SET {', '.join(parts)} WHERE report_id = ?;"
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            values.extend([user_id, workspace_id])
+        sql = f"UPDATE reports SET {', '.join(parts)} WHERE report_id = ?{scope_sql};"
         cursor = conn.execute(sql, values)
         conn.commit()
         return cursor.rowcount > 0
@@ -219,21 +227,26 @@ def update_report(
     finally:
         conn.close()
 
-def delete_report(report_id: str) -> bool:
+def delete_report(report_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Delete a report and all of its versions."""
     conn = get_connection()
     try:
         # Find if it is a parent or child
-        base = get_report(report_id)
+        base = get_report(report_id, user_id=user_id, workspace_id=workspace_id)
         if not base:
             return False
             
         root_id = base["parent_report_id"] or base["report_id"]
         
         # Delete root report and all versions with parent_report_id = root_id
+        params = [root_id, root_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
         cursor = conn.execute(
-            "DELETE FROM reports WHERE report_id = ? OR parent_report_id = ?;",
-            (root_id, root_id)
+            f"DELETE FROM reports WHERE (report_id = ? OR parent_report_id = ?){scope_sql};",
+            tuple(params)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -296,11 +309,16 @@ def list_reports(
     finally:
         conn.close()
 
-def get_report(report_id: str) -> Optional[dict]:
+def get_report(report_id: str, user_id: str | None = None, workspace_id: str | None = None) -> Optional[dict]:
     """Get a single report version details."""
     conn = get_connection()
     try:
-        cursor = conn.execute("SELECT * FROM reports WHERE report_id = ?;", (report_id,))
+        params = [report_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
+        cursor = conn.execute(f"SELECT * FROM reports WHERE report_id = ?{scope_sql};", tuple(params))
         row = cursor.fetchone()
         return _row_to_dict(row) if row else None
     except Exception as e:
@@ -309,22 +327,27 @@ def get_report(report_id: str) -> Optional[dict]:
     finally:
         conn.close()
 
-def get_report_versions(report_id: str) -> List[dict]:
+def get_report_versions(report_id: str, user_id: str | None = None, workspace_id: str | None = None) -> List[dict]:
     """Get all versions of a report sorted by version ASC."""
-    base = get_report(report_id)
+    base = get_report(report_id, user_id=user_id, workspace_id=workspace_id)
     if not base:
         return []
         
     root_id = base["parent_report_id"] or base["report_id"]
     conn = get_connection()
     try:
+        params = [root_id, root_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
         cursor = conn.execute(
-            """
+            f"""
             SELECT * FROM reports
-            WHERE report_id = ? OR parent_report_id = ?
+            WHERE (report_id = ? OR parent_report_id = ?){scope_sql}
             ORDER BY version ASC;
             """,
-            (root_id, root_id)
+            tuple(params)
         )
         return [_row_to_dict(row) for row in cursor.fetchall()]
     except Exception as e:

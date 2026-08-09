@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8001').replace(/\/+$/, '')
+import { apiUrl } from './apiConfig'
 
 export class BillingApiError extends Error {
   constructor(message, status, payload = null) {
@@ -20,7 +20,7 @@ async function readJson(response) {
 }
 
 async function request(path, { method = 'GET', headers = {}, body, signal } = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(apiUrl(path), {
     method,
     headers: {
       'Content-Type': 'application/json',

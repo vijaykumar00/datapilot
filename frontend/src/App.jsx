@@ -22,6 +22,7 @@ import OnboardingAssistant from './components/OnboardingAssistant'
 
 import OnboardingFlow from './components/OnboardingFlow'
 import BillingPortal from './components/BillingPortal'
+import { API_BASE, apiUrl } from './lib/apiConfig'
 import { PrivacyPolicy, TermsOfService, CookiePolicy, AcceptableUsePolicy } from './components/LegalPages'
 import DashboardHome from './components/DashboardHome'
 import SettingsLayout, { ProfileSettings, WorkspaceSettings, TeamMembersSettings, ProvidersKeysSettings, SecuritySessionsSettings } from './components/SettingsLayout'
@@ -490,10 +491,7 @@ const PRESETS = [
 const getBackendUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http')) return path
-  const browserWindow = typeof window !== 'undefined' ? window : null
-  const API_HOST = browserWindow?.location?.hostname || '127.0.0.1'
-  const API_PORT = browserWindow?.__DATAPILOT_API_PORT__ || '8001'
-  return `http://${API_HOST}:${API_PORT}${path}`
+  return apiUrl(path)
 }
 
 // ── Long-form Executive Report View Sub-Component ────────────────────────
@@ -1843,7 +1841,7 @@ function AppLayout() {
             Ctrl+K Palette
           </kbd>
           <a
-            href={`${import.meta.env.VITE_API_URL || ''}/docs`}
+            href={`${API_BASE}/docs`}
             target="_blank"
             rel="noreferrer"
             className="text-brand-400 hover:text-brand-300 transition-colors font-medium"

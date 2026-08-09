@@ -9,6 +9,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/browser-verify.mjs",
     "test:browser:billing": "node tests/phase-4-3-browser-verify.mjs",
+    "test:prod-api-bundle": "node scripts/check-production-api-bundle.mjs",
     "prebuild": "npm run generate:sitemap",
     "build": "vite build",
     "preview": "vite preview"
@@ -21,7 +22,6 @@
     "react-markdown": "^9.0.1",
     "react-plotly.js": "^2.6.0",
     "react-router-dom": "^7.18.1",
-    "react-virtual": "^2.10.4",
     "remark-gfm": "^4.0.0",
     "zustand": "^4.5.4"
   },
@@ -30,6 +30,6 @@
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.6",
-    "vite": "^5.3.1"
+    "vite": "^6.4.3"
   }
 }

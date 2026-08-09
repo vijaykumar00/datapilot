@@ -1,27 +1,8 @@
-"""
-rate_limiter.py — Production-safe shared rate limiter for DataPilot.
+"""Shared rate limiter for DataPilot.
 
-Backend selection (via RATE_LIMITER_BACKEND env var):
-    redis   : Atomic Redis INCR + EXPIRE sliding-window counter (default when Redis available).
-    memory  : In-process sliding-window (dev/test only; does not share state across workers).
-
-Additional configuration:
-    REDIS_URL                 : Redis connection URL (default redis://localhost:6379/0).
-    RATE_LIMIT_WINDOW_SECONDS : Window length in seconds (default 60).
-    RATE_LIMIT_MAX_REQUESTS   : Max requests per IP per window (default 100).
-
-Failure behaviour:
-    - If RATE_LIMITER_BACKEND=redis but Redis is unavailable at check time, the limiter
-      logs a WARNING and FAILS OPEN (allows the request).  This is intentional for a
-      dev-friendly product — a Redis outage should not take down the API.
-    - Use RATE_LIMITER_BACKEND=memory to force in-process limiting in production when
-      Redis is not available.
-
-Key design:
-    - Redis key format: ``dp:{env}:rl:{ip}:{window_epoch}``
-      No user PII other than the remote IP is stored.
-    - Keys expire automatically (TTL = window * 2) so no manual cleanup is needed.
-    - All Redis operations happen inside try/except so network errors never propagate.
+Redis is the production backend. Development and tests may use the in-process
+memory backend, but production Redis failures fail closed and are exposed by
+the readiness probe.
 """
 
 from __future__ import annotations
@@ -34,7 +15,17 @@ from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger("datapilot.rate_limiter")
 
-# ── Config ────────────────────────────────────────────────────────────────────
+PRODUCTION_ENVS = {"production", "prod"}
+TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _app_env() -> str:
+    return (os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "development").strip().lower()
+
+
+def _is_production() -> bool:
+    return _app_env() in PRODUCTION_ENVS
+
 
 def _window() -> int:
     try:
@@ -50,6 +41,13 @@ def _max_requests() -> int:
         return 100
 
 
+def _int_env(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (ValueError, TypeError):
+        return default
+
+
 def _backend() -> str:
     return os.getenv("RATE_LIMITER_BACKEND", "redis").strip().lower()
 
@@ -59,33 +57,52 @@ def _redis_url() -> str:
 
 
 def _env_label() -> str:
-    return os.getenv("ENVIRONMENT", "prod")
+    return os.getenv("RATE_LIMITER_ENV_LABEL") or _app_env()
 
 
-# ── Protocol / interface ──────────────────────────────────────────────────────
+def _timeout(name: str, default: float) -> float:
+    try:
+        return max(0.05, float(os.getenv(name, str(default))))
+    except (ValueError, TypeError):
+        return default
+
+
+def _redis_connect_timeout() -> float:
+    return _timeout("REDIS_CONNECT_TIMEOUT", 1.0)
+
+
+def _redis_socket_timeout() -> float:
+    return _timeout("REDIS_SOCKET_TIMEOUT", 1.0)
+
+
+def _fail_open_enabled() -> bool:
+    if _is_production():
+        return False
+    return os.getenv("RATE_LIMITER_FAIL_OPEN", "true").strip().lower() in TRUTHY
+
 
 @runtime_checkable
 class RateLimiterBackend(Protocol):
     """Interface every rate limiter backend must satisfy."""
 
-    def is_allowed(self, ip: str) -> bool:
-        """Return True if the request should be allowed, False if rate-limited."""
+    def is_allowed(
+        self,
+        ip: str,
+        scope: str = "global",
+        window_seconds: int | None = None,
+        max_requests: int | None = None,
+    ) -> bool:
+        """Return True if the request should be allowed."""
         ...
 
     @property
     def backend_name(self) -> str:
-        """Human-readable name for logging / health endpoints."""
+        """Human-readable backend name."""
         ...
 
 
-# ── In-memory backend ─────────────────────────────────────────────────────────
-
 class InMemoryRateLimiter:
-    """Sliding-window in-process rate limiter.
-
-    Not suitable for multi-worker deployments — each process has its own counter.
-    Suitable for development, testing, and single-process deployments.
-    """
+    """Sliding-window in-process limiter for development and tests."""
 
     def __init__(
         self,
@@ -96,16 +113,24 @@ class InMemoryRateLimiter:
         self._max = max_requests if max_requests is not None else _max_requests()
         self._history: dict[str, list[float]] = defaultdict(list)
 
-    def is_allowed(self, ip: str) -> bool:
+    def is_allowed(
+        self,
+        ip: str,
+        scope: str = "global",
+        window_seconds: int | None = None,
+        max_requests: int | None = None,
+    ) -> bool:
         now = time.monotonic()
-        cutoff = now - self._window
-        # Evict stale timestamps
-        self._history[ip] = [t for t in self._history[ip] if t > cutoff]
+        window = window_seconds if window_seconds is not None else self._window
+        limit = max_requests if max_requests is not None else self._max
+        key = f"{scope}:{ip}"
+        cutoff = now - window
+        self._history[key] = [t for t in self._history[key] if t > cutoff]
 
-        if len(self._history[ip]) >= self._max:
+        if len(self._history[key]) >= limit:
             return False
 
-        self._history[ip].append(now)
+        self._history[key].append(now)
         return True
 
     @property
@@ -113,14 +138,8 @@ class InMemoryRateLimiter:
         return "memory"
 
 
-# ── Redis backend ─────────────────────────────────────────────────────────────
-
 class RedisRateLimiter:
-    """Redis INCR + EXPIRE atomic sliding-window rate limiter.
-
-    Uses per-second epoch buckets so each IP has at most (window) Redis keys.
-    On any Redis error the limiter fails open and logs a WARNING.
-    """
+    """Redis INCR + EXPIRE sliding-window limiter."""
 
     def __init__(
         self,
@@ -128,118 +147,213 @@ class RedisRateLimiter:
         window_seconds: int | None = None,
         max_requests: int | None = None,
         env_label: str | None = None,
+        fail_open: bool | None = None,
+        connect_timeout: float | None = None,
+        socket_timeout: float | None = None,
     ):
         self._url = redis_url or _redis_url()
         self._window = window_seconds if window_seconds is not None else _window()
         self._max = max_requests if max_requests is not None else _max_requests()
         self._env = env_label or _env_label()
-        self._redis = None  # lazy connect
+        self._fail_open = _fail_open_enabled() if fail_open is None else fail_open
+        self._connect_timeout = connect_timeout if connect_timeout is not None else _redis_connect_timeout()
+        self._socket_timeout = socket_timeout if socket_timeout is not None else _redis_socket_timeout()
+        self._redis = None
         self._unavailable_logged = False
+        self._last_error: str | None = None
 
     def _get_redis(self):
         if self._redis is not None:
             return self._redis
         try:
             import redis  # type: ignore
-            self._redis = redis.Redis.from_url(self._url, socket_connect_timeout=1, socket_timeout=1)
+
+            self._redis = redis.Redis.from_url(
+                self._url,
+                socket_connect_timeout=self._connect_timeout,
+                socket_timeout=self._socket_timeout,
+            )
             self._redis.ping()
-            logger.info("Redis rate limiter connected: %s", self._url)
-        except ImportError:
-            if not self._unavailable_logged:
-                logger.warning(
-                    "redis package not installed; rate limiter will use in-memory fallback. "
-                    "Install redis-py: pip install redis"
-                )
-                self._unavailable_logged = True
-            self._redis = None
+            self._last_error = None
+            self._unavailable_logged = False
+            logger.info("Redis rate limiter connected.")
+        except ImportError as exc:
+            self._record_unavailable(f"redis package is not installed: {exc}")
         except Exception as exc:
-            if not self._unavailable_logged:
-                logger.warning(
-                    "Redis unavailable (%s) — rate limiter failing open. "
-                    "Check REDIS_URL or set RATE_LIMITER_BACKEND=memory.", exc
-                )
-                self._unavailable_logged = True
-            self._redis = None
+            self._record_unavailable(f"Redis unavailable: {exc}")
         return self._redis
 
-    def _key(self, ip: str, epoch_second: int) -> str:
-        """Redis key for a given IP and epoch second bucket.
+    def _record_unavailable(self, message: str) -> None:
+        self._last_error = message
+        if not self._unavailable_logged:
+            mode = "failing open" if self._fail_open else "failing closed"
+            logger.warning("%s; rate limiter %s.", message, mode)
+            self._unavailable_logged = True
+        self._redis = None
 
-        Format: dp:{env}:rl:{ip}:{epoch}
-        No sensitive user data beyond remote IP.
-        """
-        return f"dp:{self._env}:rl:{ip}:{epoch_second}"
+    def _key(self, ip: str, epoch_second: int, scope: str = "global") -> str:
+        if scope == "global":
+            return f"dp:{self._env}:rl:{ip}:{epoch_second}"
+        return f"dp:{self._env}:rl:{scope}:{ip}:{epoch_second}"
 
-    def is_allowed(self, ip: str) -> bool:
+    def is_allowed(
+        self,
+        ip: str,
+        scope: str = "global",
+        window_seconds: int | None = None,
+        max_requests: int | None = None,
+    ) -> bool:
         r = self._get_redis()
         if r is None:
-            # Fail open — Redis unavailable
-            return True
+            return self._fail_open
 
         now = int(time.time())
-        window_start = now - self._window
+        window = window_seconds if window_seconds is not None else self._window
+        limit = max_requests if max_requests is not None else self._max
+        window_start = now - window
 
         try:
             pipe = r.pipeline(transaction=False)
             for bucket in range(window_start, now + 1):
-                pipe.get(self._key(ip, bucket))
+                pipe.get(self._key(ip, bucket, scope))
             results = pipe.execute()
 
             total = sum(int(v) for v in results if v is not None)
-            if total >= self._max:
+            if total >= limit:
                 return False
 
-            # Increment current second bucket
-            current_key = self._key(ip, now)
+            current_key = self._key(ip, now, scope)
             pipe2 = r.pipeline(transaction=True)
             pipe2.incr(current_key)
-            pipe2.expire(current_key, self._window * 2)
+            pipe2.expire(current_key, window * 2)
             pipe2.execute()
+            self._last_error = None
             return True
 
         except Exception as exc:
-            logger.warning("Redis rate limiter error (failing open): %s", exc)
-            # Reset connection so next request tries to reconnect
-            self._redis = None
-            self._unavailable_logged = False
+            self._record_unavailable(f"Redis rate limiter error: {exc}")
+            return self._fail_open
+
+    def ping(self) -> bool:
+        r = self._get_redis()
+        if r is None:
+            return False
+        try:
+            r.ping()
+            self._last_error = None
             return True
+        except Exception as exc:
+            self._record_unavailable(f"Redis ping failed: {exc}")
+            return False
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def fail_open(self) -> bool:
+        return self._fail_open
 
     @property
     def backend_name(self) -> str:
         return "redis"
 
 
-# ── Factory / singleton ───────────────────────────────────────────────────────
-
 _limiter_instance: RateLimiterBackend | None = None
 
 
 def get_rate_limiter() -> RateLimiterBackend:
-    """Return the process-global rate limiter, creating it on first call."""
+    """Return the process-global rate limiter."""
     global _limiter_instance
     if _limiter_instance is not None:
         return _limiter_instance
 
     backend = _backend()
     if backend == "memory":
-        logger.info("Rate limiter: using in-memory backend (RATE_LIMITER_BACKEND=memory).")
+        logger.info("Rate limiter: using in-memory backend.")
         _limiter_instance = InMemoryRateLimiter()
     else:
-        # Attempt Redis; connection errors handled lazily inside RedisRateLimiter
         _limiter_instance = RedisRateLimiter()
 
     return _limiter_instance
 
 
 def reset_rate_limiter() -> None:
-    """Reset the singleton — used in tests to force re-creation with different env."""
+    """Reset the singleton for tests and runtime reconfiguration."""
     global _limiter_instance
     _limiter_instance = None
 
 
-def check_rate_limit(ip: str, path: str = "") -> bool:
-    """Module-level convenience: return True if request should be allowed.
+PATH_LIMITS = (
+    ("/auth/login", "auth_login", "RATE_LIMIT_AUTH_LOGIN_MAX_REQUESTS", 10, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
+    ("/auth/signup", "auth_signup", "RATE_LIMIT_AUTH_SIGNUP_MAX_REQUESTS", 5, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
+    ("/auth/forgot-password", "auth_reset", "RATE_LIMIT_PASSWORD_RESET_MAX_REQUESTS", 5, "RATE_LIMIT_PASSWORD_RESET_WINDOW_SECONDS", 900),
+    ("/auth/reset-password", "auth_reset", "RATE_LIMIT_PASSWORD_RESET_MAX_REQUESTS", 5, "RATE_LIMIT_PASSWORD_RESET_WINDOW_SECONDS", 900),
+    ("/guest/session", "guest_session", "RATE_LIMIT_GUEST_SESSION_MAX_REQUESTS", 20, "RATE_LIMIT_GUEST_SESSION_WINDOW_SECONDS", 3600),
+    ("/upload", "upload", "RATE_LIMIT_UPLOAD_MAX_REQUESTS", 20, "RATE_LIMIT_UPLOAD_WINDOW_SECONDS", 3600),
+    ("/chat/stream", "chat", "RATE_LIMIT_CHAT_MAX_REQUESTS", 60, "RATE_LIMIT_CHAT_WINDOW_SECONDS", 60),
+    ("/reports", "reports", "RATE_LIMIT_REPORT_MAX_REQUESTS", 30, "RATE_LIMIT_REPORT_WINDOW_SECONDS", 3600),
+    ("/report", "reports", "RATE_LIMIT_REPORT_MAX_REQUESTS", 30, "RATE_LIMIT_REPORT_WINDOW_SECONDS", 3600),
+    ("/export", "exports", "RATE_LIMIT_EXPORT_MAX_REQUESTS", 30, "RATE_LIMIT_EXPORT_WINDOW_SECONDS", 3600),
+    ("/billing", "billing", "RATE_LIMIT_BILLING_MAX_REQUESTS", 60, "RATE_LIMIT_BILLING_WINDOW_SECONDS", 60),
+    ("/user/api-keys", "api_keys", "RATE_LIMIT_API_KEY_MAX_REQUESTS", 30, "RATE_LIMIT_API_KEY_WINDOW_SECONDS", 300),
+)
 
-    ``path`` is currently unused but reserved for path-specific override rules.
-    """
-    return get_rate_limiter().is_allowed(ip)
+
+def limit_for_path(path: str = "") -> tuple[str, int, int]:
+    """Return rate-limit scope, window, and max request count for a route."""
+    normalized = path or ""
+    for prefix, scope, max_env, max_default, window_env, window_default in PATH_LIMITS:
+        if normalized.startswith(prefix):
+            return (
+                scope,
+                _int_env(window_env, window_default),
+                _int_env(max_env, max_default),
+            )
+    return "global", _window(), _max_requests()
+
+
+def check_rate_limit(ip: str, path: str = "") -> bool:
+    """Return True when the request should be allowed."""
+    scope, window, max_requests = limit_for_path(path)
+    return get_rate_limiter().is_allowed(
+        ip,
+        scope=scope,
+        window_seconds=window,
+        max_requests=max_requests,
+    )
+
+
+def rate_limiter_health() -> dict[str, object]:
+    """Return readiness details for the configured rate limiter."""
+    limiter = get_rate_limiter()
+    status: dict[str, object] = {
+        "backend": limiter.backend_name,
+        "required": _is_production(),
+        "ok": True,
+        "detail": "ok",
+    }
+
+    if isinstance(limiter, InMemoryRateLimiter):
+        if _is_production():
+            status["ok"] = False
+            status["detail"] = "in-memory rate limiting is not allowed in production"
+        else:
+            status["detail"] = "in-memory development limiter"
+        return status
+
+    if isinstance(limiter, RedisRateLimiter):
+        ok = limiter.ping()
+        status["ok"] = ok or (not _is_production() and limiter.fail_open)
+        status["fail_open"] = limiter.fail_open
+        if ok:
+            status["detail"] = "redis connected"
+        elif limiter.fail_open and not _is_production():
+            status["detail"] = f"{limiter.last_error or 'redis unavailable'}; development fail-open"
+        else:
+            status["detail"] = limiter.last_error or "redis unavailable"
+        return status
+
+    status["ok"] = False
+    status["detail"] = "unknown rate limiter backend"
+    return status

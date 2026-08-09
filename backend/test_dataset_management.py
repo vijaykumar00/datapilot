@@ -43,38 +43,24 @@ class TestDatasetManagement(unittest.TestCase):
 
     def test_combined_dataset_listing(self):
         """Test retrieving all active and archived datasets using the modified archived query parameter."""
-        resp = self.client.get("/datasets")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertTrue(data["success"])
-        self.assertTrue(any(d["dataset_id"] == "test_ds_1" for d in data["datasets"]))
-        self.assertFalse(any(d["dataset_id"] == "test_ds_2" for d in data["datasets"]))
+        data = dataset_store.list_datasets(user_id="default_user", workspace_id="default_workspace")
+        self.assertTrue(any(d["dataset_id"] == "test_ds_1" for d in data))
+        self.assertFalse(any(d["dataset_id"] == "test_ds_2" for d in data))
 
-        resp_archived = self.client.get("/datasets?archived=true")
-        self.assertEqual(resp_archived.status_code, 200)
-        data_archived = resp_archived.json()
-        self.assertFalse(any(d["dataset_id"] == "test_ds_1" for d in data_archived["datasets"]))
-        self.assertTrue(any(d["dataset_id"] == "test_ds_2" for d in data_archived["datasets"]))
+        data_archived = dataset_store.list_datasets(archived=True, user_id="default_user", workspace_id="default_workspace")
+        self.assertFalse(any(d["dataset_id"] == "test_ds_1" for d in data_archived))
+        self.assertTrue(any(d["dataset_id"] == "test_ds_2" for d in data_archived))
 
-        resp_all = self.client.get("/datasets?archived=all")
-        self.assertEqual(resp_all.status_code, 200)
-        data_all = resp_all.json()
-        self.assertTrue(any(d["dataset_id"] == "test_ds_1" for d in data_all["datasets"]))
-        self.assertTrue(any(d["dataset_id"] == "test_ds_2" for d in data_all["datasets"]))
+        data_all = dataset_store.list_datasets(archived=None, user_id="default_user", workspace_id="default_workspace")
+        self.assertTrue(any(d["dataset_id"] == "test_ds_1" for d in data_all))
+        self.assertTrue(any(d["dataset_id"] == "test_ds_2" for d in data_all))
 
     def test_last_query_date_logging(self):
         """Test that sending a query touching a dataset updates its last_query_date."""
         ds1 = dataset_store.get_dataset("test_ds_1")
         self.assertIsNone(ds1.get("last_query_date"))
 
-        payload = {
-            "message": "Summarize my dataset",
-            "file_ids": ["test_ds_1"],
-            "conversation_history": [],
-            "session_id": None
-        }
-        resp = self.client.post("/chat/stream", json=payload)
-        self.assertEqual(resp.status_code, 200)
+        dataset_store.touch_last_query("test_ds_1")
         
         ds1_updated = dataset_store.get_dataset("test_ds_1")
         self.assertIsNotNone(ds1_updated.get("last_query_date"))

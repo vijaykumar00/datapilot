@@ -120,6 +120,10 @@ app = FastAPI(
 def startup_event():
     from core.db import init_db
     from core.stripe_billing import validate_stripe_startup
+    from scripts.validate_env import validate as validate_env
+    env_errors = validate_env(dict(os.environ))
+    if env_errors:
+        raise RuntimeError("Production environment validation failed: " + "; ".join(env_errors))
     init_db()
     validate_stripe_startup()
 
@@ -160,8 +164,23 @@ def _audit_log(
         logger.warning(f"Audit log write failed [{event_type}]: {e}")
 
 
+def _require_resource_context(caller: "CallerContext") -> tuple[str, str]:
+    """Return tenant scope for resource routes, rejecting anonymous access."""
+    caller.require_active_context()
+    return caller.user_id, caller.effective_workspace_id
+
+
+def _require_file_record(file_id: str, caller: "CallerContext"):
+    """Fetch a file only if it belongs to the caller's workspace/guest namespace."""
+    _, workspace_id = _require_resource_context(caller)
+    record = get_file_manager().get_record(file_id)
+    if record is None or getattr(record, "workspace_id", None) != workspace_id:
+        raise HTTPException(404, f"File '{file_id}' not found")
+    return record
+
+
 from collections import defaultdict
-from core.rate_limiter import check_rate_limit, get_rate_limiter
+from core.rate_limiter import check_rate_limit, get_rate_limiter, rate_limiter_health
 
 allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173")
 allowed_origins = [orig.strip() for orig in allowed_origins_str.split(",") if orig.strip()]
@@ -511,23 +530,44 @@ async def ready():
         "database": False,
         "uploads_writable": False,
         "jwt_secret": False,
+        "rate_limiter": False,
+        "storage": False,
     }
+    details = {}
 
     try:
-      from sqlalchemy import text
-      from core.db import engine
-      with engine.connect() as connection:
-          connection.execute(text("SELECT 1"))
-      checks["database"] = True
+        from sqlalchemy import text
+        from core.db import engine
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        checks["database"] = True
     except Exception as exc:
-      logger.warning("Readiness database check failed: %s", exc)
+        logger.warning("Readiness database check failed: %s", exc)
+        details["database"] = str(exc)
 
     checks["uploads_writable"] = os.access(UPLOAD_DIR, os.W_OK)
     jwt_secret = os.getenv("JWT_SECRET", "")
     checks["jwt_secret"] = len(jwt_secret) >= 32
 
+    try:
+        rl_health = rate_limiter_health()
+        checks["rate_limiter"] = bool(rl_health["ok"])
+        details["rate_limiter"] = rl_health
+    except Exception as exc:
+        logger.warning("Readiness rate limiter check failed: %s", exc)
+        details["rate_limiter"] = str(exc)
+
+    try:
+        from core.storage import storage_health
+        storage_state = storage_health()
+        checks["storage"] = bool(storage_state["ok"])
+        details["storage"] = storage_state
+    except Exception as exc:
+        logger.warning("Readiness storage check failed: %s", exc)
+        details["storage"] = str(exc)
+
     ready_state = all(checks.values())
-    payload = {"status": "ready" if ready_state else "not_ready", "checks": checks}
+    payload = {"status": "ready" if ready_state else "not_ready", "checks": checks, "details": details}
     if not ready_state:
         return JSONResponse(status_code=503, content=payload)
     return payload
@@ -631,6 +671,7 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     """Upload and parse a CSV or Excel file. Returns file summary + AI suggestions."""
+    _require_resource_context(caller)
     # Enforce upload limit before processing
     caller.check_limit("upload", db)
 
@@ -683,21 +724,14 @@ async def upload_file(
 @app.get("/files")
 async def list_files(caller: CallerContext = Depends(get_caller)):
     """List currently loaded files. Requires authenticated or guest session."""
-    if not caller.is_authenticated and not caller.is_guest:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication or guest session required to list files."
-        )
-    return {"files": get_file_manager().list_files()}
+    _, workspace_id = _require_resource_context(caller)
+    return {"files": get_file_manager().list_files(workspace_id=workspace_id)}
 
 
 @app.get("/files/{file_id}/suggestions")
-async def get_file_suggestions(file_id: str):
+async def get_file_suggestions(file_id: str, caller: CallerContext = Depends(get_caller)):
     """Return fresh AI suggestions for a loaded file (re-computed on demand)."""
-    manager = get_file_manager()
-    record = manager.get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
     try:
         suggestions = generate_suggestions(
             record.df,
@@ -717,8 +751,9 @@ async def get_file_suggestions(file_id: str):
 
 
 @app.get("/files/{file_id}")
-async def get_file_preview(file_id: str):
+async def get_file_preview(file_id: str, caller: CallerContext = Depends(get_caller)):
     """Return preview rows and metadata for one loaded file."""
+    _require_file_record(file_id, caller)
     preview = get_file_manager().get_preview_data(file_id)
     if preview is None:
         raise HTTPException(404, f"File '{file_id}' not found")
@@ -726,13 +761,10 @@ async def get_file_preview(file_id: str):
 
 
 @app.get("/files/{file_id}/diagnostics")
-async def get_file_diagnostics(file_id: str):
+async def get_file_diagnostics(file_id: str, caller: CallerContext = Depends(get_caller)):
     """Re-run full schema diagnostics on a loaded file and return structured warnings."""
     from core.error_intelligence import diagnose_schema
-    manager = get_file_manager()
-    record = manager.get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
     try:
         warnings = diagnose_schema(record.df, record.filename)
         record.metadata["schema_warnings"] = warnings
@@ -754,8 +786,9 @@ async def get_file_diagnostics(file_id: str):
 
 
 @app.patch("/files/{file_id}")
-async def update_file_cells(file_id: str, req: UpdateCellsRequest):
+async def update_file_cells(file_id: str, req: UpdateCellsRequest, caller: CallerContext = Depends(get_caller)):
     """Apply user edits to the loaded dataframe."""
+    _require_file_record(file_id, caller)
     try:
         result = get_file_manager().apply_edits(
             file_id,
@@ -770,11 +803,9 @@ async def update_file_cells(file_id: str, req: UpdateCellsRequest):
 
 
 @app.get("/export/file/{file_id}")
-async def export_file_data(file_id: str, format: str = "csv"):
+async def export_file_data(file_id: str, format: str = "csv", caller: CallerContext = Depends(get_caller)):
     """Export the full uploaded dataset as CSV or XLSX."""
-    record = get_file_manager().get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
     payload, media_type, ext = _dataframe_to_bytes(record.df, format)
     filename = f"{_safe_export_name(record.filename, 'dataset')}.{ext}"
     return _bytes_download_response(payload, media_type, filename)
@@ -788,6 +819,7 @@ async def export_result_rows(
     db: Session = Depends(get_db),
 ):
     """Export query or preview rows currently visible in the UI."""
+    _require_resource_context(caller)
     caller.check_limit("export", db)
     if not req.rows:
         raise HTTPException(400, "No rows provided for export")
@@ -799,8 +831,9 @@ async def export_result_rows(
 
 
 @app.post("/export/report")
-async def export_report(req: ExportReportRequest, format: str = "md"):
+async def export_report(req: ExportReportRequest, format: str = "md", caller: CallerContext = Depends(get_caller)):
     """Export a generated narrative/report as markdown or text."""
+    _require_resource_context(caller)
     export_format = format.lower()
     if export_format not in {"md", "txt"}:
         raise HTTPException(400, "Unsupported report format. Use md or txt")
@@ -810,11 +843,9 @@ async def export_report(req: ExportReportRequest, format: str = "md"):
 
 
 @app.get("/files/{file_id}/sheets")
-async def list_sheets(file_id: str):
+async def list_sheets(file_id: str, caller: CallerContext = Depends(get_caller)):
     """List all sheet names for an Excel file and show the active sheet."""
-    record = get_file_manager().get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
     sheet_names = record.metadata.get("sheet_names", [])
     active_sheet = record.metadata.get("active_sheet")
     return {"file_id": file_id, "sheets": sheet_names, "active_sheet": active_sheet}
@@ -825,8 +856,9 @@ class SwitchSheetRequest(BaseModel):
 
 
 @app.post("/files/{file_id}/sheet")
-async def switch_sheet(file_id: str, req: SwitchSheetRequest):
+async def switch_sheet(file_id: str, req: SwitchSheetRequest, caller: CallerContext = Depends(get_caller)):
     """Switch the active sheet for an Excel file."""
+    _require_file_record(file_id, caller)
     try:
         summary = await get_file_manager().switch_sheet(file_id, req.sheet)
     except ValueError as e:
@@ -841,8 +873,9 @@ class RenameFileRequest(BaseModel):
 
 
 @app.post("/files/{file_id}/rename")
-async def rename_file(file_id: str, req: RenameFileRequest):
+async def rename_file(file_id: str, req: RenameFileRequest, caller: CallerContext = Depends(get_caller)):
     """Rename a file's display name."""
+    _require_file_record(file_id, caller)
     if not req.filename.strip():
         raise HTTPException(400, "Filename cannot be empty")
     ok = get_file_manager().rename_file(file_id, req.filename)
@@ -855,12 +888,14 @@ async def rename_file(file_id: str, req: RenameFileRequest):
 async def get_sessions(
     limit: Optional[int] = None,
     offset: int = 0,
-    q: Optional[str] = None
+    q: Optional[str] = None,
+    caller: CallerContext = Depends(get_caller),
 ):
     """Get all or paginated saved chat sessions, with optional search."""
+    user_id, workspace_id = _require_resource_context(caller)
     res = session_store.get_sessions_paginated(
-        user_id="default_user",
-        workspace_id="default_workspace",
+        user_id=user_id,
+        workspace_id=workspace_id,
         limit=limit,
         offset=offset,
         search=q
@@ -869,50 +904,51 @@ async def get_sessions(
 
 
 @app.post("/sessions")
-async def create_session(req: CreateSessionRequest):
+async def create_session(req: CreateSessionRequest, caller: CallerContext = Depends(get_caller)):
     """Create a new chat session."""
-    res = session_store.create_session(req.session_id, req.name)
+    user_id, workspace_id = _require_resource_context(caller)
+    res = session_store.create_session(req.session_id, req.name, user_id=user_id, workspace_id=workspace_id)
     return {"success": True, "session": res}
 
 
 @app.put("/sessions/{session_id}")
-async def update_session_route(session_id: str, req: UpdateSessionRequest):
+async def update_session_route(session_id: str, req: UpdateSessionRequest, caller: CallerContext = Depends(get_caller)):
     """Rename or pin/unpin a session."""
-    ok = session_store.update_session(session_id, req.name, req.pinned)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = session_store.update_session(session_id, req.name, req.pinned, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Session '{session_id}' not found")
     return {"success": True}
 
 
 @app.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, caller: CallerContext = Depends(get_caller)):
     """Delete a session entirely."""
-    ok = session_store.delete_session(session_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = session_store.delete_session(session_id, user_id=user_id, workspace_id=workspace_id)
     return {"success": ok, "session_id": session_id}
 
 
 @app.get("/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str):
+async def get_session_messages(session_id: str, caller: CallerContext = Depends(get_caller)):
     """Get message history for a session."""
-    history = session_store.get_history(session_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    history = session_store.get_history(session_id, user_id=user_id, workspace_id=workspace_id)
     return {"success": True, "messages": history}
 
 
 @app.delete("/session/{session_id}")
-async def clear_session(session_id: str):
+async def clear_session(session_id: str, caller: CallerContext = Depends(get_caller)):
     """Clear a chat session's server-side history."""
-    ok = session_store.clear_session(session_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = session_store.clear_session(session_id, user_id=user_id, workspace_id=workspace_id)
     return {"success": ok, "session_id": session_id}
 
 
 @app.delete("/files/{file_id}")
 async def delete_file(file_id: str, caller: CallerContext = Depends(get_caller)):
     """Remove a file from memory and disk. Requires authentication."""
-    if not caller.is_authenticated:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required to delete files."
-        )
+    _require_file_record(file_id, caller)
     ok = get_file_manager().delete_file(file_id)
     return {"success": ok, "file_id": file_id}
 
@@ -935,12 +971,10 @@ def _evict_expired_staged() -> None:
 
 
 @app.post("/files/{file_id}/transform/preview")
-async def transform_preview(file_id: str, req: TransformPreviewRequest):
+async def transform_preview(file_id: str, req: TransformPreviewRequest, caller: CallerContext = Depends(get_caller)):
     """NLP proposal planner running a safe, head-sliced subset dry-run simulation of transformations."""
     manager = get_file_manager()
-    record = manager.get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
 
     from core.transform_engine import propose_transformations, execute_transform
     try:
@@ -995,12 +1029,10 @@ async def transform_preview(file_id: str, req: TransformPreviewRequest):
 
 
 @app.post("/files/{file_id}/transform/apply")
-async def transform_apply(file_id: str, req: TransformApplyRequest):
+async def transform_apply(file_id: str, req: TransformApplyRequest, caller: CallerContext = Depends(get_caller)):
     """Commit the staged declarative transformations, executing them on the active dataframe and re-generating insights."""
     manager = get_file_manager()
-    record = manager.get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
 
     staged = _staged_transformations.get(req.transformation_id)
     if staged is None or staged[1] != file_id:
@@ -1024,12 +1056,10 @@ async def transform_apply(file_id: str, req: TransformApplyRequest):
 
 
 @app.post("/files/{file_id}/transform/undo")
-async def transform_undo(file_id: str):
+async def transform_undo(file_id: str, caller: CallerContext = Depends(get_caller)):
     """Roll back the last transformation from the transactional history stack in memory."""
     manager = get_file_manager()
-    record = manager.get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
 
     try:
         res = await manager.undo_transform(file_id)
@@ -1044,12 +1074,10 @@ async def transform_undo(file_id: str):
 
 
 @app.post("/files/{file_id}/transform/pipeline")
-async def transform_pipeline(file_id: str, req: TransformPipelineRequest):
+async def transform_pipeline(file_id: str, req: TransformPipelineRequest, caller: CallerContext = Depends(get_caller)):
     """Execute a pre-configured multi-step pipeline chain sequentially."""
     manager = get_file_manager()
-    record = manager.get_record(file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{file_id}' not found")
+    record = _require_file_record(file_id, caller)
 
     last_res = None
     for step in req.pipeline:
@@ -1071,11 +1099,10 @@ async def report_generate(
     db: Session = Depends(get_db),
 ):
     """Generate business-ready narrative analysis and dynamically styled charts."""
+    _require_resource_context(caller)
     caller.check_limit("report", db)
     manager = get_file_manager()
-    record = manager.get_record(req.file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{req.file_id}' not found")
+    record = _require_file_record(req.file_id, caller)
 
     # Resolve default chart columns
     x_col = req.x_col or (record.df.columns[0] if len(record.df.columns) > 0 else None)
@@ -1158,12 +1185,10 @@ async def report_generate(
 
 
 @app.post("/report/export")
-async def report_export(req: ReportExportRequest):
+async def report_export(req: ReportExportRequest, caller: CallerContext = Depends(get_caller)):
     """Asynchronously compile and export the bespoke report in PDF, DOCX, PPTX, or XLSX formats."""
     manager = get_file_manager()
-    record = manager.get_record(req.file_id)
-    if record is None:
-        raise HTTPException(404, f"File '{req.file_id}' not found")
+    record = _require_file_record(req.file_id, caller)
 
     fmt = req.format.lower()
     export_filename = f"{_safe_export_name(req.title or 'report', 'report')}.{fmt}"
@@ -1254,25 +1279,25 @@ async def report_export(req: ReportExportRequest):
 
 
 @app.get("/templates")
-async def get_templates_route():
+async def get_templates_route(caller: CallerContext = Depends(get_caller)):
     """List all default built-in and user-created custom templates."""
     from core.template_store import get_template_store
+    user_id, workspace_id = _require_resource_context(caller)
     store = get_template_store()
-    return {"success": True, "templates": store.list_templates(user_id="default_user", workspace_id="default_workspace")}
+    return {"success": True, "templates": store.list_templates(user_id=user_id, workspace_id=workspace_id)}
 
 
 @app.post("/templates")
-async def create_template_route(req: TemplateCreateRequest):
+async def create_template_route(req: TemplateCreateRequest, caller: CallerContext = Depends(get_caller)):
     """Save a new custom template (either from raw steps or extracted from a file's transaction history)."""
     from core.template_store import get_template_store
     store = get_template_store()
+    user_id, workspace_id = _require_resource_context(caller)
     
     steps = req.steps
     if req.file_id:
         manager = get_file_manager()
-        record = manager.get_record(req.file_id)
-        if record is None:
-            raise HTTPException(404, f"File '{req.file_id}' not found")
+        record = _require_file_record(req.file_id, caller)
         
         applied = record.metadata.get("applied_workflows", [])
         if not applied:
@@ -1288,45 +1313,49 @@ async def create_template_route(req: TemplateCreateRequest):
     if not steps:
         raise HTTPException(400, "Template must contain at least 1 pipeline step.")
         
-    template = store.create_template(req.name, req.description, req.category, steps, user_id="default_user", workspace_id="default_workspace")
+    template = store.create_template(req.name, req.description, req.category, steps, user_id=user_id, workspace_id=workspace_id)
     return {"success": True, "template": template}
 
 
 @app.post("/templates/{template_id}/duplicate")
-async def duplicate_template_route(template_id: str):
+async def duplicate_template_route(template_id: str, caller: CallerContext = Depends(get_caller)):
     """Duplicate an existing template, appending (Copy) to its name."""
     from core.template_store import get_template_store
+    user_id, workspace_id = _require_resource_context(caller)
     store = get_template_store()
-    duplicated = store.duplicate_template(template_id, user_id="default_user", workspace_id="default_workspace")
+    duplicated = store.duplicate_template(template_id, user_id=user_id, workspace_id=workspace_id)
     if not duplicated:
         raise HTTPException(404, f"Template '{template_id}' not found")
     return {"success": True, "template": duplicated}
 
 
 @app.delete("/templates/{template_id}")
-async def delete_template_route(template_id: str):
+async def delete_template_route(template_id: str, caller: CallerContext = Depends(get_caller)):
     """Delete a custom template."""
     from core.template_store import get_template_store
+    user_id, workspace_id = _require_resource_context(caller)
     store = get_template_store()
-    ok = store.delete_template(template_id)
+    ok = store.delete_template(template_id, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Custom Template '{template_id}' not found or is a built-in template.")
     return {"success": True}
 
 
 @app.post("/files/{file_id}/transform/template/{template_id}")
-async def run_template_on_file(file_id: str, template_id: str, req: TemplateRunRequest):
+async def run_template_on_file(file_id: str, template_id: str, req: TemplateRunRequest, caller: CallerContext = Depends(get_caller)):
     """Run template steps on a loaded dataset with dynamic semantic resolution fallbacks and 85% confidence gates."""
     from core.template_store import get_template_store
     from core.file_manager import get_file_manager, ColumnMappingError
     from fastapi.responses import JSONResponse
     
     t_store = get_template_store()
-    template = t_store.get_template(template_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    template = t_store.get_template(template_id, user_id=user_id, workspace_id=workspace_id)
     if not template:
         raise HTTPException(404, f"Template '{template_id}' not found")
         
     manager = get_file_manager()
+    _require_file_record(file_id, caller)
     try:
         res = await manager.apply_template(
             file_id,
@@ -1358,9 +1387,10 @@ async def run_template_on_file(file_id: str, template_id: str, req: TemplateRunR
 # ── Saved Analyses endpoints ──────────────────────────────────────────────────
 
 @app.post("/analyses")
-async def create_analysis(req: SaveAnalysisRequest):
+async def create_analysis(req: SaveAnalysisRequest, caller: CallerContext = Depends(get_caller)):
     """Persist a new saved analysis checkpoint."""
     try:
+        user_id, workspace_id = _require_resource_context(caller)
         result = analysis_store.save_analysis(
             session_id=req.session_id,
             title=req.title,
@@ -1373,6 +1403,8 @@ async def create_analysis(req: SaveAnalysisRequest):
             file_id=req.file_id,
             filename=req.filename,
             tags=req.tags,
+            user_id=user_id,
+            workspace_id=workspace_id,
         )
         return {"success": True, "analysis": result}
     except Exception as e:
@@ -1386,34 +1418,42 @@ async def list_analyses_route(
     file_id: str | None = None,
     starred: bool = False,
     limit: int = 100,
+    caller: CallerContext = Depends(get_caller),
 ):
     """List saved analyses, optionally filtered by session, file, or starred status."""
+    user_id, workspace_id = _require_resource_context(caller)
     results = analysis_store.list_analyses(
         session_id=session_id,
         file_id=file_id,
         starred_only=starred,
         limit=limit,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     return {"success": True, "analyses": results, "count": len(results)}
 
 
 @app.get("/analyses/{analysis_id}")
-async def get_analysis_route(analysis_id: str):
+async def get_analysis_route(analysis_id: str, caller: CallerContext = Depends(get_caller)):
     """Fetch a single saved analysis by ID."""
-    result = analysis_store.get_analysis(analysis_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    result = analysis_store.get_analysis(analysis_id, user_id=user_id, workspace_id=workspace_id)
     if result is None:
         raise HTTPException(404, f"Analysis '{analysis_id}' not found")
     return {"success": True, "analysis": result}
 
 
 @app.patch("/analyses/{analysis_id}")
-async def update_analysis_route(analysis_id: str, req: UpdateAnalysisRequest):
+async def update_analysis_route(analysis_id: str, req: UpdateAnalysisRequest, caller: CallerContext = Depends(get_caller)):
     """Update a saved analysis: rename, re-tag, or star/unstar."""
+    user_id, workspace_id = _require_resource_context(caller)
     ok = analysis_store.update_analysis(
         analysis_id,
         title=req.title,
         tags=req.tags,
         starred=req.starred,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     if not ok:
         raise HTTPException(404, f"Analysis '{analysis_id}' not found")
@@ -1421,9 +1461,10 @@ async def update_analysis_route(analysis_id: str, req: UpdateAnalysisRequest):
 
 
 @app.delete("/analyses/{analysis_id}")
-async def delete_analysis_route(analysis_id: str):
+async def delete_analysis_route(analysis_id: str, caller: CallerContext = Depends(get_caller)):
     """Permanently delete a saved analysis."""
-    ok = analysis_store.delete_analysis(analysis_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = analysis_store.delete_analysis(analysis_id, user_id=user_id, workspace_id=workspace_id)
     return {"success": ok, "analysis_id": analysis_id}
 
 
@@ -1437,6 +1478,10 @@ async def chat_stream(
     SSE streaming chat endpoint.
     Classifies intent → routes to agent → streams response.
     """
+    user_id, workspace_id = _require_resource_context(caller)
+    for fid in req.file_ids:
+        _require_file_record(fid, caller)
+
     # Enforce query limit before dispatching
     caller.check_limit("query", db)
     # Increment usage — do it before streaming so limit is counted even on errors
@@ -1468,10 +1513,10 @@ async def chat_stream(
 
         # Persist user message to session
         if sid:
-            session_store.append_message(sid, "user", message)
+            session_store.append_message(sid, "user", message, user_id=user_id, workspace_id=workspace_id)
 
         # Merge server-side history with client-sent history (client wins if both present)
-        history = req.conversation_history or session_store.get_history(sid)
+        history = req.conversation_history or session_store.get_history(sid, user_id=user_id, workspace_id=workspace_id)
 
         # ── Classify intent ──────────────────────────────────────────────────
         try:
@@ -1500,7 +1545,7 @@ async def chat_stream(
                 file_mgr = get_file_manager()
                 context_files = [
                     f"{r['filename']} ({r['row_count']} rows, {r['column_count']} columns)"
-                    for r in file_mgr.list_files()
+                    for r in file_mgr.list_files(workspace_id=workspace_id)
                     if r["file_id"] in file_ids
                 ]
                 system = f"You are DataPilot, an AI data assistant. Loaded files: {', '.join(context_files)}. Answer concisely."
@@ -1529,7 +1574,9 @@ async def chat_stream(
                     {
                         "type": "text",
                         "metadata": meta
-                    }
+                    },
+                    user_id=user_id,
+                    workspace_id=workspace_id,
                 )
             yield _sse({
                 "type": "text",
@@ -1544,7 +1591,7 @@ async def chat_stream(
         if not agent:
             err_msg = f"Unknown intent: '{intent}'"
             if sid:
-                session_store.append_message(sid, "bot", err_msg, {"type": "error"})
+                session_store.append_message(sid, "bot", err_msg, {"type": "error"}, user_id=user_id, workspace_id=workspace_id)
             yield _sse({
                 "type": "error",
                 "content": err_msg,
@@ -1575,7 +1622,9 @@ async def chat_stream(
                         "chart_data": response.get("chart_data"),
                         "table_data": response.get("table_data"),
                         "metadata": meta,
-                    }
+                    },
+                    user_id=user_id,
+                    workspace_id=workspace_id,
                 )
             yield _sse(response)
         except Exception as e:
@@ -1607,7 +1656,9 @@ async def chat_stream(
                         "type": "error",
                         "error": err_msg,
                         "metadata": meta
-                    }
+                    },
+                    user_id=user_id,
+                    workspace_id=workspace_id,
                 )
             yield _sse({
                 "type": "error",
@@ -1678,9 +1729,10 @@ async def startup_event_llm():
 # ── Reports Endpoints (Feature 1) ─────────────────────────────────────────────
 
 @app.post("/reports")
-async def save_report_route(req: report_dto.SaveReportRequest):
+async def save_report_route(req: report_dto.SaveReportRequest, caller: CallerContext = Depends(get_caller)):
     """Save a new AI-generated report."""
     try:
+        user_id, workspace_id = _require_resource_context(caller)
         report = report_store.save_report(
             session_id=req.session_id,
             title=req.title,
@@ -1695,8 +1747,8 @@ async def save_report_route(req: report_dto.SaveReportRequest):
             file_id=req.file_id,
             filename=req.filename,
             tags=req.tags,
-            user_id="default_user",
-            workspace_id="default_workspace"
+            user_id=user_id,
+            workspace_id=workspace_id,
         )
         return {"success": True, "report": report}
     except Exception as e:
@@ -1709,31 +1761,35 @@ async def list_reports_route(
     file_id: str | None = None,
     starred: bool = False,
     report_type: str | None = None,
-    limit: int = 50
+    limit: int = 50,
+    caller: CallerContext = Depends(get_caller),
 ):
     """List all saved reports, showing only the latest version of each report."""
+    user_id, workspace_id = _require_resource_context(caller)
     reports = report_store.list_reports(
         session_id=session_id,
         file_id=file_id,
         starred_only=starred,
         report_type=report_type,
         limit=limit,
-        user_id="default_user",
-        workspace_id="default_workspace"
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     return {"success": True, "reports": reports, "count": len(reports)}
 
 @app.get("/reports/{report_id}")
-async def get_report_route(report_id: str):
+async def get_report_route(report_id: str, caller: CallerContext = Depends(get_caller)):
     """Fetch a single report version by ID."""
-    report = report_store.get_report(report_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    report = report_store.get_report(report_id, user_id=user_id, workspace_id=workspace_id)
     if not report:
         raise HTTPException(404, f"Report '{report_id}' not found")
     return {"success": True, "report": report}
 
 @app.patch("/reports/{report_id}")
-async def update_report_route(report_id: str, req: report_dto.UpdateReportRequest):
+async def update_report_route(report_id: str, req: report_dto.UpdateReportRequest, caller: CallerContext = Depends(get_caller)):
     """Update title/description/tags/starred/scheduled metadata for a report."""
+    user_id, workspace_id = _require_resource_context(caller)
     ok = report_store.update_report(
         report_id,
         title=req.title,
@@ -1741,30 +1797,36 @@ async def update_report_route(report_id: str, req: report_dto.UpdateReportReques
         tags=req.tags,
         starred=req.starred,
         scheduled=req.scheduled,
-        schedule_cron=req.schedule_cron
+        schedule_cron=req.schedule_cron,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     if not ok:
         raise HTTPException(404, f"Report '{report_id}' not found")
     return {"success": True}
 
 @app.delete("/reports/{report_id}")
-async def delete_report_route(report_id: str):
+async def delete_report_route(report_id: str, caller: CallerContext = Depends(get_caller)):
     """Permanently delete a report and all of its versions."""
-    ok = report_store.delete_report(report_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = report_store.delete_report(report_id, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Report '{report_id}' not found")
     return {"success": True}
 
 @app.post("/reports/{report_id}/version")
-async def create_version_route(report_id: str, req: report_dto.CreateVersionRequest):
+async def create_version_route(report_id: str, req: report_dto.CreateVersionRequest, caller: CallerContext = Depends(get_caller)):
     """Save a new version of a report."""
     try:
+        user_id, workspace_id = _require_resource_context(caller)
         report = report_store.create_version(
             report_id,
             content=req.content,
             chart_data=req.chart_data,
             kpis=req.kpis,
-            metadata=req.metadata
+            metadata=req.metadata,
+            user_id=user_id,
+            workspace_id=workspace_id,
         )
         return {"success": True, "report": report}
     except ValueError as e:
@@ -1774,9 +1836,10 @@ async def create_version_route(report_id: str, req: report_dto.CreateVersionRequ
         raise HTTPException(500, f"Failed to save report version: {e}")
 
 @app.get("/reports/{report_id}/versions")
-async def get_report_versions_route(report_id: str):
+async def get_report_versions_route(report_id: str, caller: CallerContext = Depends(get_caller)):
     """List all versions of a report."""
-    versions = report_store.get_report_versions(report_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    versions = report_store.get_report_versions(report_id, user_id=user_id, workspace_id=workspace_id)
     return {"success": True, "versions": versions}
 
 
@@ -1786,15 +1849,17 @@ async def get_report_versions_route(report_id: str):
 async def get_history_route(
     session_id: str | None = None,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    caller: CallerContext = Depends(get_caller),
 ):
     """Get cross-session paginated history of user queries."""
+    user_id, workspace_id = _require_resource_context(caller)
     res = session_store.get_history_paginated(
         session_id=session_id,
         limit=limit,
         offset=offset,
-        user_id="default_user",
-        workspace_id="default_workspace"
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     return {"success": True, **res}
 
@@ -1802,30 +1867,34 @@ async def get_history_route(
 async def search_history_route(
     q: str,
     session_id: str | None = None,
-    limit: int = 20
+    limit: int = 20,
+    caller: CallerContext = Depends(get_caller),
 ):
     """Search cross-session history for queries containing substring 'q'."""
+    user_id, workspace_id = _require_resource_context(caller)
     results = session_store.search_history(
         query_text=q,
         session_id=session_id,
         limit=limit,
-        user_id="default_user",
-        workspace_id="default_workspace"
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     return {"success": True, "messages": results}
 
 @app.delete("/history/{message_id}")
-async def delete_history_route(message_id: str):
+async def delete_history_route(message_id: str, caller: CallerContext = Depends(get_caller)):
     """Delete a user query and its response."""
-    ok = session_store.delete_message(message_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = session_store.delete_message(message_id, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Message '{message_id}' not found")
     return {"success": True}
 
 @app.post("/history/{message_id}/pin")
-async def pin_history_route(message_id: str):
+async def pin_history_route(message_id: str, caller: CallerContext = Depends(get_caller)):
     """Toggle pin status of a message."""
-    ok = session_store.pin_message(message_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = session_store.pin_message(message_id, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Message '{message_id}' not found")
     return {"success": True}
@@ -1842,7 +1911,8 @@ class UpdateDatasetRequest(BaseModel):
 async def list_datasets_route(
     archived: str = "false",
     session_id: str | None = None,
-    tag: str | None = None
+    tag: str | None = None,
+    caller: CallerContext = Depends(get_caller),
 ):
     """List registered datasets (excluding archived by default)."""
     archived_val = None
@@ -1851,31 +1921,36 @@ async def list_datasets_route(
     elif archived.lower() == "true":
         archived_val = True
 
+    user_id, workspace_id = _require_resource_context(caller)
     datasets = dataset_store.list_datasets(
         archived=archived_val,
         session_id=session_id,
         tag=tag,
-        user_id="default_user",
-        workspace_id="default_workspace"
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     return {"success": True, "datasets": datasets, "count": len(datasets)}
 
 @app.get("/datasets/{dataset_id}")
-async def get_dataset_route(dataset_id: str):
+async def get_dataset_route(dataset_id: str, caller: CallerContext = Depends(get_caller)):
     """Fetch details for a single registered dataset."""
-    dataset = dataset_store.get_dataset(dataset_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    dataset = dataset_store.get_dataset(dataset_id, user_id=user_id, workspace_id=workspace_id)
     if not dataset:
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
     return {"success": True, "dataset": dataset}
 
 @app.patch("/datasets/{dataset_id}")
-async def update_dataset_route(dataset_id: str, req: UpdateDatasetRequest):
+async def update_dataset_route(dataset_id: str, req: UpdateDatasetRequest, caller: CallerContext = Depends(get_caller)):
     """Update dataset details."""
+    user_id, workspace_id = _require_resource_context(caller)
     ok = dataset_store.update_dataset(
         dataset_id,
         display_name=req.display_name,
         description=req.description,
-        tags=req.tags
+        tags=req.tags,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     if not ok:
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
@@ -1889,17 +1964,19 @@ async def update_dataset_route(dataset_id: str, req: UpdateDatasetRequest):
     return {"success": True}
 
 @app.post("/datasets/{dataset_id}/archive")
-async def archive_dataset_route(dataset_id: str):
+async def archive_dataset_route(dataset_id: str, caller: CallerContext = Depends(get_caller)):
     """Soft-archive a dataset."""
-    ok = dataset_store.archive_dataset(dataset_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = dataset_store.archive_dataset(dataset_id, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
     return {"success": True}
 
 @app.post("/datasets/{dataset_id}/restore")
-async def restore_dataset_route(dataset_id: str):
+async def restore_dataset_route(dataset_id: str, caller: CallerContext = Depends(get_caller)):
     """Restore a soft-archived dataset."""
-    ok = dataset_store.restore_dataset(dataset_id)
+    user_id, workspace_id = _require_resource_context(caller)
+    ok = dataset_store.restore_dataset(dataset_id, user_id=user_id, workspace_id=workspace_id)
     if not ok:
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
     return {"success": True}

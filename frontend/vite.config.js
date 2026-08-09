@@ -16,7 +16,13 @@ export default defineConfig(() => {
     '/history', '/datasets',
   ]
 
-  const proxy = {}
+  const proxy = {
+    '/api': {
+      target: backendTarget,
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/api/, ''),
+    },
+  }
   for (const route of proxyRoutes) {
     proxy[route] = {
       target: backendTarget,

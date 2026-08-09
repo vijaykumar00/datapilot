@@ -370,6 +370,8 @@ def grant_promotional_subscription(
     db: Session = Depends(get_db),
 ):
     _require_workspace_owner(caller, db)
+    if payload.workspace_id != caller.workspace_id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     workspace = db.query(Workspace).filter(Workspace.workspace_id == payload.workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")

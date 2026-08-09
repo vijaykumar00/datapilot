@@ -18,6 +18,8 @@ test('RC-2 Docker artifacts exist and include production health checks', () => {
   assert.match(frontendDockerfile, /FROM nginx:1\.27-alpine AS runtime/)
   assert.match(frontendDockerfile, /HEALTHCHECK/)
   assert.match(compose, /postgres:/)
+  assert.match(compose, /redis:/)
+  assert.match(compose, /minio:/)
   assert.match(compose, /condition: service_healthy/)
   assert.match(compose, /backend_uploads:/)
   assert.match(compose, /POSTGRES_PASSWORD:\?\Set POSTGRES_PASSWORD/)
@@ -31,6 +33,9 @@ test('RC-2 environment examples and validator document production requirements',
   for (const key of [
     'JWT_SECRET',
     'DATABASE_URL',
+    'REDIS_URL',
+    'STORAGE_PROVIDER',
+    'S3_BUCKET',
     'ALLOWED_ORIGINS',
     'ENCRYPTION_KEY',
     'GEMINI_API_KEY',
@@ -41,6 +46,8 @@ test('RC-2 environment examples and validator document production requirements',
 
   assert.match(frontendEnv, /VITE_PUBLIC_SITE_URL/)
   assert.match(validator, /DATABASE_URL must use PostgreSQL in production/)
+  assert.match(validator, /RATE_LIMITER_BACKEND must be redis in production/)
+  assert.match(validator, /STORAGE_PROVIDER=local is not allowed/)
   assert.match(validator, /ALLOWED_ORIGINS entry must be HTTPS/)
   assert.match(validator, /JWT_SECRET must be at least 32 characters/)
 })
@@ -53,6 +60,8 @@ test('RC-2 backend exposes liveness and readiness probes', () => {
   assert.match(main, /SELECT 1/)
   assert.match(main, /uploads_writable/)
   assert.match(main, /jwt_secret/)
+  assert.match(main, /rate_limiter/)
+  assert.match(main, /storage/)
   assert.match(main, /status_code=503/)
 })
 
@@ -89,5 +98,9 @@ test('RC-2 nginx config serves SPA with baseline security headers', () => {
   assert.match(nginx, /X-Content-Type-Options/)
   assert.match(nginx, /X-Frame-Options/)
   assert.match(nginx, /Referrer-Policy/)
+  assert.match(nginx, /Strict-Transport-Security/)
+  assert.match(nginx, /Permissions-Policy/)
+  assert.match(nginx, /Content-Security-Policy/)
+  assert.match(nginx, /frame-ancestors 'none'/)
   assert.match(nginx, /Cache-Control "public, immutable"/)
 })

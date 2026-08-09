@@ -185,12 +185,23 @@ class TemplateStore:
         ]
         return BUILT_IN_TEMPLATES + custom_list
 
-    def get_template(self, template_id: str) -> Dict[str, Any] | None:
+    def get_template(
+        self,
+        template_id: str,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Dict[str, Any] | None:
         """Fetch template by ID."""
         for t in BUILT_IN_TEMPLATES:
             if t["template_id"] == template_id:
                 return t
-        return self._custom_templates.get(template_id)
+        template = self._custom_templates.get(template_id)
+        if not template:
+            return None
+        if user_id is not None and workspace_id is not None:
+            if template.get("user_id") != user_id or template.get("workspace_id") != workspace_id:
+                return None
+        return template
 
     def create_template(self, name: str, description: str, category: str, steps: List[Dict[str, Any]], user_id: str = "default_user", workspace_id: str = "default_workspace") -> Dict[str, Any]:
         """Save a new custom template to SQLite and local cache."""
@@ -239,7 +250,7 @@ class TemplateStore:
 
     def duplicate_template(self, template_id: str, user_id: str = "default_user", workspace_id: str = "default_workspace") -> Dict[str, Any] | None:
         """Duplicate an existing template, append (Copy) to name, and save to SQLite."""
-        source = self.get_template(template_id)
+        source = self.get_template(template_id, user_id=user_id, workspace_id=workspace_id)
         if not source:
             return None
             
@@ -290,12 +301,26 @@ class TemplateStore:
             conn.close()
         return duplicated
 
-    def delete_template(self, template_id: str) -> bool:
+    def delete_template(
+        self,
+        template_id: str,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> bool:
         """Delete custom template from SQLite and local cache."""
         if template_id in self._custom_templates:
+            template = self._custom_templates[template_id]
+            if user_id is not None and workspace_id is not None:
+                if template.get("user_id") != user_id or template.get("workspace_id") != workspace_id:
+                    return False
             conn = get_connection()
             try:
-                conn.execute("DELETE FROM templates WHERE template_id = ?;", (template_id,))
+                params = [template_id]
+                scope_sql = ""
+                if user_id is not None and workspace_id is not None:
+                    scope_sql = " AND user_id = ? AND workspace_id = ?"
+                    params.extend([user_id, workspace_id])
+                conn.execute(f"DELETE FROM templates WHERE template_id = ?{scope_sql};", tuple(params))
                 conn.commit()
                 del self._custom_templates[template_id]
                 logger.info(f"Deleted template {template_id} from SQLite")
@@ -316,4 +341,3 @@ def get_template_store() -> TemplateStore:
     if _store is None:
         _store = TemplateStore()
     return _store
-

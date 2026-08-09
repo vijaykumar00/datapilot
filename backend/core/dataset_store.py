@@ -31,6 +31,8 @@ def update_dataset(
     description: Optional[str] = None,
     tags: Optional[List[str]] = None,
     archived: Optional[bool] = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> bool:
     """Update dataset registry details."""
     conn = get_connection()
@@ -53,7 +55,11 @@ def update_dataset(
             values.append(1 if archived else 0)
             
         values.append(dataset_id)
-        sql = f"UPDATE dataset_registry SET {', '.join(parts)} WHERE dataset_id = ?;"
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            values.extend([user_id, workspace_id])
+        sql = f"UPDATE dataset_registry SET {', '.join(parts)} WHERE dataset_id = ?{scope_sql};"
         cursor = conn.execute(sql, values)
         conn.commit()
         return cursor.rowcount > 0
@@ -63,13 +69,13 @@ def update_dataset(
     finally:
         conn.close()
 
-def archive_dataset(dataset_id: str) -> bool:
+def archive_dataset(dataset_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Soft-archive a dataset registry record."""
-    return update_dataset(dataset_id, archived=True)
+    return update_dataset(dataset_id, archived=True, user_id=user_id, workspace_id=workspace_id)
 
-def restore_dataset(dataset_id: str) -> bool:
+def restore_dataset(dataset_id: str, user_id: str | None = None, workspace_id: str | None = None) -> bool:
     """Restore a soft-archived dataset registry record."""
-    return update_dataset(dataset_id, archived=False)
+    return update_dataset(dataset_id, archived=False, user_id=user_id, workspace_id=workspace_id)
 
 def list_datasets(
     *,
@@ -113,11 +119,16 @@ def list_datasets(
     finally:
         conn.close()
 
-def get_dataset(dataset_id: str) -> Optional[dict]:
+def get_dataset(dataset_id: str, user_id: str | None = None, workspace_id: str | None = None) -> Optional[dict]:
     """Retrieve details for a single registered dataset."""
     conn = get_connection()
     try:
-        cursor = conn.execute("SELECT * FROM dataset_registry WHERE dataset_id = ?;", (dataset_id,))
+        params = [dataset_id]
+        scope_sql = ""
+        if user_id is not None and workspace_id is not None:
+            scope_sql = " AND user_id = ? AND workspace_id = ?"
+            params.extend([user_id, workspace_id])
+        cursor = conn.execute(f"SELECT * FROM dataset_registry WHERE dataset_id = ?{scope_sql};", tuple(params))
         row = cursor.fetchone()
         return _row_to_dict(row) if row else None
     except Exception as e:

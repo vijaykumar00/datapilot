@@ -2,11 +2,11 @@
 db.py — Database helper with SQLAlchemy connection pooling, supporting SQLite locally and PostgreSQL in production.
 """
 
-import json
 import os
 import logging
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from core.models import Base
@@ -18,8 +18,37 @@ DB_DIR = Path(__file__).parent.parent / "uploads"
 DB_PATH = DB_DIR / "datapilot.db"
 DB_DIR.mkdir(exist_ok=True)
 
-# Determine database URL: default to local sqlite
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
+PRODUCTION_ENVS = {"production", "prod"}
+
+
+def _is_production(app_env: str | None = None) -> bool:
+    return (app_env or os.getenv("APP_ENV", "development")).strip().lower() in PRODUCTION_ENVS
+
+
+def validate_database_url_for_runtime(database_url: str | None, app_env: str | None = None) -> None:
+    """Prevent unsafe database defaults in production."""
+    if not _is_production(app_env):
+        return
+
+    if not database_url or not database_url.strip():
+        raise RuntimeError("DATABASE_URL is required in production and must use PostgreSQL.")
+
+    parsed = urlparse(database_url)
+    if not parsed.scheme.startswith("postgresql"):
+        raise RuntimeError("DATABASE_URL must use PostgreSQL in production.")
+
+
+def _resolve_database_url() -> str:
+    raw_url = os.getenv("DATABASE_URL")
+    database_url = raw_url.strip() if raw_url else ""
+    if not database_url:
+        database_url = f"sqlite:///{DB_PATH.as_posix()}"
+    validate_database_url_for_runtime(database_url)
+    return database_url
+
+
+# Determine database URL: default to local sqlite outside production.
+DATABASE_URL = _resolve_database_url()
 is_postgres = DATABASE_URL.startswith("postgresql") or "postgres" in DATABASE_URL
 
 # SQLAlchemy engine config
