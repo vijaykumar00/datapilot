@@ -30,7 +30,7 @@ export default function MarketingHeader() {
           <Link to="/login" className="btn-ghost">
             Sign In
           </Link>
-          <Link to="/signup" className="btn-primary">
+          <Link to="/try-free" className="btn-primary">
             Try Free
           </Link>
         </div>

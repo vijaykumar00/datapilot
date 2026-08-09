@@ -9,6 +9,8 @@ Production requires:
 - S3-compatible object storage via `STORAGE_PROVIDER=s3`, `S3_BUCKET`, and optional `S3_ENDPOINT_URL` for R2 or MinIO.
 - HTTPS frontend origin in `ALLOWED_ORIGINS`.
 - A strong `JWT_SECRET` of at least 32 characters.
+- Optional OAuth providers via `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` and `MICROSOFT_OAUTH_CLIENT_ID` / `MICROSOFT_OAUTH_CLIENT_SECRET`.
+- Optional phone OTP via `PHONE_OTP_ENABLED=true`, `PHONE_OTP_DEV_MODE=false`, and `SMS_OTP_WEBHOOK_URL`.
 
 Run `python backend/scripts/validate_env.py` before every deploy.
 
@@ -79,6 +81,8 @@ Frontend Nginx sets:
 - `Permissions-Policy`
 
 Refresh tokens are stored in tab-scoped session storage and migrated out of legacy local storage. A later cookie-auth migration should add HttpOnly Secure refresh cookies and CSRF protection.
+
+Free-trial CTAs route to `/try-free`, which starts a guest session and does not require login or registration. OAuth callbacks are accepted only from `AUTH_ALLOWED_REDIRECT_ORIGINS`. In production, all OAuth redirect origins must be HTTPS. Phone OTP stores only hashed expiring codes; production OTP delivery requires an SMS webhook and must disable `PHONE_OTP_DEV_MODE`.
 
 ## CI/CD
 

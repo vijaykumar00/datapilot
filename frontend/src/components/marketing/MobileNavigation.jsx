@@ -84,7 +84,7 @@ export default function MobileNavigation({ open, onClose, triggerRef }) {
           <Link to="/login" onClick={onClose} className="btn-ghost justify-center">
             Sign In
           </Link>
-          <Link to="/signup" onClick={onClose} className="btn-primary justify-center">
+          <Link to="/try-free" onClick={onClose} className="btn-primary justify-center">
             Try Free
           </Link>
         </div>

@@ -130,7 +130,7 @@ export default function LandingPage() {
           <Link to="/login" className="text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium">
             Sign In
           </Link>
-          <Link to="/signup" className="btn-primary px-4 py-2 rounded-xl text-xs font-semibold">
+          <Link to="/try-free" className="btn-primary px-4 py-2 rounded-xl text-xs font-semibold">
             Get Started Free
           </Link>
         </div>
@@ -272,7 +272,7 @@ export default function LandingPage() {
                   <li>• Team members limit: 1</li>
                 </ul>
               </div>
-              <Link to="/signup" className="btn-ghost w-full text-center mt-6 py-2 rounded-xl bg-white/5">Sign Up</Link>
+              <Link to="/try-free" className="btn-ghost w-full text-center mt-6 py-2 rounded-xl bg-white/5">Try Free</Link>
             </div>
 
             {/* Pro Plan */}

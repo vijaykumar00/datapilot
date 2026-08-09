@@ -5,7 +5,7 @@ export default function PageHero({
   title,
   description,
   ctaLabel = 'Try free',
-  ctaTo = '/signup',
+  ctaTo = '/try-free',
   secondaryCtaLabel,
   secondaryCtaTo,
 }) {

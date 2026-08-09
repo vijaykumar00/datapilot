@@ -28,6 +28,10 @@ def _fresh_module(env_overrides: dict | None = None):
     for name in list(sys.modules.keys()):
         if "core.encryption" in name or name == "encryption":
             del sys.modules[name]
+    core_pkg = sys.modules.get("core")
+    if core_pkg is not None and hasattr(core_pkg, "encryption"):
+        delattr(core_pkg, "encryption")
+    logging.getLogger("datapilot.encryption").disabled = False
 
     old_env = {}
     if env_overrides is not None:
@@ -229,8 +233,10 @@ class TestEphemeralMode(unittest.TestCase):
 
     def test_ephemeral_mode_logs_warning(self):
         """Ephemeral mode emits a WARNING log (not ERROR or CRITICAL)."""
+        enc, old_env = _fresh_module({"ENCRYPTION_KEY": None, "ENCRYPTION_KEY_ID": None})
+        enc._master_key_bytes = None
+        enc._ephemeral_warned = False
         with self.assertLogs("datapilot.encryption", level="WARNING") as cm:
-            enc, old_env = _fresh_module({"ENCRYPTION_KEY": None, "ENCRYPTION_KEY_ID": None})
             enc.encrypt_value("x")
         _restore_env(old_env)
         # Must contain at least one WARNING
@@ -240,6 +246,8 @@ class TestEphemeralMode(unittest.TestCase):
     def test_no_secrets_in_warning_log(self):
         """Warning log must not contain plaintext or any key material."""
         enc, old_env = _fresh_module({"ENCRYPTION_KEY": None, "ENCRYPTION_KEY_ID": None})
+        enc._master_key_bytes = None
+        enc._ephemeral_warned = False
         plaintext = "ultra-secret-value-xyz"
         with self.assertLogs("datapilot.encryption", level="WARNING") as cm:
             enc.encrypt_value(plaintext)

@@ -55,7 +55,7 @@ Open **http://localhost:5173** (or 5174 if 5173 is busy).
 
 ## Production
 
-Production requires PostgreSQL, Redis, and S3-compatible object storage. The backend rejects production SQLite and local storage defaults, and frontend builds use same-origin `/api` by default.
+Production requires PostgreSQL, Redis, and S3-compatible object storage. The backend rejects production SQLite and local storage defaults, and frontend builds use same-origin `/api` by default. Public free-trial CTAs use `/try-free` guest mode; Google/Microsoft OAuth and phone OTP are available when provider env vars are configured.
 
 Start with:
 

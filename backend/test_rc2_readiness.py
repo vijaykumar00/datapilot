@@ -74,6 +74,32 @@ class TestRC2Readiness(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             validate_database_url_for_runtime("sqlite:///prod.db", app_env="production")
 
+    def test_production_env_validator_checks_social_and_phone_auth(self):
+        base_env = {
+            "APP_ENV": "production",
+            "JWT_SECRET": "a" * 64,
+            "DATABASE_URL": "postgresql+psycopg2://user:pass@postgres:5432/datapilot",
+            "ALLOWED_ORIGINS": "https://app.datapilot.test",
+            "AUTH_ALLOWED_REDIRECT_ORIGINS": "http://localhost:5173",
+            "AI_PROVIDER": "gemini",
+            "GEMINI_API_KEY": "placeholder",
+            "STRIPE_BILLING_ENABLED": "false",
+            "RATE_LIMITER_BACKEND": "redis",
+            "REDIS_URL": "rediss://redis.example.test:6379/0",
+            "STORAGE_PROVIDER": "s3",
+            "S3_BUCKET": "datapilot-prod",
+            "GOOGLE_OAUTH_CLIENT_ID": "client-id",
+            "PHONE_OTP_ENABLED": "true",
+            "PHONE_OTP_DEV_MODE": "true",
+        }
+
+        errors = validate(base_env)
+
+        self.assertTrue(any("AUTH_ALLOWED_REDIRECT_ORIGINS entry must be HTTPS" in error for error in errors))
+        self.assertTrue(any("GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET" in error for error in errors))
+        self.assertTrue(any("PHONE_OTP_DEV_MODE must not be enabled" in error for error in errors))
+        self.assertTrue(any("SMS_OTP_WEBHOOK_URL is required" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

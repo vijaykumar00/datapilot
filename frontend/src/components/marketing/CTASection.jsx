@@ -12,7 +12,7 @@ export default function CTASection({
         <p>{description}</p>
       </div>
       <div className="marketing-cta-actions">
-        <Button to="/signup">Try free</Button>
+        <Button to="/try-free">Try free</Button>
         <Button to="/login" variant="ghost">Sign in</Button>
       </div>
     </SectionContainer>

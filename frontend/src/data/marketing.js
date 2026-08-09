@@ -39,7 +39,7 @@ export const publicRouteMetadata = {
     summary:
       'A focused analytics workspace for turning spreadsheet files into trustworthy answers, charts, and narrative reports.',
     ctaLabel: 'Try free',
-    ctaTo: '/signup',
+    ctaTo: '/try-free',
     secondaryCtaLabel: 'Explore features',
     secondaryCtaTo: '/features',
   },
@@ -52,7 +52,7 @@ export const publicRouteMetadata = {
     summary:
       'This page will detail the core product capabilities. For Sprint 3.1 it establishes the route, metadata, and layout foundation.',
     ctaLabel: 'Try free',
-    ctaTo: '/signup',
+    ctaTo: '/try-free',
     secondaryCtaLabel: 'View documentation',
     secondaryCtaTo: '/docs',
   },
@@ -65,7 +65,7 @@ export const publicRouteMetadata = {
     summary:
       'Role and industry-specific pages will expand here. The foundation is ready for future use-case content without changing routing.',
     ctaLabel: 'Start a workspace',
-    ctaTo: '/signup',
+    ctaTo: '/try-free',
     secondaryCtaLabel: 'Review features',
     secondaryCtaTo: '/features',
   },
@@ -91,7 +91,7 @@ export const publicRouteMetadata = {
     summary:
       'Public plan data is loaded from the backend catalog, with checkout and billing management routed through secure server-generated Stripe sessions.',
     ctaLabel: 'Try free',
-    ctaTo: '/signup',
+    ctaTo: '/try-free',
     secondaryCtaLabel: 'Talk to sales',
     secondaryCtaTo: '/contact',
   },
@@ -119,7 +119,7 @@ export const publicRouteMetadata = {
     ctaLabel: 'Sign in',
     ctaTo: '/login',
     secondaryCtaLabel: 'Try free',
-    secondaryCtaTo: '/signup',
+    secondaryCtaTo: '/try-free',
   },
   '/docs': {
     title: 'Documentation',
@@ -130,7 +130,7 @@ export const publicRouteMetadata = {
     summary:
       'Documentation content will be expanded in a later sprint. The public route now has stable layout, metadata, and navigation.',
     ctaLabel: 'Try free',
-    ctaTo: '/signup',
+    ctaTo: '/try-free',
     secondaryCtaLabel: 'Contact support',
     secondaryCtaTo: '/contact',
   },

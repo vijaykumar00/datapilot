@@ -51,7 +51,8 @@ test('marketing navigation exposes accessible public links and auth CTAs', () =>
   assert.match(mobile, /document.body.style.overflow = 'hidden'/)
   assert.match(mobile, /aria-label="Mobile navigation"/)
   assert.match(header, /to="\/login"/)
-  assert.match(header, /to="\/signup"/)
+  assert.match(header, /to="\/try-free"/)
+  assert.match(mobile, /to="\/try-free"/)
 })
 
 test('router keeps app protected, registers public routes, and renders public 404', () => {
@@ -66,6 +67,9 @@ test('router keeps app protected, registers public routes, and renders public 40
   }
 
   assert.match(app, /path="\/app" element={<RouteGuard><AppLayout \/><\/RouteGuard>}/)
+  assert.match(app, /path="\/try-free" element={<GuestModeTrigger \/>}/)
+  assert.match(app, /path="\/auth\/oauth\/google\/callback" element={<OAuthCallback provider="google" \/>}/)
+  assert.match(app, /path="\/auth\/oauth\/microsoft\/callback" element={<OAuthCallback provider="microsoft" \/>}/)
   assert.match(app, /path="\*" element={<NotFoundPage \/>}/)
   assert.doesNotMatch(app, /path="\*" element={<Navigate to="\/" replace \/>}/)
 })
@@ -244,9 +248,20 @@ test('Sprint 3.4 onboarding route and chat prompt handoff support activation flo
 test('Sprint 3.4 guest conversion and accessibility affordances are present', () => {
   const auth = read('../src/components/AuthModal.jsx')
   const styles = read('../src/index.css')
+  const marketingData = read('../src/data/marketing.js')
+  const header = read('../src/components/marketing/MarketingHeader.jsx')
+  const home = read('../src/pages/marketing/HomePage.jsx')
 
   assert.match(auth, /dp_guest_converted_success/)
   assert.match(auth, /Your guest work is preserved/)
+  assert.match(auth, /Continue with Google/)
+  assert.match(auth, /Continue with Microsoft/)
+  assert.match(auth, /Phone Number/)
+  assert.match(auth, /requestPhoneOtp/)
+  assert.match(auth, /verifyPhoneOtp/)
+  assert.match(header, /to="\/try-free"/)
+  assert.match(home, /Try DataPilot in guest mode without creating an account/)
+  assert.match(marketingData, /ctaTo: '\/try-free'/)
   assert.match(styles, /\.onboarding-assistant-toggle:focus-visible/)
   assert.match(styles, /prefers-reduced-motion: reduce/)
   assert.match(styles, /max-width: 640px/)

@@ -14,7 +14,7 @@ Recommended release decision: CONDITIONAL PASS for controlled production/private
 | Backend | FastAPI app with JWT/guest identity, tenant-scoped resource helpers, SSE chat | `/live`, `/ready`, and `/health` present. |
 | Database | PostgreSQL required in production; SQLite allowed only outside production | Startup guard and env validator reject production SQLite. |
 | Storage | Local dev provider and S3-compatible production provider | Supports AWS S3, R2, and MinIO key layout. |
-| Auth | Short-lived access JWT, hashed refresh tokens, guest conversion | Refresh tokens migrated out of persistent localStorage; cookie/CSRF migration remains future work. |
+| Auth | Short-lived access JWT, hashed refresh tokens, guest conversion, Google/Microsoft OAuth, phone OTP | Free trial CTAs now enter guest mode; refresh tokens migrated out of persistent localStorage; cookie/CSRF migration remains future work. |
 | Rate Limit | Redis-backed production limiter, memory dev limiter | Redis failures fail closed in production and surface in `/ready`. |
 | Workers | No durable worker queue yet | Long operations still run in request workers. |
 | Observability | Readiness checks, rotating logs, DB error log | Central metrics/tracing/alerts still required. |
@@ -33,6 +33,10 @@ Recommended release decision: CONDITIONAL PASS for controlled production/private
 | `STORAGE_PROVIDER` | Durable storage | Yes | `s3`, `r2`, or `minio` |
 | `S3_BUCKET` | Object storage bucket | Yes | Production bucket |
 | `VITE_API_URL` | Frontend API base | Yes | `/api` or deployed HTTPS API |
+| `AUTH_ALLOWED_REDIRECT_ORIGINS` | OAuth callback allowlist | If OAuth enabled | HTTPS frontend origin |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Google sign-in | If Google enabled | Provider credentials |
+| `MICROSOFT_OAUTH_CLIENT_ID` / `MICROSOFT_OAUTH_CLIENT_SECRET` | Microsoft sign-in | If Microsoft enabled | Provider credentials |
+| `PHONE_OTP_ENABLED` / `SMS_OTP_WEBHOOK_URL` | Phone OTP sign-in | If phone OTP enabled | SMS delivery webhook |
 
 Run `python backend/scripts/validate_env.py` before deployment.
 
@@ -61,10 +65,13 @@ No durable queue/worker is implemented yet. Upload parsing, report generation, e
 Fixed/high-value changes:
 
 - Same-origin `/api` frontend default blocks production localhost API fallback.
+- Public “Try Free” CTAs enter `/try-free` guest mode instead of requiring login or registration.
 - `X-Workspace-ID` is verified against membership.
 - Major datasets, files, sessions, messages, reports, templates, analyses, and history routes are tenant-scoped.
 - Authenticated workspace spoofing and guest cross-tenant access have regression tests.
 - Refresh tokens moved to `sessionStorage` with legacy localStorage migration.
+- Google and Microsoft OAuth start/callback endpoints are implemented with signed state and redirect-origin allowlisting.
+- Phone OTP sign-in is implemented with hashed expiring OTP challenges, attempt limits, and production-gated SMS delivery.
 - Nginx CSP, HSTS, frame, referrer, content-type, and permissions headers added.
 - Production Redis failure is fail-closed.
 
@@ -73,6 +80,7 @@ Remaining:
 - Full HttpOnly Secure cookie + CSRF auth migration.
 - Centralized security monitoring.
 - Antivirus/malware scanning hook for uploads.
+- Real provider credential configuration and OAuth/OTP smoke tests in staging.
 
 ## Performance Report
 
@@ -92,13 +100,13 @@ Latest local verification on 2026-08-09:
 
 | Check | Result |
 | --- | --- |
-| Backend tests | `122 passed, 2 skipped, 8 warnings` |
+| Backend tests | `127 passed, 2 skipped, 8 warnings` |
 | Backend compile check | Passed |
 | `pip check` | Passed, no broken requirements |
 | `pip-audit -r requirements.txt --strict` | Passed, no known vulnerabilities |
 | Frontend tests | `32 passed` |
 | `npm audit --audit-level=high` | Passed, 0 vulnerabilities |
-| Frontend production build | Passed with large chunk warning |
+| Frontend production build | Passed with large chunk warning; main chunk `735.50 kB` minified / `209.35 kB` gzip, chart chunk `4,691.11 kB` / `1,420.84 kB` gzip |
 | Production API bundle scan | Passed |
 | Docker/Compose local runtime check | Not run; Docker is not installed/on PATH in this environment |
 

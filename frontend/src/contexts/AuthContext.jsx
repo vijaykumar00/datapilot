@@ -5,8 +5,11 @@
  *   - authState: { user, accessToken, workspaceId, isAuthenticated, isGuest, guestToken, guestUsage, guestLimits }
  *   - login(email, password) → void
  *   - signup(email, password, fullName, workspaceName) → void
+ *   - beginSocialLogin(provider) → redirects to provider
+ *   - completeSocialLogin(provider, code, state, redirectUri) → void
+ *   - requestPhoneOtp(phoneNumber) / verifyPhoneOtp(phoneNumber, code) → void
  *   - logout() → void
- *   - initGuestSession() → void
+ *   - initGuestSession() → boolean
  *   - convertGuest(email, password, ...) → void
  *   - refreshToken() → string | null
  *   - apiHeaders() → Headers object with correct auth
@@ -149,7 +152,7 @@ export function AuthProvider({ children }) {
       setGuestSessionId(sessionStorage.getItem(STORAGE_KEYS.GUEST_SESSION_ID));
       // Silently refresh info — ignore failures
       fetchGuestInfo(existing).catch(() => {});
-      return;
+      return true;
     }
 
     try {
@@ -158,7 +161,7 @@ export function AuthProvider({ children }) {
         // Short timeout — don't block UI if backend is down
         signal: AbortSignal.timeout(5000),
       });
-      if (!res.ok) return; // Silently skip — backend may not have guest routes yet
+      if (!res.ok) return false; // Silently skip if backend does not have guest routes yet
       const data = await res.json();
       setGuestToken(data.guest_token);
       setGuestSessionId(data.guest_session_id);
@@ -166,9 +169,11 @@ export function AuthProvider({ children }) {
       setGuestLimits(data.limits);
       sessionStorage.setItem(STORAGE_KEYS.GUEST_TOKEN, data.guest_token);
       sessionStorage.setItem(STORAGE_KEYS.GUEST_SESSION_ID, data.guest_session_id);
+      return true;
     } catch {
       // Backend offline or guest routes not available — silently ignore
       // App still works in degraded mode without guest tracking
+      return false;
     }
   }, []);  // Remove addToast dependency — no toast on failure
 
@@ -178,7 +183,12 @@ export function AuthProvider({ children }) {
 
   // ── Auth Flows ──────────────────────────────────────────────
   const _storeAuthData = (data) => {
-    const userData = { user_id: data.user_id, email: data.email };
+    const userData = {
+      user_id: data.user_id,
+      email: data.email,
+      full_name: data.full_name || null,
+      phone_number: data.phone_number || null,
+    };
     setUser(userData);
     setAccessToken(data.access_token);
     setRefreshTokenVal(data.refresh_token);
@@ -217,6 +227,58 @@ export function AuthProvider({ children }) {
     if (!res.ok) throw new Error(data.detail || 'Signup failed');
     return data;
   }, []);
+
+  const beginSocialLogin = useCallback(async (provider = 'google') => {
+    const normalizedProvider = provider.toLowerCase();
+    const redirectUri = `${window.location.origin}/auth/oauth/${normalizedProvider}/callback`;
+    const res = await fetch(apiUrl(`/auth/oauth/${normalizedProvider}/start`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ redirect_uri: redirectUri, next_path: '/app/analyze' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `${provider} sign-in is not available`);
+    window.location.assign(data.authorization_url);
+    return data;
+  }, []);
+
+  const completeSocialLogin = useCallback(async (provider, code, state, redirectUri) => {
+    const normalizedProvider = provider.toLowerCase();
+    const res = await fetch(apiUrl(`/auth/oauth/${normalizedProvider}/callback`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state, redirect_uri: redirectUri }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `${provider} sign-in failed`);
+    _storeAuthData(data);
+    addToast(`Signed in with ${provider}.`, 'success');
+    return data;
+  }, [addToast]);
+
+  const requestPhoneOtp = useCallback(async (phoneNumber) => {
+    const res = await fetch(apiUrl('/auth/otp/request'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Could not send OTP');
+    return data;
+  }, []);
+
+  const verifyPhoneOtp = useCallback(async (phoneNumber, code, workspaceName = null) => {
+    const res = await fetch(apiUrl('/auth/otp/verify'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phoneNumber, code, workspace_name: workspaceName }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'OTP verification failed');
+    _storeAuthData(data);
+    addToast('Signed in with phone OTP.', 'success');
+    return data;
+  }, [addToast]);
 
   const convertGuest = useCallback(async (email, password, fullName, workspaceName, preserveData = true) => {
     const res = await fetch(apiUrl('/guest/convert'), {
@@ -325,6 +387,10 @@ export function AuthProvider({ children }) {
     signup,
     logout,
     convertGuest,
+    beginSocialLogin,
+    completeSocialLogin,
+    requestPhoneOtp,
+    verifyPhoneOtp,
     initGuestSession,
     updateGuestUsage,
     forgotPassword,

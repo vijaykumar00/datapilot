@@ -54,7 +54,7 @@ export default function PricingPage() {
 
   const startCheckout = async (planId) => {
     if (!isAuthenticated) {
-      navigate('/signup')
+      navigate(planId === 'free' ? '/try-free' : '/signup')
       return
     }
     setPendingPlan(planId)
@@ -102,6 +102,9 @@ export default function PricingPage() {
       return <Link to="/contact" className="btn-secondary">Contact sales</Link>
     }
     if (!isAuthenticated) {
+      if (plan.plan_id === 'free') {
+        return <button type="button" className="btn-primary" onClick={() => navigate('/try-free')}>Try free</button>
+      }
       return <button type="button" className="btn-primary" onClick={() => navigate('/signup')}>Sign up to choose</button>
     }
     if (currentPlanId === plan.plan_id) {
@@ -129,7 +132,7 @@ export default function PricingPage() {
         <h1>Plans for spreadsheet analytics teams</h1>
         <p>Compare workspace limits, start checkout securely, or manage an existing subscription through the billing portal.</p>
         <div className="pricing-hero-actions">
-          <Link to={isAuthenticated ? '/app/settings/billing' : '/signup'} className="btn-primary">
+          <Link to={isAuthenticated ? '/app/settings/billing' : '/try-free'} className="btn-primary">
             {isAuthenticated ? 'Open billing' : 'Start free'}
           </Link>
           <Link to="/contact" className="btn-secondary">Talk to sales</Link>

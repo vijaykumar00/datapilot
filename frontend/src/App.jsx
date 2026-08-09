@@ -1689,22 +1689,73 @@ function AuthRouteWrapper({ tab }) {
   )
 }
 
-function DemoTrigger() {
+function GuestModeTrigger({ message = 'Starting your free workspace...' }) {
   const { initGuestSession } = useAuth()
   const navigate = useNavigate()
+  const [statusMessage, setStatusMessage] = useState(message)
 
   useEffect(() => {
-    const startDemo = async () => {
-      await initGuestSession()
-      navigate('/app/analyze')
+    const startGuestMode = async () => {
+      const started = await initGuestSession()
+      if (started) {
+        navigate('/app/analyze')
+        return
+      }
+      setStatusMessage('Free guest mode is temporarily unavailable. Please refresh and try again.')
     }
-    startDemo()
+    startGuestMode()
   }, [initGuestSession, navigate])
 
   return (
     <div className="min-h-screen bg-[#030712] flex items-center justify-center text-slate-400 text-xs">
-      <div className="animate-spin rounded-full h-5 w-5 border border-slate-400 border-t-transparent mr-2" />
-      Loading demo dataset...
+      {statusMessage === message && (
+        <div className="animate-spin rounded-full h-5 w-5 border border-slate-400 border-t-transparent mr-2" />
+      )}
+      {statusMessage}
+    </div>
+  )
+}
+
+function OAuthCallback({ provider }) {
+  const { completeSocialLogin } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [message, setMessage] = useState('Completing secure sign-in...')
+
+  useEffect(() => {
+    const finishLogin = async () => {
+      const params = new URLSearchParams(location.search)
+      const providerError = params.get('error')
+      if (providerError) {
+        setMessage(`Sign-in was cancelled or failed: ${providerError}`)
+        return
+      }
+
+      const code = params.get('code')
+      const state = params.get('state')
+      if (!code || !state) {
+        setMessage('Missing OAuth callback data. Please try signing in again.')
+        return
+      }
+
+      try {
+        const redirectUri = `${window.location.origin}/auth/oauth/${provider}/callback`
+        await completeSocialLogin(provider, code, state, redirectUri)
+        navigate('/app/analyze', { replace: true })
+      } catch (err) {
+        setMessage(err.message || 'Sign-in failed. Please try again.')
+      }
+    }
+    finishLogin()
+  }, [completeSocialLogin, location.search, navigate, provider])
+
+  return (
+    <div className="min-h-screen bg-[#030712] flex flex-col items-center justify-center gap-4 text-center text-slate-400 text-xs px-6">
+      <div className="animate-spin rounded-full h-5 w-5 border border-slate-400 border-t-transparent" />
+      <p>{message}</p>
+      {message.includes('failed') || message.includes('Missing') || message.includes('cancelled') ? (
+        <Link to="/login" className="text-brand-400 hover:text-brand-300">Back to sign in</Link>
+      ) : null}
     </div>
   )
 }
@@ -1933,10 +1984,13 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/demo" element={<DemoTrigger />} />
+          <Route path="/demo" element={<GuestModeTrigger message="Loading demo workspace..." />} />
+          <Route path="/try-free" element={<GuestModeTrigger />} />
           <Route path="/login" element={<AuthRouteWrapper tab="login" />} />
           <Route path="/signup" element={<AuthRouteWrapper tab="signup" />} />
           <Route path="/forgot-password" element={<AuthRouteWrapper tab="forgot" />} />
+          <Route path="/auth/oauth/google/callback" element={<OAuthCallback provider="google" />} />
+          <Route path="/auth/oauth/microsoft/callback" element={<OAuthCallback provider="microsoft" />} />
           
           {/* Marketing sub-pages */}
           <Route path="/features" element={<FeaturesPage />} />

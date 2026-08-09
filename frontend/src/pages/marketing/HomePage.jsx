@@ -79,7 +79,7 @@ const trustItems = [
 ]
 
 const pricing = [
-  ['Free', 'Start Free', 'Try DataPilot with the public free signup path.', '/signup'],
+  ['Free', 'Start Free', 'Try DataPilot in guest mode without creating an account.', '/try-free'],
   ['Pro', 'View Plans', 'Upgrade through server-generated Stripe Checkout when ready.', '/pricing'],
   ['Team', 'View Plans', 'Collaborative workspace limits and billing management live in the plan catalog.', '/pricing'],
   ['Enterprise', 'Contact Sales', 'Custom deployment conversations can begin through contact.', '/contact'],
@@ -210,7 +210,7 @@ export default function HomePage() {
             clean messy data, and create executive reports within seconds.
           </p>
           <div className="marketing-hero-actions">
-            <Button to="/signup">Try Free</Button>
+            <Button to="/try-free">Try Free</Button>
             <Button href="#product-demo" variant="secondary">Watch Demo</Button>
           </div>
           <div className="hero-proof" aria-label="Product capability summary">

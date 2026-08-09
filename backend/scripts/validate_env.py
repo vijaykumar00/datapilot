@@ -64,6 +64,27 @@ def validate(env: dict[str, str]) -> list[str]:
             if _has_localhost(origin):
                 errors.append(f"ALLOWED_ORIGINS must not contain localhost in production: {origin}")
 
+    auth_redirect_origins = env.get("AUTH_ALLOWED_REDIRECT_ORIGINS", "")
+    if production and auth_redirect_origins:
+        for origin in [item.strip() for item in auth_redirect_origins.split(",") if item.strip()]:
+            if not origin.startswith("https://"):
+                errors.append(f"AUTH_ALLOWED_REDIRECT_ORIGINS entry must be HTTPS in production: {origin}")
+            if _has_localhost(origin):
+                errors.append(f"AUTH_ALLOWED_REDIRECT_ORIGINS must not contain localhost in production: {origin}")
+
+    for provider in ("GOOGLE", "MICROSOFT"):
+        client_id = env.get(f"{provider}_OAUTH_CLIENT_ID")
+        client_secret = env.get(f"{provider}_OAUTH_CLIENT_SECRET")
+        if bool(client_id) != bool(client_secret):
+            errors.append(f"{provider}_OAUTH_CLIENT_ID and {provider}_OAUTH_CLIENT_SECRET must be configured together.")
+
+    phone_otp_enabled = _truthy(env.get("PHONE_OTP_ENABLED"))
+    if production and phone_otp_enabled:
+        if _truthy(env.get("PHONE_OTP_DEV_MODE")):
+            errors.append("PHONE_OTP_DEV_MODE must not be enabled in production.")
+        if not env.get("SMS_OTP_WEBHOOK_URL"):
+            errors.append("SMS_OTP_WEBHOOK_URL is required when PHONE_OTP_ENABLED=true in production.")
+
     if production:
         rate_limiter_backend = env.get("RATE_LIMITER_BACKEND", "redis").lower()
         if rate_limiter_backend != "redis":

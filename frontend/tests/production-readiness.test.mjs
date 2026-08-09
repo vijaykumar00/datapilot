@@ -40,6 +40,10 @@ test('RC-2 environment examples and validator document production requirements',
     'ENCRYPTION_KEY',
     'GEMINI_API_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'GOOGLE_OAUTH_CLIENT_ID',
+    'GOOGLE_OAUTH_CLIENT_SECRET',
+    'PHONE_OTP_ENABLED',
+    'SMS_OTP_WEBHOOK_URL',
   ]) {
     assert.match(backendEnv, new RegExp(key))
   }

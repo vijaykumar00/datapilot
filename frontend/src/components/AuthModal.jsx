@@ -1,21 +1,32 @@
 /**
  * AuthModal.jsx — Premium login/signup/forgot-password modal.
- * Three tabs: Login, Sign Up, Forgot Password.
+ * Supports email/password, social OAuth, phone OTP, and forgot-password flows.
  * Detects if user is a guest and shows conversion flow with data preservation option.
  */
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
-  const { login, signup, forgotPassword, convertGuest, isGuest, addToast } = useAuth();
+  const {
+    login,
+    signup,
+    forgotPassword,
+    convertGuest,
+    beginSocialLogin,
+    requestPhoneOtp,
+    verifyPhoneOtp,
+    isGuest,
+    addToast,
+  } = useAuth();
   const [tab, setTab] = useState(defaultTab);
   const [form, setForm] = useState({
-    email: '', password: '', confirmPassword: '', fullName: '', workspaceName: '',
+    email: '', password: '', confirmPassword: '', fullName: '', workspaceName: '', phoneNumber: '', otpCode: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +75,7 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
     if (open) {
       setTab(defaultTab);
       setError(''); setSuccess('');
+      setOtpSent(false);
     }
   }, [open, defaultTab]);
 
@@ -71,6 +83,23 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
 
 
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const selectTab = (nextTab) => {
+    setTab(nextTab);
+    setError('');
+    setSuccess('');
+    if (nextTab !== 'phone') setOtpSent(false);
+  };
+
+  const handleSocial = async (provider) => {
+    setError('');
+    setLoading(true);
+    try {
+      await beginSocialLogin(provider);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -117,6 +146,29 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
     } finally { setLoading(false); }
   };
 
+  const handlePhoneOtpRequest = async (e) => {
+    e.preventDefault();
+    setError(''); setSuccess(''); setLoading(true);
+    try {
+      const data = await requestPhoneOtp(form.phoneNumber);
+      setOtpSent(true);
+      setSuccess(data.dev_otp ? `Development OTP: ${data.dev_otp}` : 'Code sent. Check your phone.');
+    } catch (err) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  };
+
+  const handlePhoneOtpVerify = async (e) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      await verifyPhoneOtp(form.phoneNumber, form.otpCode, form.workspaceName || null);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  };
+
   return (
     <div className="auth-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="auth-modal">
@@ -151,18 +203,23 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
 
         {/* Title */}
         <h2 className="auth-modal-title">
-          {title || (tab === 'login' ? 'Welcome back' : tab === 'signup' ? (isGuest ? 'Create your free account' : 'Get started free') : 'Reset password')}
+          {title || (tab === 'login' ? 'Welcome back' : tab === 'signup' ? (isGuest ? 'Create your free account' : 'Get started free') : tab === 'phone' ? 'Sign in with phone' : 'Reset password')}
         </h2>
         {tab === 'login' && <p className="auth-modal-subtitle">Sign in to your DataPilot account</p>}
         {tab === 'signup' && <p className="auth-modal-subtitle">No credit card required · Free forever plan</p>}
 
+        {tab === 'phone' && <p className="auth-modal-subtitle">Use a one-time code sent to your phone number</p>}
+
         {/* Tabs */}
         <div className="auth-tabs">
-          <button className={`auth-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => { setTab('login'); setError(''); setSuccess(''); }}>
+          <button className={`auth-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => selectTab('login')}>
             Sign In
           </button>
-          <button className={`auth-tab ${tab === 'signup' ? 'active' : ''}`} onClick={() => { setTab('signup'); setError(''); setSuccess(''); }}>
+          <button className={`auth-tab ${tab === 'signup' ? 'active' : ''}`} onClick={() => selectTab('signup')}>
             Sign Up
+          </button>
+          <button className={`auth-tab ${tab === 'phone' ? 'active' : ''}`} onClick={() => selectTab('phone')}>
+            Phone
           </button>
         </div>
 
@@ -173,6 +230,20 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
         {/* Login Form */}
         {tab === 'login' && (
           <form className="auth-form" onSubmit={handleLogin} autoComplete="on">
+            <div className="auth-social-stack">
+              <button type="button" className="auth-social-btn" onClick={() => handleSocial('google')} disabled={loading}>
+                <span aria-hidden="true">G</span>
+                Continue with Google
+              </button>
+              <button type="button" className="auth-social-btn" onClick={() => handleSocial('microsoft')} disabled={loading}>
+                <span aria-hidden="true">M</span>
+                Continue with Microsoft
+              </button>
+              <button type="button" className="auth-secondary-action" onClick={() => selectTab('phone')}>
+                Use phone number instead
+              </button>
+              <div className="auth-divider"><span>or use email</span></div>
+            </div>
             <div className="auth-field">
               <label>Email</label>
               <input type="email" placeholder="you@example.com" value={form.email} onChange={e => update('email', e.target.value)} required autoFocus />
@@ -196,7 +267,7 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
             </button>
             <p className="auth-switch">
               Don't have an account?{' '}
-              <button type="button" className="auth-link" onClick={() => { setTab('signup'); setError(''); }}>
+              <button type="button" className="auth-link" onClick={() => selectTab('signup')}>
                 Sign up free
               </button>
             </p>
@@ -206,6 +277,20 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
         {/* Signup Form */}
         {tab === 'signup' && (
           <form className="auth-form" onSubmit={handleSignup} autoComplete="on">
+            <div className="auth-social-stack">
+              <button type="button" className="auth-social-btn" onClick={() => handleSocial('google')} disabled={loading}>
+                <span aria-hidden="true">G</span>
+                Sign up with Google
+              </button>
+              <button type="button" className="auth-social-btn" onClick={() => handleSocial('microsoft')} disabled={loading}>
+                <span aria-hidden="true">M</span>
+                Sign up with Microsoft
+              </button>
+              <button type="button" className="auth-secondary-action" onClick={() => selectTab('phone')}>
+                Use phone number instead
+              </button>
+              <div className="auth-divider"><span>or create with email</span></div>
+            </div>
             <div className="auth-field">
               <label>Full Name</label>
               <input type="text" placeholder="Your name" value={form.fullName} onChange={e => update('fullName', e.target.value)} />
@@ -236,11 +321,47 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
             </button>
             <p className="auth-switch">
               Already have an account?{' '}
-              <button type="button" className="auth-link" onClick={() => { setTab('login'); setError(''); }}>
+              <button type="button" className="auth-link" onClick={() => selectTab('login')}>
                 Sign in
               </button>
             </p>
             <p className="auth-terms">By signing up you agree to our Terms of Service.</p>
+          </form>
+        )}
+
+        {/* Phone OTP Form */}
+        {tab === 'phone' && (
+          <form className="auth-form" onSubmit={otpSent ? handlePhoneOtpVerify : handlePhoneOtpRequest} autoComplete="on">
+            <div className="auth-field">
+              <label>Phone Number</label>
+              <input type="tel" placeholder="+15551234567" value={form.phoneNumber} onChange={e => update('phoneNumber', e.target.value)} required autoFocus />
+            </div>
+            {otpSent && (
+              <>
+                <div className="auth-field">
+                  <label>One-Time Code</label>
+                  <input inputMode="numeric" pattern="[0-9]*" placeholder="6-digit code" value={form.otpCode} onChange={e => update('otpCode', e.target.value)} required />
+                </div>
+                <div className="auth-field">
+                  <label>Workspace Name <span className="auth-optional">(optional)</span></label>
+                  <input type="text" placeholder="My Workspace" value={form.workspaceName} onChange={e => update('workspaceName', e.target.value)} />
+                </div>
+              </>
+            )}
+            <button type="submit" className="auth-submit-btn" disabled={loading}>
+              {loading ? <span className="auth-spinner" /> : otpSent ? 'Verify Code' : 'Send Code'}
+            </button>
+            {otpSent && (
+              <button type="button" className="auth-secondary-action" onClick={handlePhoneOtpRequest} disabled={loading}>
+                Resend code
+              </button>
+            )}
+            <p className="auth-switch">
+              Prefer email?{' '}
+              <button type="button" className="auth-link" onClick={() => selectTab('login')}>
+                Sign in with email
+              </button>
+            </p>
           </form>
         )}
 
@@ -256,7 +377,7 @@ function AuthModal({ open, onClose, defaultTab = 'login', title = null }) {
               {loading ? <span className="auth-spinner" /> : 'Send Reset Link'}
             </button>
             <p className="auth-switch">
-              <button type="button" className="auth-link" onClick={() => { setTab('login'); setError(''); }}>
+              <button type="button" className="auth-link" onClick={() => selectTab('login')}>
                 ← Back to Sign In
               </button>
             </p>

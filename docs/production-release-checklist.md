@@ -16,6 +16,9 @@
 - [ ] CSP/HSTS response headers verified
 - [ ] Secret scan clean
 - [ ] Dependency audits have no unmitigated Critical/High runtime findings
+- [ ] `AUTH_ALLOWED_REDIRECT_ORIGINS` contains HTTPS production origin only
+- [ ] Google/Microsoft OAuth credentials configured or social buttons intentionally disabled by env
+- [ ] Phone OTP disabled or configured with `PHONE_OTP_DEV_MODE=false` and SMS delivery webhook
 
 ## Database
 
@@ -85,7 +88,10 @@
 ## Smoke Tests
 
 - [ ] Guest flow
+- [ ] `/try-free` starts guest mode without login/register
 - [ ] Authenticated free flow
+- [ ] Google/Microsoft sign-in callback flow
+- [ ] Phone OTP request/verify flow
 - [ ] Paid/test billing flow
 - [ ] Multi-tenant isolation flow
 - [ ] Provider outage flow

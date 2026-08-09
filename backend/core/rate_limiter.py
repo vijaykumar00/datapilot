@@ -287,6 +287,9 @@ def reset_rate_limiter() -> None:
 PATH_LIMITS = (
     ("/auth/login", "auth_login", "RATE_LIMIT_AUTH_LOGIN_MAX_REQUESTS", 10, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
     ("/auth/signup", "auth_signup", "RATE_LIMIT_AUTH_SIGNUP_MAX_REQUESTS", 5, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
+    ("/auth/oauth", "auth_oauth", "RATE_LIMIT_AUTH_OAUTH_MAX_REQUESTS", 20, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
+    ("/auth/otp/request", "auth_otp", "RATE_LIMIT_AUTH_OTP_MAX_REQUESTS", 5, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
+    ("/auth/otp/verify", "auth_otp", "RATE_LIMIT_AUTH_OTP_MAX_REQUESTS", 10, "RATE_LIMIT_AUTH_WINDOW_SECONDS", 300),
     ("/auth/forgot-password", "auth_reset", "RATE_LIMIT_PASSWORD_RESET_MAX_REQUESTS", 5, "RATE_LIMIT_PASSWORD_RESET_WINDOW_SECONDS", 900),
     ("/auth/reset-password", "auth_reset", "RATE_LIMIT_PASSWORD_RESET_MAX_REQUESTS", 5, "RATE_LIMIT_PASSWORD_RESET_WINDOW_SECONDS", 900),
     ("/guest/session", "guest_session", "RATE_LIMIT_GUEST_SESSION_MAX_REQUESTS", 20, "RATE_LIMIT_GUEST_SESSION_WINDOW_SECONDS", 3600),

@@ -13,6 +13,7 @@ class User(Base):
 
     user_id = Column(String(50), primary_key=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
+    phone_number = Column(String(32), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
     avatar_url = Column(String(500), nullable=True)
@@ -86,6 +87,18 @@ class PasswordResetToken(Base):
     user_id = Column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     token_hash = Column(String(255), nullable=False)
     expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class PhoneOtpChallenge(Base):
+    __tablename__ = "phone_otp_challenges"
+
+    id = Column(String(50), primary_key=True)
+    phone_number = Column(String(32), nullable=False, index=True)
+    code_hash = Column(String(255), nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    consumed = Column(Boolean, default=False, nullable=False)
+    attempt_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
 
