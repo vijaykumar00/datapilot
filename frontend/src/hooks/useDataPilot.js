@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { indexedDBHelper } from '../utils/indexedDBHelper'
-import { apiUrl } from '../lib/apiConfig'
+import { authedFetch, readApiError, waitForJob } from '../lib/authSession'
 
 // ── Session & persistence helpers ─────────────────────────────────────────────
 async function loadPersistedMessages(sessionId) {
@@ -24,28 +24,14 @@ async function persistMessages(sessionId, messages) {
 }
 
 
-async function apiFetch(path, options = {}) {
-  const headers = { ...options.headers }
-  
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('dp_access_token')
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
-    const guestToken = sessionStorage.getItem('dp_guest_token')
-    if (guestToken) {
-      headers['X-Guest-Token'] = guestToken
-    }
-    const workspaceId = localStorage.getItem('dp_workspace_id')
-    if (workspaceId) {
-      headers['X-Workspace-ID'] = workspaceId
-    }
-  }
+const STREAM_IDLE_TIMEOUT_MS = 60_000
+let activeStreamController = null
 
-  const finalOptions = { ...options, headers }
-  return fetch(apiUrl(path), finalOptions)
+// All API calls attach the current auth headers and transparently refresh an
+// expired access token once (see lib/authSession.js).
+function apiFetch(path, options = {}) {
+  return authedFetch(path, options)
 }
-
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
@@ -58,14 +44,21 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url)
 }
 
-async function downloadResponse(resp, fallbackName) {
+// Large exports run as background jobs: a 202 carries a job id to poll, after
+// which the file is fetched from /jobs/{id}/download.
+async function resolveJobResponse(resp) {
+  if (resp.status !== 202) return resp
+  let body = null
+  try { body = await resp.clone().json() } catch (_) {}
+  if (!body?.job_id) return resp
+  await waitForJob(body.job_id)
+  return apiFetch(`/jobs/${encodeURIComponent(body.job_id)}/download`)
+}
+
+async function downloadResponse(initialResp, fallbackName) {
+  const resp = await resolveJobResponse(initialResp)
   if (!resp.ok) {
-    let message = 'Download failed'
-    try {
-      const data = await resp.json()
-      message = data.error || message
-    } catch (_) {}
-    throw new Error(message)
+    throw new Error(await readApiError(resp, 'Download failed'))
   }
 
   const blob = await resp.blob()
@@ -199,8 +192,25 @@ export const useDataPilot = create((set, get) => ({
   uploadFile: async (file) => {
     const form = new FormData()
     form.append('file', file)
-    const resp = await apiFetch('/upload', { method: 'POST', body: form })
-    const data = await resp.json()
+    let resp
+    try {
+      resp = await apiFetch('/upload', { method: 'POST', body: form })
+    } catch (err) {
+      return { success: false, error: 'Upload failed: the server could not be reached.' }
+    }
+    if (!resp.ok) {
+      return { success: false, error: await readApiError(resp, 'Upload failed') }
+    }
+    let data = await resp.json()
+    if (resp.status === 202 && data.job_id) {
+      // Large files are parsed by a background worker; wait for it to finish.
+      try {
+        const job = await waitForJob(data.job_id)
+        data = { success: true, ...(job.result || {}), job_id: data.job_id }
+      } catch (err) {
+        return { success: false, error: err.message }
+      }
+    }
     if (data.success) {
       // Build greeting message to inject into chat
       const greetingMsg = data.greeting
@@ -369,6 +379,9 @@ export const useDataPilot = create((set, get) => ({
   },
 
   exportFile: async (fileId, format = 'csv') => {
+    // Always the FULL dataset from the server.  (There is deliberately no local
+    // fallback: the browser only holds a preview sample, and exporting that as
+    // if it were the dataset would silently lose rows.)
     try {
       const file = get().files.find(f => f.file_id === fileId)
       const fallback = `${file?.filename || 'dataset'}.${format}`
@@ -376,48 +389,43 @@ export const useDataPilot = create((set, get) => ({
       await downloadResponse(resp, fallback)
       return { success: true }
     } catch (err) {
-      const file = get().files.find(f => f.file_id === fileId)
-      if (file?.sample_data?.length) {
-        try {
-          const fallbackStem = (file.filename || 'dataset').replace(/\.[^.]+$/, '')
-          if (format === 'csv') {
-            exportRowsAsCsv(file.sample_data, `${fallbackStem}.csv`)
-            return { success: true, fallback: 'local-csv' }
-          }
-          if (format === 'xlsx') {
-            exportRowsAsExcel(file.sample_data, `${fallbackStem}.xls`)
-            return { success: true, fallback: 'local-excel' }
-          }
-        } catch (fallbackErr) {
-          return { success: false, error: fallbackErr.message }
-        }
-      }
       return { success: false, error: err.message }
     }
   },
 
-  exportRows: async (rows, filename = 'results', format = 'csv') => {
+  exportRows: async (rows, filename = 'results', format = 'csv', source = null) => {
+    // With the originating SQL and dataset ids the server re-runs the query and
+    // exports the FULL result (chat tables are capped for display).
+    const body = source?.sql && source?.file_ids?.length
+      ? { sql: source.sql, file_ids: source.file_ids, filename }
+      : { rows, filename }
+    let resp
     try {
-      const resp = await apiFetch(`/export/results?format=${format}`, {
+      resp = await apiFetch(`/export/results?format=${format}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, filename }),
+        body: JSON.stringify(body),
       })
-      await downloadResponse(resp, `${filename}.${format}`)
-      return { success: true }
-    } catch (err) {
+    } catch (networkErr) {
+      // Server unreachable: fall back to exporting the rows already on screen.
       try {
-        if (format === 'csv') {
+        if (rows?.length && format === 'csv') {
           exportRowsAsCsv(rows, `${filename}.csv`)
-          return { success: true, fallback: 'local-csv' }
+          return { success: true, fallback: 'local-csv', partial: !!source?.sql }
         }
-        if (format === 'xlsx') {
+        if (rows?.length && format === 'xlsx') {
           exportRowsAsExcel(rows, `${filename}.xls`)
-          return { success: true, fallback: 'local-excel' }
+          return { success: true, fallback: 'local-excel', partial: !!source?.sql }
         }
       } catch (fallbackErr) {
         return { success: false, error: fallbackErr.message }
       }
+      return { success: false, error: networkErr.message }
+    }
+    try {
+      await downloadResponse(resp, `${filename}.${format}`)
+      return { success: true }
+    } catch (err) {
       return { success: false, error: err.message }
     }
   },
@@ -584,9 +592,13 @@ export const useDataPilot = create((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options),
       })
-      const data = await resp.json()
       if (!resp.ok) {
-        throw new Error(data.error || 'Failed to generate report')
+        throw new Error(await readApiError(resp, 'Failed to generate report'))
+      }
+      const data = await resp.json()
+      if (resp.status === 202 && data.job_id) {
+        const job = await waitForJob(data.job_id)
+        return job.result || {}
       }
       return data
     } catch (err) {
@@ -601,18 +613,8 @@ export const useDataPilot = create((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options),
       })
-      if (!resp.ok) {
-        let message = 'Export failed'
-        try {
-          const data = await resp.json()
-          message = data.error || message
-        } catch (_) {}
-        throw new Error(message)
-      }
-      const blob = await resp.blob()
       const ext = options.format || 'pdf'
-      const filename = `${options.title || 'report'}.${ext}`
-      downloadBlob(blob, filename)
+      await downloadResponse(resp, `${options.title || 'report'}.${ext}`)
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
@@ -720,7 +722,11 @@ export const useDataPilot = create((set, get) => ({
         content: m.content || '',
       }))
 
+      activeStreamController?.abort()
+      const controller = new AbortController()
+      activeStreamController = controller
       const resp = await apiFetch('/chat/stream', {
+        signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -735,20 +741,40 @@ export const useDataPilot = create((set, get) => ({
         let errMsg = 'Failed to connect to backend'
         let intelErr = null
         try {
-          const errJson = await resp.json()
-          errMsg = errJson.message || errJson.error || errMsg
+          const errJson = await resp.clone().json()
           intelErr = errJson.intelligent_error || null
         } catch (_) {}
+        errMsg = await readApiError(resp, errMsg)
         throw { message: errMsg, intelligent_error: intelErr }
       }
 
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let finished = false
+      // The API sends a keep-alive comment every ~10 s; silence for longer than
+      // STREAM_IDLE_TIMEOUT_MS means the connection is dead.
+      let idleTimer = null
+      let timedOut = false
+      const armIdleTimer = () => {
+        clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => { timedOut = true; controller.abort() }, STREAM_IDLE_TIMEOUT_MS)
+      }
+      armIdleTimer()
 
+      try {
       while (true) {
-        const { value, done } = await reader.read()
+        let chunk
+        try {
+          chunk = await reader.read()
+        } catch (readErr) {
+          if (timedOut) throw { message: 'The response timed out. Please retry.' }
+          if (controller.signal.aborted) throw { message: 'Response cancelled.', cancelled: true }
+          throw { message: 'The connection was interrupted. Please retry.' }
+        }
+        const { value, done } = chunk
         if (done) break
+        armIdleTimer()
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -776,6 +802,7 @@ export const useDataPilot = create((set, get) => ({
                 ),
               }))
             } else if (event.is_final) {
+              finished = true
               set(s => {
                 const newMessages = s.messages.map(m =>
                   m.id === botMsgId
@@ -796,6 +823,13 @@ export const useDataPilot = create((set, get) => ({
             }
           } catch (_) {}
         }
+      }
+      } finally {
+        clearTimeout(idleTimer)
+        if (activeStreamController === controller) activeStreamController = null
+      }
+      if (!finished) {
+        throw { message: 'The response ended before it was complete. Please retry.' }
       }
     } catch (err) {
       const intel = err.intelligent_error || null
@@ -818,6 +852,10 @@ export const useDataPilot = create((set, get) => ({
         return { messages: newMessages, isStreaming: false }
       })
     }
+  },
+
+  cancelStream: () => {
+    activeStreamController?.abort()
   },
 
   retryLastMessage: async () => {

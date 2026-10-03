@@ -1,4 +1,5 @@
 import { apiUrl } from './apiConfig'
+import { refreshAccessToken } from './authSession'
 
 export class BillingApiError extends Error {
   constructor(message, status, payload = null) {
@@ -20,18 +21,30 @@ async function readJson(response) {
 }
 
 async function request(path, { method = 'GET', headers = {}, body, signal } = {}) {
-  const response = await fetch(apiUrl(path), {
+  const send = (extraHeaders) => fetch(apiUrl(path), {
     method,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...headers,
+      ...extraHeaders,
     },
     body: body ? JSON.stringify(body) : undefined,
     signal,
   })
+  let response = await send(headers)
+  if (response.status === 401 && headers.Authorization) {
+    // Access token expired: refresh through the HttpOnly cookie and retry once.
+    const token = await refreshAccessToken()
+    if (token) response = await send({ ...headers, Authorization: `Bearer ${token}` })
+  }
   const payload = await readJson(response)
   if (!response.ok) {
-    throw new BillingApiError(payload.detail || payload.error || 'Billing request failed.', response.status, payload)
+    const detail = payload.detail
+    const message = (typeof payload.error === 'string' && payload.error)
+      || (typeof detail === 'string' && detail)
+      || (detail && typeof detail.message === 'string' && detail.message)
+      || 'Billing request failed.'
+    throw new BillingApiError(message, response.status, payload)
   }
   return payload
 }

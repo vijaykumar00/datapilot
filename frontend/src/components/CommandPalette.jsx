@@ -30,6 +30,14 @@ export default function CommandPalette({ isOpen, onClose }) {
     }
   }, [isOpen])
 
+  // Ensure selected item is visible in scroll window
+  useEffect(() => {
+    const activeEl = listRef.current?.childNodes[selectedIndex]
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' })
+    }
+  }, [selectedIndex])
+
   if (!isOpen) return null
 
   // Define commands list
@@ -117,14 +125,6 @@ export default function CommandPalette({ isOpen, onClose }) {
       onClose()
     }
   }
-
-  // Ensure selected item is visible in scroll window
-  useEffect(() => {
-    const activeEl = listRef.current?.childNodes[selectedIndex]
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: 'nearest' })
-    }
-  }, [selectedIndex])
 
   return (
     <div

@@ -265,3 +265,28 @@ def get_request_context(
 
     # Anonymous (no context)
     return RequestContext()
+
+
+# ─────────────────────────────────────────────────────────────
+# Platform administration (operator staff — NOT workspace owners)
+# ─────────────────────────────────────────────────────────────
+
+def is_platform_admin(user: Optional[User]) -> bool:
+    """Platform admins are configured by the operator via PLATFORM_ADMIN_EMAILS.
+
+    Every customer is the Owner of their own workspace, so workspace roles must
+    never authorize platform-wide actions such as editing plans or granting
+    subscriptions.
+    """
+    import os
+
+    if user is None or not getattr(user, "email_verified", False) or not getattr(user, "is_active", False):
+        return False
+    allowed = {e.strip().lower() for e in os.getenv("PLATFORM_ADMIN_EMAILS", "").split(",") if e.strip()}
+    return bool(allowed) and (user.email or "").lower() in allowed
+
+
+def require_platform_admin(user: Optional[User]) -> None:
+    if not is_platform_admin(user):
+        # 404 avoids advertising admin endpoints to customers.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")

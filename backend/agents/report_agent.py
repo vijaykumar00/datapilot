@@ -1,5 +1,10 @@
 """
-report_agent.py — Full data report combining summary + stats + viz.
+report_agent.py — Data report: computed statistics + AI-written narrative.
+
+The narrative is generated ONLY from statistics computed here, the prompt
+forbids inventing figures, and the computed facts are always appended so the
+reader can verify every number.  If the AI provider fails the request fails —
+there is no canned "fallback narrative".
 """
 
 import logging
@@ -7,6 +12,7 @@ import logging
 import pandas as pd
 
 from agents.base_agent import AgentResponse, BaseAgent
+from core.jsonsafe import to_jsonable
 
 logger = logging.getLogger("datapilot.agent.report")
 
@@ -19,7 +25,7 @@ One paragraph describing the dataset.
 List 5-8 important metrics with values.
 
 ## Trends & Patterns
-2-3 notable patterns you observe.
+2-3 notable patterns supported by the statistics.
 
 ## Data Quality
 Brief assessment of data completeness and reliability.
@@ -27,63 +33,78 @@ Brief assessment of data completeness and reliability.
 ## Recommendations
 2-3 concrete next steps.
 
-Be specific, use numbers from the statistics provided. Keep under 400 words."""
+STRICT RULES: use ONLY numbers that appear verbatim in the statistics provided. Never estimate,
+extrapolate or invent figures, growth rates or percentages. If something cannot be determined
+from the statistics, say so. Keep under 400 words."""
+
+
+def compute_report_facts(df: pd.DataFrame, filename: str, focus: str | None = None) -> dict:
+    """Deterministic statistics used both in the prompt and in the rendered report."""
+    total_cells = max(df.shape[0] * df.shape[1], 1)
+    missing = int(df.isnull().sum().sum())
+    facts = {
+        "dataset": filename,
+        "rows": int(len(df)),
+        "columns": int(len(df.columns)),
+        "missing_cells": missing,
+        "missing_pct": round(missing / total_cells * 100, 2),
+        "duplicate_rows": int(df.duplicated().sum()),
+        "numeric": {},
+        "categorical": {},
+    }
+    num_df = df.select_dtypes(include="number")
+    for col in list(num_df.columns)[:8]:
+        s = num_df[col].dropna()
+        if s.empty:
+            continue
+        facts["numeric"][str(col)] = {
+            "sum": round(float(s.sum()), 4), "mean": round(float(s.mean()), 4),
+            "median": round(float(s.median()), 4), "min": round(float(s.min()), 4), "max": round(float(s.max()), 4),
+        }
+    for col in list(df.select_dtypes(exclude="number").columns)[:5]:
+        vc = df[col].value_counts().head(3)
+        facts["categorical"][str(col)] = {"unique": int(df[col].nunique()),
+                                          "top": {str(k): int(v) for k, v in vc.items()}}
+    return to_jsonable(facts)
+
+
+def facts_to_text(facts: dict) -> str:
+    lines = [
+        f"Dataset: {facts['dataset']}",
+        f"Rows: {facts['rows']:,} | Columns: {facts['columns']}",
+        f"Missing values: {facts['missing_cells']:,} cells ({facts['missing_pct']}%)",
+        f"Duplicate rows: {facts['duplicate_rows']:,}",
+    ]
+    if facts["numeric"]:
+        lines.append("\nNumeric column statistics:")
+        for col, st in facts["numeric"].items():
+            lines.append(f"  {col}: sum={st['sum']}, mean={st['mean']}, median={st['median']}, min={st['min']}, max={st['max']}")
+    if facts["categorical"]:
+        lines.append("\nCategorical columns:")
+        for col, st in facts["categorical"].items():
+            lines.append(f"  {col}: {st['unique']} unique, top={st['top']}")
+    return "\n".join(lines)
 
 
 class ReportAgent(BaseAgent):
     agent_type = "report"
 
-    async def _execute(
-        self,
-        query: str,
-        file_ids: list[str],
-        context: list[dict],
-    ) -> AgentResponse:
-        file_id, record = self._get_primary_file(file_ids)
+    async def _execute(self, query: str, file_ids: list[str], context: list[dict]) -> AgentResponse:
+        file_id, record = await self._get_primary_file(file_ids)
         if not record:
-            return AgentResponse.error_response(
-                "No file loaded. Upload a file first.", "report"
-            )
+            return AgentResponse.error_response("No file loaded. Upload a file first.", "report")
 
-        df = record.df
+        facts = await self.cpu(compute_report_facts, record.df, record.filename)
+        stats_text = facts_to_text(facts)
+        narrative = await self.llm.generate(f"{stats_text}\n\nUser request: {query}", system=REPORT_SYSTEM, temperature=0.2)
 
-        # Build stats context
-        stats_lines = [
-            f"Dataset: {record.filename}",
-            f"Rows: {len(df):,} | Columns: {len(df.columns)}",
-            f"Columns: {list(df.columns)}",
-            f"Missing values: {df.isnull().sum().sum():,} cells ({df.isnull().sum().sum() / (df.shape[0]*df.shape[1])*100:.1f}%)",
-            f"Duplicate rows: {df.duplicated().sum():,}",
-        ]
-
-        num_df = df.select_dtypes(include="number")
-        if not num_df.empty:
-            stats_lines.append("\nNumeric column statistics:")
-            desc = num_df.describe().round(2)
-            for col in desc.columns[:8]:  # limit
-                stats_lines.append(
-                    f"  {col}: mean={desc.loc['mean', col]}, "
-                    f"min={desc.loc['min', col]}, max={desc.loc['max', col]}"
-                )
-
-        cat_df = df.select_dtypes(include="object")
-        if not cat_df.empty:
-            stats_lines.append("\nCategorical columns:")
-            for col in cat_df.columns[:5]:
-                top = df[col].value_counts().head(3).to_dict()
-                stats_lines.append(f"  {col}: {df[col].nunique()} unique, top={top}")
-
-        prompt = "\n".join(stats_lines)
-        report_text = await self.llm.generate(prompt, system=REPORT_SYSTEM, temperature=0.2)
-
-        content = f"# 📊 Data Report: *{record.filename}*\n\n" + report_text
-
+        content = (
+            f"# 📊 Data Report: *{record.filename}*\n\n{narrative}\n\n---\n"
+            f"*AI-written narrative based only on the computed statistics below.*\n\n```\n{stats_text}\n```"
+        )
         return AgentResponse(
             type="report",
             content=content,
-            metadata={
-                "filename": record.filename,
-                "row_count": len(df),
-                "col_count": len(df.columns),
-            },
+            metadata={"filename": record.filename, "row_count": facts["rows"], "col_count": facts["columns"],
+                      "facts": facts, "narrative_source": "ai"},
         )

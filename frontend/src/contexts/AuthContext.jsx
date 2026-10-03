@@ -16,37 +16,21 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from '../lib/apiConfig';
+import {
+  AUTH_KEYS,
+  AUTH_EXPIRED_EVENT,
+  AUTH_REFRESHED_EVENT,
+  clearSession,
+  readApiError,
+  refreshAccessToken,
+  storeSession,
+} from '../lib/authSession';
 
 const AuthContext = createContext(null);
 
-const STORAGE_KEYS = {
-  ACCESS_TOKEN: 'dp_access_token',
-  REFRESH_TOKEN: 'dp_refresh_token',
-  USER: 'dp_user',
-  WORKSPACE_ID: 'dp_workspace_id',
-  GUEST_TOKEN: 'dp_guest_token',
-  GUEST_SESSION_ID: 'dp_guest_session_id',
-};
-
-function readRefreshToken() {
-  const sessionToken = sessionStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-  const legacyToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-  if (legacyToken) {
-    sessionStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, legacyToken);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-  }
-  return sessionToken || legacyToken;
-}
-
-function storeRefreshToken(token) {
-  sessionStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, token);
-  localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-}
-
-function clearRefreshToken() {
-  sessionStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-  localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-}
+// Refresh tokens are never stored in JS-readable storage: the API keeps them in
+// an HttpOnly, SameSite=Strict cookie and lib/authSession.js refreshes through it.
+const STORAGE_KEYS = AUTH_KEYS;
 
 // ─────────────────────────────────────────────────────────────
 // Provider
@@ -55,7 +39,6 @@ function clearRefreshToken() {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
-  const [refreshTokenVal, setRefreshTokenVal] = useState(null);
   const [workspaceId, setWorkspaceId] = useState(null);
   const [guestToken, setGuestToken] = useState(null);
   const [guestSessionId, setGuestSessionId] = useState(null);
@@ -79,21 +62,24 @@ export function AuthProvider({ children }) {
   // ── Hydrate from storage on mount ──────────────────────────
   useEffect(() => {
     const storedToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-    const storedRefresh = readRefreshToken();
     const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
     const storedWs = localStorage.getItem(STORAGE_KEYS.WORKSPACE_ID);
     const storedGuestToken = sessionStorage.getItem(STORAGE_KEYS.GUEST_TOKEN);
     const storedGuestId = sessionStorage.getItem(STORAGE_KEYS.GUEST_SESSION_ID);
 
-    if (storedToken && storedUser) {
+    if (storedUser) {
       try {
         setUser(JSON.parse(storedUser));
-        setAccessToken(storedToken);
-        setRefreshTokenVal(storedRefresh);
         setWorkspaceId(storedWs);
+        if (storedToken) {
+          setAccessToken(storedToken);
+        } else {
+          // Access token missing: restore the session from the refresh cookie.
+          refreshAccessToken().finally(() => setLoading(false));
+          return;
+        }
       } catch {
-        localStorage.clear();
-        clearRefreshToken();
+        clearSession();
       }
     } else if (storedGuestToken) {
       setGuestToken(storedGuestToken);
@@ -106,14 +92,42 @@ export function AuthProvider({ children }) {
 
   // ── Auto-refresh access token before expiry ─────────────────
   useEffect(() => {
-    if (!refreshTokenVal) return;
-    // Refresh 2 minutes before the 15-minute expiry window
+    if (!accessToken) return;
+    // Refresh 2 minutes before the 15-minute expiry window (via the HttpOnly cookie).
     const delay = (13 * 60 * 1000);
     refreshTimerRef.current = setTimeout(() => {
-      silentRefresh();
+      refreshAccessToken();
     }, delay);
     return () => clearTimeout(refreshTimerRef.current);
-  }, [refreshTokenVal]);
+  }, [accessToken]);
+
+  // ── Keep React state in sync with refreshes done anywhere (other tabs, API retries) ──
+  useEffect(() => {
+    const onRefreshed = (event) => {
+      const data = event.detail || {};
+      setAccessToken(data.access_token);
+      if (data.workspace_id) setWorkspaceId(data.workspace_id);
+      if (data.user) setUser(data.user);
+    };
+    const onExpired = () => {
+      setUser(null);
+      setAccessToken(null);
+      setWorkspaceId(null);
+    };
+    const onStorage = (event) => {
+      if (event.key !== STORAGE_KEYS.ACCESS_TOKEN) return;
+      if (event.newValue) setAccessToken(event.newValue);
+      else onExpired();
+    };
+    window.addEventListener(AUTH_REFRESHED_EVENT, onRefreshed);
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(AUTH_REFRESHED_EVENT, onRefreshed);
+      window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   // ── API Headers helper ──────────────────────────────────────
   const apiHeaders = useCallback((extraHeaders = {}) => {
@@ -183,20 +197,12 @@ export function AuthProvider({ children }) {
 
   // ── Auth Flows ──────────────────────────────────────────────
   const _storeAuthData = (data) => {
-    const userData = {
-      user_id: data.user_id,
-      email: data.email,
-      full_name: data.full_name || null,
-      phone_number: data.phone_number || null,
-    };
+    // The refresh token in `data` is ignored on purpose: the HttpOnly cookie set
+    // by the same response is the only copy the browser keeps.
+    const userData = storeSession(data);
     setUser(userData);
     setAccessToken(data.access_token);
-    setRefreshTokenVal(data.refresh_token);
     setWorkspaceId(data.workspace_id);
-    localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-    storeRefreshToken(data.refresh_token);
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
-    localStorage.setItem(STORAGE_KEYS.WORKSPACE_ID, data.workspace_id);
     // Clear guest data
     sessionStorage.removeItem(STORAGE_KEYS.GUEST_TOKEN);
     sessionStorage.removeItem(STORAGE_KEYS.GUEST_SESSION_ID);
@@ -207,11 +213,12 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     const res = await fetch(apiUrl('/auth/login'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Login failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Login failed');
     _storeAuthData(data);
     addToast(`Welcome back, ${email}!`, 'success');
     return data;
@@ -223,8 +230,8 @@ export function AuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, full_name: fullName, workspace_name: workspaceName }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Signup failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Signup failed');
     return data;
   }, []);
 
@@ -236,8 +243,8 @@ export function AuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ redirect_uri: redirectUri, next_path: '/app/analyze' }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, `${provider} sign-in is not available`));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || `${provider} sign-in is not available`);
     window.location.assign(data.authorization_url);
     return data;
   }, []);
@@ -246,11 +253,12 @@ export function AuthProvider({ children }) {
     const normalizedProvider = provider.toLowerCase();
     const res = await fetch(apiUrl(`/auth/oauth/${normalizedProvider}/callback`), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, state, redirect_uri: redirectUri }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, `${provider} sign-in failed`));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || `${provider} sign-in failed`);
     _storeAuthData(data);
     addToast(`Signed in with ${provider}.`, 'success');
     return data;
@@ -262,19 +270,20 @@ export function AuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone_number: phoneNumber }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Could not send OTP'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Could not send OTP');
     return data;
   }, []);
 
   const verifyPhoneOtp = useCallback(async (phoneNumber, code, workspaceName = null) => {
     const res = await fetch(apiUrl('/auth/otp/verify'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone_number: phoneNumber, code, workspace_name: workspaceName }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'OTP verification failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'OTP verification failed');
     _storeAuthData(data);
     addToast('Signed in with phone OTP.', 'success');
     return data;
@@ -283,59 +292,34 @@ export function AuthProvider({ children }) {
   const convertGuest = useCallback(async (email, password, fullName, workspaceName, preserveData = true) => {
     const res = await fetch(apiUrl('/guest/convert'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-Guest-Token': guestToken },
       body: JSON.stringify({ email, password, full_name: fullName, workspace_name: workspaceName, preserve_data: preserveData }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Conversion failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Conversion failed');
     _storeAuthData(data);
     addToast('Account created! Your guest data has been saved. ✨', 'success', 8000);
     return data;
   }, [guestToken, addToast]);
 
   const logout = useCallback(async () => {
-    if (refreshTokenVal) {
-      try {
-        await fetch(apiUrl('/auth/logout'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-          body: JSON.stringify({ refresh_token: refreshTokenVal }),
-        });
-      } catch {}
-    }
+    try {
+      await fetch(apiUrl('/auth/logout'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    } catch {}
     setUser(null);
     setAccessToken(null);
-    setRefreshTokenVal(null);
     setWorkspaceId(null);
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    clearRefreshToken();
-    localStorage.removeItem(STORAGE_KEYS.USER);
-    localStorage.removeItem(STORAGE_KEYS.WORKSPACE_ID);
+    clearSession();
     addToast('You have been logged out.', 'info');
-  }, [refreshTokenVal, accessToken, addToast]);
+  }, [addToast]);
 
-  const silentRefresh = useCallback(async () => {
-    const stored = readRefreshToken();
-    if (!stored) return null;
-    try {
-      const res = await fetch(apiUrl('/auth/refresh'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: stored }),
-      });
-      if (!res.ok) { logout(); return null; }
-      const data = await res.json();
-      setAccessToken(data.access_token);
-      setRefreshTokenVal(data.refresh_token);
-      setWorkspaceId(data.workspace_id);
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-      storeRefreshToken(data.refresh_token);
-      localStorage.setItem(STORAGE_KEYS.WORKSPACE_ID, data.workspace_id);
-      return data.access_token;
-    } catch {
-      return null;
-    }
-  }, [logout]);
+  const silentRefresh = useCallback(() => refreshAccessToken(), []);
 
   const forgotPassword = useCallback(async (email) => {
     const res = await fetch(apiUrl('/auth/forgot-password'), {
@@ -343,8 +327,8 @@ export function AuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Failed');
     return data;
   }, []);
 
@@ -354,8 +338,8 @@ export function AuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, new_password: newPassword }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Reset failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Reset failed');
     return data;
   }, []);
 
@@ -365,8 +349,8 @@ export function AuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
+    if (!res.ok) throw new Error(await readApiError(res, 'Verification failed'));
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Verification failed');
     return data;
   }, []);
 

@@ -19,7 +19,7 @@ import logging
 import secrets
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
+from fastapi import Response, APIRouter, Depends, HTTPException, Request, status, Header
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -171,6 +171,7 @@ def get_guest_session_info(
 @router.post("/convert", status_code=status.HTTP_201_CREATED)
 def convert_guest_to_user(
     payload: ConvertGuestRequest,
+    response: Response,
     x_guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     db: Session = Depends(get_db),
 ):
@@ -241,47 +242,11 @@ def convert_guest_to_user(
     ))
 
     # Transfer guest data if requested
-    transferred = {"sessions": 0, "analyses": 0, "reports": 0, "datasets": 0}
+    transferred = {"sessions": 0, "messages": 0, "analyses": 0, "reports": 0, "datasets": 0, "templates": 0}
     if payload.preserve_data:
-        # Transfer chat sessions
-        sessions = db.query(ChatSession).filter(
-            ChatSession.guest_session_id == guest.guest_session_id
-        ).all()
-        for s in sessions:
-            s.user_id = user_id
-            s.workspace_id = ws_id
-            s.guest_session_id = None
-            transferred["sessions"] += 1
-
-        # Transfer saved analyses
-        analyses = db.query(SavedAnalysis).filter(
-            SavedAnalysis.guest_session_id == guest.guest_session_id
-        ).all()
-        for a in analyses:
-            a.user_id = user_id
-            a.workspace_id = ws_id
-            a.guest_session_id = None
-            transferred["analyses"] += 1
-
-        # Transfer reports
-        reports = db.query(Report).filter(
-            Report.guest_session_id == guest.guest_session_id
-        ).all()
-        for r in reports:
-            r.user_id = user_id
-            r.workspace_id = ws_id
-            r.guest_session_id = None
-            transferred["reports"] += 1
-
-        # Transfer dataset registry entries
-        datasets = db.query(DatasetRegistry).filter(
-            DatasetRegistry.guest_session_id == guest.guest_session_id
-        ).all()
-        for d in datasets:
-            d.user_id = user_id
-            d.workspace_id = ws_id
-            d.guest_session_id = None
-            transferred["datasets"] += 1
+        # Guest resources are namespaced by workspace_id == guest_session_id (and
+        # user_id == guest_session_id).  Move every one of them to the new account.
+        transferred = transfer_guest_namespace(guest.guest_session_id, user_id, ws_id, db)
 
     # Mark guest session as converted
     guest.converted_to_user_id = user_id
@@ -296,6 +261,7 @@ def convert_guest_to_user(
         token_hash=refresh_hash,
         expires_at=datetime.datetime.utcnow() + datetime.timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         revoked=False,
+        workspace_id=ws_id,
     ))
 
     # Audit log
@@ -310,6 +276,8 @@ def convert_guest_to_user(
     db.commit()
 
     access_token = create_access_token(user_id, payload.email, ws_id)
+    from core.auth_routes import set_refresh_cookie
+    set_refresh_cookie(response, raw_refresh)
 
     # Send email verification link
     sent = send_verification_email(
@@ -334,3 +302,24 @@ def convert_guest_to_user(
         "transferred": transferred,
         "verification_required": True,
     }
+
+
+def transfer_guest_namespace(guest_id: str, user_id: str, workspace_id: str, db: Session) -> dict:
+    """Re-scope all guest-owned rows to the new user/workspace (single transaction)."""
+    from sqlalchemy import text as _text
+
+    counts = {}
+    for table, key in (("sessions", "sessions"), ("messages", "messages"), ("saved_analyses", "analyses"),
+                       ("reports", "reports"), ("dataset_registry", "datasets"), ("templates", "templates")):
+        res = db.execute(
+            _text(f"UPDATE {table} SET user_id = :uid, workspace_id = :ws WHERE workspace_id = :gid"),
+            {"uid": user_id, "ws": workspace_id, "gid": guest_id},
+        )
+        counts[key] = res.rowcount or 0
+    db.execute(_text("UPDATE jobs SET workspace_id = :ws, user_id = :uid WHERE workspace_id = :gid"),
+               {"uid": user_id, "ws": workspace_id, "gid": guest_id})
+    db.execute(_text("UPDATE staged_transforms SET workspace_id = :ws WHERE workspace_id = :gid"),
+               {"ws": workspace_id, "gid": guest_id})
+    for table in ("sessions", "messages", "saved_analyses", "reports", "dataset_registry"):
+        db.execute(_text(f"UPDATE {table} SET guest_session_id = NULL WHERE workspace_id = :ws"), {"ws": workspace_id})
+    return counts

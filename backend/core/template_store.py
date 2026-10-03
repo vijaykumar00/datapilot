@@ -11,9 +11,7 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger("datapilot.template_store")
 
-TEMPLATES_DIR = Path(__file__).parent.parent / "uploads"
-TEMPLATES_DIR.mkdir(exist_ok=True)
-TEMPLATES_FILE = TEMPLATES_DIR / "templates.json"
+
 
 # Default pre-packaged high-value corporate templates aligned with transform_engine.py
 BUILT_IN_TEMPLATES = [
@@ -148,42 +146,38 @@ from datetime import datetime
 from core.db import get_connection
 
 class TemplateStore:
-    def __init__(self):
-        self._custom_templates: Dict[str, Dict[str, Any]] = {}
-        self._load_custom_templates()
+    """Templates are read from the database on every call (no per-process cache),
+    so every API worker sees the same data immediately."""
 
-    def _load_custom_templates(self):
-        """Load persistent templates from SQLite database."""
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def _fetch(where: str, params: tuple) -> List[Dict[str, Any]]:
         conn = get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """
-                SELECT template_id, name, description, category, steps, is_builtin, user_id, workspace_id, created_at, updated_at
-                FROM templates;
-                """
+                "SELECT template_id, name, description, category, steps, is_builtin, user_id, workspace_id, "
+                f"created_at, updated_at FROM templates WHERE {where};",
+                params,
             )
-            rows = cursor.fetchall()
-            self._custom_templates = {}
-            for row in rows:
+            out = []
+            for row in cursor.fetchall():
                 d = dict(row)
                 d["steps"] = json.loads(d["steps"])
                 d["is_builtin"] = bool(d["is_builtin"])
-                self._custom_templates[d["template_id"]] = d
-            logger.info("Loaded %d custom templates from SQLite", len(self._custom_templates))
-        except Exception as e:
-            logger.error("Failed to load custom templates from SQLite: %s", e)
-            self._custom_templates = {}
+                out.append(d)
+            return out
         finally:
             conn.close()
 
+    @property
+    def _custom_templates(self) -> Dict[str, Dict[str, Any]]:  # backwards compatibility for tests/tools
+        return {t["template_id"]: t for t in self._fetch("1 = 1", ())}
+
     def list_templates(self, user_id: str = "default_user", workspace_id: str = "default_workspace") -> List[Dict[str, Any]]:
-        """Return full list of built-in and custom templates for the user/workspace."""
-        custom_list = [
-            t for t in self._custom_templates.values()
-            if t.get("user_id") == user_id and t.get("workspace_id") == workspace_id
-        ]
-        return BUILT_IN_TEMPLATES + custom_list
+        return BUILT_IN_TEMPLATES + self._fetch("user_id = ? AND workspace_id = ?", (user_id, workspace_id))
 
     def get_template(
         self,
@@ -191,13 +185,13 @@ class TemplateStore:
         user_id: str | None = None,
         workspace_id: str | None = None,
     ) -> Dict[str, Any] | None:
-        """Fetch template by ID."""
         for t in BUILT_IN_TEMPLATES:
             if t["template_id"] == template_id:
                 return t
-        template = self._custom_templates.get(template_id)
-        if not template:
+        rows = self._fetch("template_id = ?", (template_id,))
+        if not rows:
             return None
+        template = rows[0]
         if user_id is not None and workspace_id is not None:
             if template.get("user_id") != user_id or template.get("workspace_id") != workspace_id:
                 return None
@@ -240,7 +234,6 @@ class TemplateStore:
                 )
             )
             conn.commit()
-            self._custom_templates[template_id] = template
             logger.info(f"Created template {template_id} in SQLite")
         except Exception as e:
             logger.error(f"Failed to create template: {e}")
@@ -292,7 +285,6 @@ class TemplateStore:
                 )
             )
             conn.commit()
-            self._custom_templates[new_template_id] = duplicated
             logger.info(f"Duplicated template {template_id} to {new_template_id}")
         except Exception as e:
             logger.error(f"Failed to duplicate template: {e}")
@@ -307,30 +299,22 @@ class TemplateStore:
         user_id: str | None = None,
         workspace_id: str | None = None,
     ) -> bool:
-        """Delete custom template from SQLite and local cache."""
-        if template_id in self._custom_templates:
-            template = self._custom_templates[template_id]
+        """Delete a custom template (scoped to its owner when user/workspace are given)."""
+        conn = get_connection()
+        try:
+            params = [template_id]
+            scope_sql = ""
             if user_id is not None and workspace_id is not None:
-                if template.get("user_id") != user_id or template.get("workspace_id") != workspace_id:
-                    return False
-            conn = get_connection()
-            try:
-                params = [template_id]
-                scope_sql = ""
-                if user_id is not None and workspace_id is not None:
-                    scope_sql = " AND user_id = ? AND workspace_id = ?"
-                    params.extend([user_id, workspace_id])
-                conn.execute(f"DELETE FROM templates WHERE template_id = ?{scope_sql};", tuple(params))
-                conn.commit()
-                del self._custom_templates[template_id]
-                logger.info(f"Deleted template {template_id} from SQLite")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to delete template: {e}")
-                return False
-            finally:
-                conn.close()
-        return False
+                scope_sql = " AND user_id = ? AND workspace_id = ?"
+                params.extend([user_id, workspace_id])
+            cursor = conn.execute(f"DELETE FROM templates WHERE template_id = ? AND is_builtin = 0{scope_sql};", tuple(params))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to delete template: {e}")
+            return False
+        finally:
+            conn.close()
 
 
 _store: TemplateStore | None = None

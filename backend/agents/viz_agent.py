@@ -148,7 +148,8 @@ def _build_chart_explain(
         "filters": "None",
         "sql": "N/A",
         "intermediate_calculations": calcs,
-        "confidence_score": 0.92,
+        "confidence_score": None,
+        "verification": "Chart computed from your data",
         "reasoning_summary": reasoning or f"AI selected a {ctype} visualization based on column data types."
     }
 
@@ -225,132 +226,212 @@ def _auto_detect_chart(query: str, df: pd.DataFrame) -> dict:
     }
 
 
-def _build_plotly_spec(chart_info: dict, df: pd.DataFrame) -> dict:
-    """Build Plotly JSON-serializable figure spec."""
-    ctype = chart_info.get("chart_type", "bar")
-    x_col = chart_info.get("x_column")
-    y_col = chart_info.get("y_column")
-    color_col = chart_info.get("color_column")
-    title = chart_info.get("title", "Chart")
+MAX_LINE_POINTS = 1500
+MAX_SCATTER_POINTS = 2000
 
-    # Validate columns exist
+
+def _aggregation_for(query: str) -> str:
+    q = query.lower()
+    if any(w in q for w in ("average", "avg", "mean")):
+        return "mean"
+    if any(w in q for w in ("count", "number of", "how many")):
+        return "count"
+    return "sum"
+
+
+def _build_plotly_spec(chart_info: dict, df: pd.DataFrame, aggregation: str = "sum") -> tuple[dict, list[str]]:
+    """Build a compact Plotly spec from aggregated/sampled data and return (spec, notes).
+
+    Charts never silently truncate: time series are aggregated per period (and
+    re-bucketed to a coarser period if still too long), scatter plots use a
+    uniform random sample, histograms/box plots are pre-computed server-side so
+    the payload stays small, and every reduction is reported in *notes*.
+    """
+    import numpy as np
+
+    ctype = chart_info.get("chart_type", "bar")
+    title = chart_info.get("title", "Chart")
+    notes: list[str] = []
+
     def safe_col(col):
         return col if col and col in df.columns else None
 
-    x_col = safe_col(x_col)
-    y_col = safe_col(y_col)
-    color_col = safe_col(color_col)
+    x_col, y_col, color_col = safe_col(chart_info.get("x_column")), safe_col(chart_info.get("y_column")), safe_col(chart_info.get("color_column"))
+    if y_col is not None and not pd.api.types.is_numeric_dtype(df[y_col]):
+        y_col = None
+    agg = aggregation if aggregation in {"sum", "mean", "count"} else "sum"
+    template = "plotly_dark"
 
-    # Aggregate for bar chart if needed (group by x, sum y)
-    plot_df = df.copy()
-    if ctype == "bar" and x_col and y_col and pd.api.types.is_numeric_dtype(df[y_col]):
-        plot_df = df.groupby(x_col, as_index=False)[y_col].sum()
-        plot_df = plot_df.sort_values(y_col, ascending=False).head(20)
+    def _grouped(frame: pd.DataFrame, key) -> pd.DataFrame:
+        if y_col is None or agg == "count":
+            out = frame.groupby(key, dropna=True).size().reset_index(name="count")
+            return out
+        series = pd.to_numeric(frame[y_col], errors="coerce")
+        g = series.groupby([frame[k] for k in (key if isinstance(key, list) else [key])])
+        out = (g.mean() if agg == "mean" else g.sum(min_count=1)).reset_index()
+        out.columns = [*(key if isinstance(key, list) else [key]), y_col]
+        return out
 
-    # Limit pie to 8 slices
-    if ctype == "pie" and x_col:
-        top_cats = df[x_col].value_counts().head(8).index
-        plot_df = df[df[x_col].isin(top_cats)]
+    value_name = "count" if (y_col is None or agg == "count") else y_col
+    if value_name != "count" and agg != "sum":
+        notes.append(f"Values show the {agg} of '{y_col}' per group.")
 
-    TEMPLATE = "plotly_dark"
-
-    try:
+    if ctype in {"bar", "pie"} and x_col:
+        keys = [x_col] + ([color_col] if ctype == "bar" and color_col and color_col != x_col else [])
+        plot_df = _grouped(df, keys if len(keys) > 1 else x_col)
+        total_groups = plot_df[x_col].nunique()
+        limit = 20 if ctype == "bar" else 8
+        if total_groups > limit:
+            top = plot_df.groupby(x_col)[value_name].sum().sort_values(ascending=False).head(limit).index
+            if ctype == "pie":
+                other = plot_df[~plot_df[x_col].isin(top)][value_name].sum()
+                plot_df = pd.concat([plot_df[plot_df[x_col].isin(top)], pd.DataFrame({x_col: ["Other"], value_name: [other]})])
+                notes.append(f"Showing the top {limit} of {total_groups} categories; the rest are grouped as 'Other'.")
+            else:
+                plot_df = plot_df[plot_df[x_col].isin(top)]
+                notes.append(f"Showing the top {limit} of {total_groups} categories by {value_name}.")
+        plot_df = plot_df.sort_values(value_name, ascending=False)
         if ctype == "bar":
-            fig = px.bar(plot_df, x=x_col, y=y_col, color=color_col, title=title, template=TEMPLATE)
-        elif ctype == "line":
-            fig = px.line(plot_df.head(500), x=x_col, y=y_col, color=color_col, title=title, template=TEMPLATE, markers=True)
-        elif ctype == "scatter":
-            fig = px.scatter(plot_df.head(1000), x=x_col, y=y_col, color=color_col, title=title, template=TEMPLATE)
-        elif ctype == "histogram":
-            fig = px.histogram(plot_df, x=x_col, title=title, template=TEMPLATE, nbins=30)
-        elif ctype == "pie":
-            fig = px.pie(plot_df, names=x_col, values=y_col, title=title, template=TEMPLATE)
-        elif ctype == "box":
-            fig = px.box(plot_df, x=x_col, y=y_col, color=color_col, title=title, template=TEMPLATE)
+            fig = px.bar(plot_df, x=x_col, y=value_name, color=color_col if len(keys) > 1 else None, title=title, template=template)
         else:
-            fig = px.bar(plot_df, x=x_col, y=y_col, title=title, template=TEMPLATE)
+            fig = px.pie(plot_df, names=x_col, values=value_name, title=title, template=template)
+    elif ctype == "line" and x_col:
+        frame = df.copy()
+        x_vals = frame[x_col]
+        is_time = pd.api.types.is_datetime64_any_dtype(x_vals)
+        if not is_time and x_vals.dtype == object:
+            parsed = pd.to_datetime(x_vals, errors="coerce", format="mixed")
+            if parsed.notna().mean() > 0.8:
+                frame[x_col] = parsed
+                is_time = True
+        keys = [x_col] + ([color_col] if color_col and color_col != x_col else [])
+        plot_df = _grouped(frame.dropna(subset=[x_col]), keys if len(keys) > 1 else x_col).sort_values(x_col)
+        if is_time and plot_df[x_col].nunique() > MAX_LINE_POINTS:
+            for rule, label in (("W-SUN", "week"), ("MS", "month"), ("QS", "quarter"), ("YS", "year")):
+                tmp = frame.dropna(subset=[x_col]).copy()
+                tmp[x_col] = tmp[x_col].dt.to_period({"W-SUN": "W", "MS": "M", "QS": "Q", "YS": "Y"}[rule]).dt.start_time
+                plot_df = _grouped(tmp, keys if len(keys) > 1 else x_col).sort_values(x_col)
+                if plot_df[x_col].nunique() <= MAX_LINE_POINTS:
+                    notes.append(f"Aggregated to one point per {label} to keep the chart readable.")
+                    break
+        if plot_df[x_col].nunique() > MAX_LINE_POINTS:
+            step = int(np.ceil(len(plot_df) / MAX_LINE_POINTS))
+            plot_df = plot_df.iloc[::step]
+            notes.append(f"Every {step}th point is shown ({len(plot_df):,} points).")
+        fig = px.line(plot_df, x=x_col, y=value_name, color=color_col if len(keys) > 1 else None, title=title, template=template, markers=len(plot_df) <= 200)
+    elif ctype == "scatter" and x_col and y_col:
+        plot_df = df[[c for c in {x_col, y_col, color_col} if c]].dropna(subset=[x_col, y_col])
+        if len(plot_df) > MAX_SCATTER_POINTS:
+            notes.append(f"Showing a random sample of {MAX_SCATTER_POINTS:,} of {len(plot_df):,} points.")
+            plot_df = plot_df.sample(MAX_SCATTER_POINTS, random_state=42)
+        fig = px.scatter(plot_df, x=x_col, y=y_col, color=color_col, title=title, template=template)
+    elif ctype == "histogram":
+        col = x_col if x_col and pd.api.types.is_numeric_dtype(df[x_col]) else y_col
+        if col is None:
+            raise ValueError("A numeric column is required for a histogram.")
+        values = pd.to_numeric(df[col], errors="coerce").dropna().to_numpy()
+        counts, edges = np.histogram(values, bins=30)
+        centers = (edges[:-1] + edges[1:]) / 2
+        fig = go.Figure(go.Bar(x=centers.tolist(), y=counts.tolist(), width=(edges[1] - edges[0]) if len(edges) > 1 else None, name=col))
+        fig.update_layout(title=title, template=template, xaxis_title=col, yaxis_title="count", bargap=0.02)
+    elif ctype == "box":
+        col = y_col or (x_col if x_col and pd.api.types.is_numeric_dtype(df[x_col]) else None)
+        if col is None:
+            raise ValueError("A numeric column is required for a box plot.")
+        group = x_col if x_col and x_col != col else None
+        fig = go.Figure()
+        groups = df.groupby(group) if group else [(col, df)]
+        for i, (name, part) in enumerate(groups):
+            if i >= 20:
+                notes.append("Showing the first 20 groups.")
+                break
+            vals = pd.to_numeric(part[col], errors="coerce").dropna()
+            if vals.empty:
+                continue
+            q1, med, q3 = vals.quantile([0.25, 0.5, 0.75]).tolist()
+            iqr = q3 - q1
+            lo = float(vals[vals >= q1 - 1.5 * iqr].min())
+            hi = float(vals[vals <= q3 + 1.5 * iqr].max())
+            fig.add_trace(go.Box(name=str(name), q1=[q1], median=[med], q3=[q3], lowerfence=[lo], upperfence=[hi], mean=[float(vals.mean())]))
+        fig.update_layout(title=title, template=template, yaxis_title=col)
+    elif ctype == "heatmap":
+        num = df.select_dtypes(include="number")
+        if num.shape[1] < 2:
+            raise ValueError("At least two numeric columns are required for a correlation heatmap.")
+        corr = num.iloc[:, :30].corr().round(3)
+        fig = go.Figure(go.Heatmap(z=corr.values.tolist(), x=list(map(str, corr.columns)), y=list(map(str, corr.index)), zmin=-1, zmax=1, colorscale="RdBu"))
+        fig.update_layout(title=title, template=template)
+    else:
+        if not x_col:
+            raise ValueError("Could not determine which column to chart.")
+        plot_df = _grouped(df, x_col).sort_values(value_name, ascending=False).head(20)
+        fig = px.bar(plot_df, x=x_col, y=value_name, title=title, template=template)
 
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Inter, sans-serif", size=13),
-            margin=dict(l=40, r=20, t=60, b=40),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        return json.loads(fig.to_json())
-    except Exception as e:
-        logger.error(f"Plotly build error: {e}")
-        raise
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", size=13),
+        margin=dict(l=40, r=20, t=60, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return json.loads(fig.to_json()), notes
 
 
 class VizAgent(BaseAgent):
     agent_type = "visualize"
 
-    async def _execute(
-        self,
-        query: str,
-        file_ids: list[str],
-        context: list[dict],
-    ) -> AgentResponse:
-        file_id, record = self._get_primary_file(file_ids)
+    async def _execute(self, query: str, file_ids: list[str], context: list[dict]) -> AgentResponse:
+        file_id, record = await self._get_primary_file(file_ids)
         if not record:
-            return AgentResponse.error_response(
-                "No file loaded. Upload a file first.", "visualize"
-            )
+            return AgentResponse.error_response("No file loaded. Upload a file first.", "visualize")
 
         df = record.df
-
-        # Step 1: Fast keyword detection
         chart_info = _auto_detect_chart(query, df)
+        detection_method = "keyword"
 
-        # Step 2: If Ollama/LLM available, refine with LLM for better accuracy
-        if self.llm:
+        if self.llm is not None:
             columns_meta = record.metadata.get("semantic_map", {})
             cols_with_semantics = []
             for col in df.columns:
                 meta = columns_meta.get(str(col))
                 if meta:
-                    desc = f"- {col} (Label: '{meta.get('label')}', Type: {meta.get('semantic_type')}, Meaning: '{meta.get('inferred_meaning')}', Aliases: {meta.get('aliases', [])})"
+                    cols_with_semantics.append(
+                        f"- {col} (Label: '{meta.get('label')}', Type: {meta.get('semantic_type')}, Aliases: {meta.get('aliases', [])[:6]})"
+                    )
                 else:
-                    desc = f"- {col}"
-                cols_with_semantics.append(desc)
-
-            sample = df.head(3).to_dict(orient="records")
+                    cols_with_semantics.append(f"- {col}")
+            from core.jsonsafe import to_jsonable
+            sample = json.dumps(to_jsonable(df.head(3).to_dict(orient="records")))[:3000]
             prompt = (
                 f"User query: {query}\n"
-                f"Available columns with semantic business intelligence mappings:\n" + "\n".join(cols_with_semantics) + "\n\n"
-                f"Data sample: {sample}\n"
-                f"Row count: {len(df)}"
+                "Available columns:\n" + "\n".join(cols_with_semantics) + "\n\n"
+                f"Data sample: {sample}\nRow count: {len(df)}"
             )
-            raw = await self.llm.generate(prompt, system=VIZ_SYSTEM, json_mode=True)
             try:
-                parsed = json.loads(raw)
-                if "chart_type" in parsed:
+                raw = await self.llm.generate(prompt, system=VIZ_SYSTEM, json_mode=True)
+                parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
+                if isinstance(parsed, dict) and parsed.get("chart_type"):
                     chart_info = parsed
-                    logger.info(f"LLM refined chart: {chart_info['chart_type']}")
-            except (json.JSONDecodeError, TypeError):
-                logger.debug("LLM chart refinement failed, using keyword detection")
+                    detection_method = "llm"
+            except Exception as exc:
+                logger.info("LLM chart refinement unavailable (%s); using rule-based chart selection.", exc)
 
-        # Build Plotly JSON spec
         try:
-            plotly_spec = _build_plotly_spec(chart_info, df)
+            plotly_spec, notes = await self.cpu(_build_plotly_spec, chart_info, df, _aggregation_for(query))
         except Exception as e:
-            return AgentResponse.error_response(
-                f"Could not generate chart: {e}", "visualize"
-            )
+            return AgentResponse.error_response(f"Could not generate chart: {e}", "visualize")
 
         content = (
             f"📊 **{chart_info.get('title', 'Chart')}** ({chart_info.get('chart_type', 'bar')} chart)\n\n"
-            f"*Showing {chart_info.get('x_column', '?')} vs {chart_info.get('y_column', 'count')}*"
+            f"*Showing {chart_info.get('x_column', '?')} vs {chart_info.get('y_column') or 'count'}*"
         )
-        if "reasoning" in chart_info:
+        if chart_info.get("reasoning"):
             content += f"\n\n{chart_info['reasoning']}"
+        if notes:
+            content += "\n\n" + "\n".join(f"> {n}" for n in notes)
 
-        detection_method = "llm" if self.llm and "reasoning" in chart_info else "keyword"
-        filename = record.filename if record else "N/A"
-        sheet = record.metadata.get("active_sheet") or "Sheet1" if record else "N/A"
-        explain = _build_chart_explain(chart_info, df, detection_method, filename=filename, sheet=sheet)
-
+        sheet = record.metadata.get("active_sheet") or "Sheet1"
+        explain = _build_chart_explain(chart_info, df, detection_method, filename=record.filename, sheet=sheet)
         return AgentResponse(
             type="visualize",
             content=content,
@@ -361,6 +442,7 @@ class VizAgent(BaseAgent):
                 "y_column": chart_info.get("y_column"),
                 "color_column": chart_info.get("color_column"),
                 "title": chart_info.get("title"),
+                "data_reduction_notes": notes,
                 "explain": explain,
             },
         )

@@ -169,12 +169,24 @@ export default function ExplainPanel({ metadata }) {
             </span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Confidence Score</span>
-            <span className={`text-[11px] font-extrabold mt-0.5 ${
-              (explain.confidence_score || 0) > 0.90 ? 'text-emerald-400' : 'text-amber-400'
-            }`}>
-              {Math.round((explain.confidence_score || 0.90) * 100)}%
-            </span>
+            {/* Only show a confidence number when the agent actually computed one. */}
+            {typeof explain.confidence_score === 'number' ? (
+              <>
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Confidence Score</span>
+                <span className={`text-[11px] font-extrabold mt-0.5 ${
+                  explain.confidence_score > 0.90 ? 'text-emerald-400' : 'text-amber-400'
+                }`}>
+                  {Math.round(explain.confidence_score * 100)}%
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Verification</span>
+                <span className="text-[11px] font-bold text-slate-300 mt-0.5" title={explain.verification || ''}>
+                  {explain.verification || 'Computed from your data'}
+                </span>
+              </>
+            )}
           </div>
           <div className="flex flex-col">
             <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Filters Applied</span>

@@ -35,7 +35,7 @@ class SummaryAgent(BaseAgent):
         file_ids: list[str],
         context: list[dict],
     ) -> AgentResponse:
-        file_id, record = self._get_primary_file(file_ids)
+        file_id, record = await self._get_primary_file(file_ids)
         if not record:
             return AgentResponse.error_response(
                 "No file loaded. Upload a file first.", "summary"
@@ -45,7 +45,7 @@ class SummaryAgent(BaseAgent):
             return self._sheet_response(record)
 
         df = record.df
-        stats = self._compute_stats(df, record.filename, record.metadata)
+        stats = await self.cpu(self._compute_stats, df, record.filename, record.metadata)
         narrative = self._build_local_narrative(stats, record)
 
         if ENABLE_LLM_SUMMARY:
@@ -56,8 +56,8 @@ class SummaryAgent(BaseAgent):
                     system=SUMMARY_SYSTEM,
                     temperature=0.3,
                 )
-                if llm_text and not llm_text.startswith("[Gemini error:"):
-                    narrative = llm_text
+                if llm_text:
+                    narrative = llm_text + "\n\n*AI-written summary based on the statistics below.*"
             except Exception as e:
                 logger.warning("Summary LLM enhancement failed; using local summary: %s", e)
 
@@ -81,9 +81,8 @@ class SummaryAgent(BaseAgent):
         )
 
     def _is_sheet_query(self, query: str) -> bool:
-        lower = query.lower()
-        keywords = ("sheet", "sheets", "worksheet", "worksheets", "tab", "tabs")
-        return any(word in lower for word in keywords)
+        import re
+        return bool(re.search(r"\b(sheets?|worksheets?|tabs?)\b", query, re.IGNORECASE))
 
     def _sheet_response(self, record) -> AgentResponse:
         sheet_names = record.metadata.get("sheet_names", [])

@@ -13,7 +13,7 @@ function isLoopbackOrigin(value) {
   }
 }
 
-export function getApiBase(env = import.meta.env) {
+export function getApiBase(env = import.meta.env || {}) {
   const configured = String(env.VITE_API_URL || DEFAULT_API_BASE).trim()
   const normalized = configured === '/' ? '' : stripTrailingSlash(configured)
 

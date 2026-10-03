@@ -80,6 +80,9 @@ export default function SchemaWarnings() {
 
   const [allDismissed, setAllDismissed] = useState(false)
   const [bannerOpen, setBannerOpen] = useState(true)
+  // Must be declared before the early return (Rules of Hooks): otherwise the
+  // first upload that produces warnings crashes the chat view (React #310).
+  const [listOpen, setListOpen] = useState(false)
 
   if (!schemaWarnings?.length || allDismissed || !bannerOpen) return null
 
@@ -92,8 +95,6 @@ export default function SchemaWarnings() {
     : warningCount > 0
     ? 'border-amber-500/30 bg-amber-500/5'
     : 'border-sky-500/30 bg-sky-500/5'
-
-  const [listOpen, setListOpen] = useState(false)
 
   const handleDismissOne = (key) => {
     dismissSchemaWarning(key)

@@ -65,6 +65,8 @@ class RefreshToken(Base):
     token_hash = Column(String(255), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False, nullable=False)
+    workspace_id = Column(String(50), nullable=True)  # workspace active when the token was issued
+    rotated_at = Column(DateTime, nullable=True)  # set when rotated by /auth/refresh (reuse grace window)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="refresh_tokens")
@@ -125,6 +127,7 @@ class UserSettings(Base):
     notification_email = Column(Boolean, default=True, nullable=False)
     timezone = Column(String(50), default="UTC", nullable=False)
     language = Column(String(10), default="en", nullable=False)
+    llm_provider = Column(String(20), nullable=True)  # per-user AI provider preference (never global)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="settings")
@@ -279,7 +282,7 @@ class Report(Base):
     starred = Column(Integer, default=0, nullable=False)
     scheduled = Column(Integer, default=0, nullable=False)
     schedule_cron = Column(String(100), nullable=True)
-    export_formats = Column(Text, default="[]", nullable=False)
+    export_formats = Column(Text, default="[]", nullable=False, server_default="[]")
     user_id = Column(String(50), nullable=True)
     workspace_id = Column(String(50), nullable=True)
     guest_session_id = Column(String(50), nullable=True)
@@ -305,13 +308,89 @@ class DatasetRegistry(Base):
     upload_date = Column(String(50), nullable=False)
     last_query_date = Column(String(50), nullable=True)
     session_id = Column(String(50), nullable=True)
-    column_summary = Column(Text, default="{}", nullable=False)
-    schema_warnings = Column(Text, default="[]", nullable=False)
+    column_summary = Column(Text, default="[]", nullable=False, server_default="[]")
+    schema_warnings = Column(Text, default="[]", nullable=False, server_default="[]")
     user_id = Column(String(50), nullable=True)
     workspace_id = Column(String(50), nullable=True)
     guest_session_id = Column(String(50), nullable=True)
     created_at = Column(String(50), nullable=False)
     updated_at = Column(String(50), nullable=False)
+    # Durable dataset state (source of truth for every API/worker process)
+    status = Column(String(20), default="ready", nullable=False, server_default="ready")
+    current_version = Column(Integer, nullable=True)
+    storage_workspace_id = Column(String(64), nullable=True)
+    original_key = Column(String(512), nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    storage_bytes = Column(BigInteger, default=0, nullable=False, server_default="0")
+
+
+class DatasetVersion(Base):
+    """One immutable, durable snapshot (Parquet in object storage) of a dataset."""
+    __tablename__ = "dataset_versions"
+    __table_args__ = (UniqueConstraint("dataset_id", "version", name="uq_dataset_versions_dataset_version"),)
+
+    id = Column(String(50), primary_key=True)
+    dataset_id = Column(String(50), ForeignKey("dataset_registry.dataset_id", ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    storage_key = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    action_json = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    row_count = Column(Integer, default=0, nullable=False)
+    column_count = Column(Integer, default=0, nullable=False)
+    size_bytes = Column(BigInteger, default=0, nullable=False)
+    created_by = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class StagedTransform(Base):
+    """Transformation plan previewed by a user and awaiting apply (shared across workers)."""
+    __tablename__ = "staged_transforms"
+
+    id = Column(String(50), primary_key=True)
+    dataset_id = Column(String(50), ForeignKey("dataset_registry.dataset_id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(String(64), nullable=False)
+    base_version = Column(Integer, nullable=False)
+    actions_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
+class Job(Base):
+    """Durable background job (uploads, profiling, reports, exports, forecasts)."""
+    __tablename__ = "jobs"
+
+    id = Column(String(50), primary_key=True)
+    job_type = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False, default="queued", index=True)  # queued, running, succeeded, failed
+    workspace_id = Column(String(64), nullable=True, index=True)
+    user_id = Column(String(64), nullable=True)
+    payload_json = Column(Text, nullable=False, default="{}")
+    result_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    result_key = Column(String(512), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    run_after = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    locked_by = Column(String(100), nullable=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class OAuthIdentity(Base):
+    """Verified link between an OAuth provider subject and a local user."""
+    __tablename__ = "oauth_identities"
+    __table_args__ = (UniqueConstraint("provider", "subject", name="uq_oauth_identities_provider_subject"),)
+
+    id = Column(String(50), primary_key=True)
+    provider = Column(String(20), nullable=False)
+    subject = Column(String(255), nullable=False)
+    user_id = Column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
 
 class Template(Base):
@@ -525,6 +604,7 @@ class Subscription(Base):
     current_period_start = Column(DateTime, nullable=False)
     current_period_end = Column(DateTime, nullable=False)
     cancel_at_period_end = Column(Boolean, default=False, nullable=False)
+    last_event_at = Column(BigInteger, nullable=True)  # Stripe event.created of the last applied event
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 

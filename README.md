@@ -35,11 +35,15 @@ python -m venv venv
 venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 
-# Add your Gemini API key to backend/.env
-# GEMINI_API_KEY=your_key_here
+# Copy backend/.env.example to backend/.env and set at least:
+# JWT_SECRET, LLM_PROVIDER=gemini, GEMINI_API_KEY=your_key_here
 
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8001
 ```
+
+Development runs background jobs inline (`JOB_EXECUTION_MODE=inline`). Production runs
+`alembic upgrade head` once per deploy, then the API plus one or more `python worker.py`
+processes. See `docs/production-operations.md`.
 
 ### 2. Start the frontend
 
@@ -113,9 +117,11 @@ Interactive docs: `http://localhost:8000/docs`
 
 ## 🔑 AI Providers
 
-Set in `backend/.env`:
+Set the platform default in `backend/.env` (users can pick their own provider/key in Settings):
 
 ```env
+LLM_PROVIDER=gemini   # gemini | openai | claude | ollama
+
 # Gemini (default — free tier at aistudio.google.com)
 GEMINI_API_KEY=your_key
 GEMINI_MODEL=models/gemini-2.5-flash
@@ -147,7 +153,7 @@ datapilot/
 │   │   ├── session_store.py # Chat session history (in-memory, TTL 24h)
 │   │   └── router.py        # Intent classifier
 │   ├── agents/              # Insight, Viz, Forecast, Clean, Summary, Report, CrossFile
-│   └── uploads/             # Persisted uploaded files (auto-reloaded on restart)
+│   └── uploads/             # Local development object store (production uses S3)
 └── frontend/
     ├── src/
     │   ├── App.jsx

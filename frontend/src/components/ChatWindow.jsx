@@ -48,9 +48,9 @@ function SkeletonMessage() {
 
 // ── Small interactive result table ────────────────────────────────────────
 function InlineTable({ rows }) {
+  const [copied, setCopied] = useState(false)
   if (!rows?.length) return null
   const cols = Object.keys(rows[0]).filter(c => c !== '_row_index')
-  const [copied, setCopied] = useState(false)
 
   const handleCopyTable = () => {
     const headerRow = cols.join('\t')
@@ -238,6 +238,7 @@ function BotMessage({ msg, onAskFollowup }) {
       msg.table_data,
       msg.metadata?.filename || `${msg.type || 'results'}_results`,
       format,
+      { sql: msg.metadata?.sql, file_ids: msg.metadata?.dataset_refs },
     )
     if (!result?.success) {
       window.alert(result?.error || `Failed to export ${format.toUpperCase()}`)
@@ -420,6 +421,7 @@ export default function ChatWindow() {
     messages,
     isStreaming,
     sendMessage,
+    cancelStream,
     clearMessages,
     files,
     activeFileIds,
@@ -650,8 +652,10 @@ export default function ChatWindow() {
 
             <button
               id="send-btn"
-              onClick={handleSend}
-              disabled={!input.trim() || isStreaming}
+              onClick={isStreaming ? cancelStream : handleSend}
+              disabled={!input.trim() && !isStreaming}
+              title={isStreaming ? 'Stop generating' : 'Send'}
+              aria-label={isStreaming ? 'Stop generating' : 'Send'}
               className="btn-primary w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center p-0 shadow-lg"
             >
               {isStreaming ? (

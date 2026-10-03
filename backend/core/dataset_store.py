@@ -12,6 +12,9 @@ logger = logging.getLogger("datapilot.dataset_store")
 
 def _row_to_dict(row) -> dict:
     d = dict(row)
+    d.pop("metadata_json", None)
+    d.pop("original_key", None)
+    d.pop("storage_workspace_id", None)
     for field in ("tags", "column_summary", "schema_warnings"):
         raw = d.get(field)
         if raw:
@@ -56,9 +59,10 @@ def update_dataset(
             
         values.append(dataset_id)
         scope_sql = ""
-        if user_id is not None and workspace_id is not None:
-            scope_sql = " AND user_id = ? AND workspace_id = ?"
-            values.extend([user_id, workspace_id])
+        if workspace_id is not None:
+            # Datasets are shared by every member of the workspace (same scope as file access).
+            scope_sql = " AND workspace_id = ?"
+            values.append(workspace_id)
         sql = f"UPDATE dataset_registry SET {', '.join(parts)} WHERE dataset_id = ?{scope_sql};"
         cursor = conn.execute(sql, values)
         conn.commit()
@@ -88,8 +92,8 @@ def list_datasets(
     """List datasets matching criteria."""
     conn = get_connection()
     try:
-        clauses = ["user_id = ?", "workspace_id = ?"]
-        params: List[Any] = [user_id, workspace_id]
+        clauses = ["workspace_id = ?"]
+        params: List[Any] = [workspace_id]
         
         if archived is not None:
             clauses.append("archived = ?")
@@ -125,9 +129,9 @@ def get_dataset(dataset_id: str, user_id: str | None = None, workspace_id: str |
     try:
         params = [dataset_id]
         scope_sql = ""
-        if user_id is not None and workspace_id is not None:
-            scope_sql = " AND user_id = ? AND workspace_id = ?"
-            params.extend([user_id, workspace_id])
+        if workspace_id is not None:
+            scope_sql = " AND workspace_id = ?"
+            params.append(workspace_id)
         cursor = conn.execute(f"SELECT * FROM dataset_registry WHERE dataset_id = ?{scope_sql};", tuple(params))
         row = cursor.fetchone()
         return _row_to_dict(row) if row else None

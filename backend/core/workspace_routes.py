@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -23,6 +23,28 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 VALID_ROLES = {"Owner", "Admin", "Member", "Viewer"}
 
+def _enforce_workspace_limit(user: User, db: Session) -> None:
+    """A user may own as many workspaces as the best active plan among their owned workspaces allows."""
+    from core.subscriptions import UNLIMITED
+    from core.usage import effective_plan
+
+    owned = db.query(Workspace).filter(Workspace.owner_id == user.user_id).all()
+    if not owned:
+        return
+    allowed = 1
+    for ws in owned:
+        _, limits, _, _ = effective_plan(ws.workspace_id, db)
+        value = int(limits.get("workspace_count", 1))
+        if value == UNLIMITED:
+            return
+        allowed = max(allowed, value)
+    if len(owned) >= allowed:
+        raise HTTPException(status_code=429, detail={"error": "PLAN_LIMIT_EXCEEDED", "metric": "workspace_count",
+                                                     "limit": allowed, "current": len(owned),
+                                                     "message": "Your plan's workspace limit has been reached.",
+                                                     "upgrade_prompt": True})
+
+
 
 # ─────────────────────────────────────────────────────────────
 # Request / Response Schemas
@@ -32,7 +54,8 @@ class CreateWorkspaceRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     plan_tier: str = "free"
 
-    @validator('plan_tier')
+    @field_validator('plan_tier')
+    @classmethod
     def validate_plan_tier(cls, v):
         allowed = {"free", "pro", "team", "business", "enterprise"}
         if v not in allowed:
@@ -120,11 +143,16 @@ def create_workspace(
     db: Session = Depends(get_db),
 ):
     """Create a new workspace. Current user becomes Owner."""
+    # Plans are only changed by verified billing events (Stripe webhooks) or platform
+    # admins.  A client-supplied plan_tier is never trusted.
+    if payload.plan_tier and payload.plan_tier != "free":
+        raise HTTPException(status_code=403, detail="Workspace plans can only be changed through billing.")
+    _enforce_workspace_limit(user, db)
     ws_id = str(uuid.uuid4())
     workspace = Workspace(
         workspace_id=ws_id,
         name=payload.name,
-        plan_tier=payload.plan_tier,
+        plan_tier="free",
         owner_id=user.user_id,
     )
     db.add(workspace)
@@ -175,8 +203,8 @@ def update_workspace(
 
     if payload.name:
         ws.name = payload.name
-    if payload.plan_tier:
-        ws.plan_tier = payload.plan_tier
+    if payload.plan_tier and payload.plan_tier != ws.plan_tier:
+        raise HTTPException(status_code=403, detail="Workspace plans can only be changed through billing.")
 
     _audit(db, user.user_id, workspace_id, "WORKSPACE_UPDATED",
            f"Workspace updated by {user.email}.")
@@ -201,6 +229,14 @@ def delete_workspace(
            f"Workspace '{ws.name}' deleted by {user.email}.")
     db.delete(ws)
     db.commit()
+
+    # Delete the workspace's datasets/objects durably in the background.
+    from core import jobs
+
+    job_id = jobs.enqueue("workspace_cleanup", {"workspace_id": workspace_id},
+                          workspace_id=workspace_id, user_id=user.user_id, max_attempts=5)
+    if jobs.execution_mode() == "inline":
+        jobs.run_inline(job_id)
 
     return {"success": True, "message": "Workspace deleted."}
 
@@ -245,10 +281,28 @@ def invite_member(
     db: Session = Depends(get_db),
 ):
     """Invite a user to the workspace. Requires Admin or Owner."""
-    get_workspace_member(user, workspace_id, db, required_role="Admin")
+    inviter = get_workspace_member(user, workspace_id, db, required_role="Admin")
 
     if payload.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {VALID_ROLES}")
+    if payload.role in {"Owner", "Admin"} and inviter.role != "Owner":
+        raise HTTPException(status_code=403, detail="Only workspace Owners can grant Owner or Admin roles.")
+
+    from core.subscriptions import UNLIMITED
+    from core.usage import effective_plan
+
+    _, limits, features, _ = effective_plan(workspace_id, db)
+    if not features.get("can_invite_members", False):
+        raise HTTPException(status_code=402, detail={"error": "FEATURE_NOT_IN_PLAN", "feature": "can_invite_members",
+                                                     "message": "Inviting members is not included in your plan.",
+                                                     "upgrade_prompt": True})
+    member_limit = int(limits.get("member_count", UNLIMITED))
+    current_members = db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).count()
+    if member_limit != UNLIMITED and current_members >= member_limit:
+        raise HTTPException(status_code=429, detail={"error": "PLAN_LIMIT_EXCEEDED", "metric": "member_count",
+                                                     "limit": member_limit, "current": current_members,
+                                                     "message": "Your plan's member limit has been reached.",
+                                                     "upgrade_prompt": True})
 
     # Find target user
     target = db.query(User).filter(User.email == payload.email).first()

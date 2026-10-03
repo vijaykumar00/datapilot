@@ -57,14 +57,19 @@ def execute_transform(df: pd.DataFrame, action: Dict[str, Any]) -> pd.DataFrame:
             raise ValueError(f"Column '{col}' does not exist")
         strategy = action.get("strategy", "strip")
 
+        # Keep missing values missing (astype(str) used to turn them into the text "nan").
+        text = df[col].astype("string")
         if strategy == "lower":
-            df[col] = df[col].astype(str).str.lower()
+            text = text.str.lower()
         elif strategy == "upper":
-            df[col] = df[col].astype(str).str.upper()
+            text = text.str.upper()
         elif strategy == "title":
-            df[col] = df[col].astype(str).str.title()
+            text = text.str.title()
         elif strategy == "strip":
-            df[col] = df[col].astype(str).str.strip()
+            text = text.str.strip()
+        else:
+            raise ValueError(f"Unsupported normalize strategy: '{strategy}'")
+        df[col] = text.astype(object).where(text.notna(), None)
         return df
 
     elif op == "convert_type":
@@ -74,7 +79,10 @@ def execute_transform(df: pd.DataFrame, action: Dict[str, Any]) -> pd.DataFrame:
         target = action.get("target_type")
 
         if target == "int":
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+            # Nullable integers: unparseable/missing values stay missing instead of
+            # silently becoming 0 (which corrupted sums and averages).
+            numeric = pd.to_numeric(df[col], errors="coerce")
+            df[col] = numeric.round().astype("Int64")
         elif target == "float":
             df[col] = pd.to_numeric(df[col], errors="coerce").astype(float)
         elif target == "str":
@@ -91,6 +99,11 @@ def execute_transform(df: pd.DataFrame, action: Dict[str, Any]) -> pd.DataFrame:
             raise ValueError(f"Column '{col}' does not exist")
         operator = action.get("operator")
         val = action.get("value")
+        if operator in {"==", "!=", ">", "<", ">=", "<="} and pd.api.types.is_numeric_dtype(df[col].dtype) and isinstance(val, str):
+            try:
+                val = float(val.replace(",", ""))
+            except ValueError as exc:
+                raise ValueError(f"Value '{val}' is not a number but column '{col}' is numeric") from exc
 
         if operator == "==":
             df = df[df[col] == val]
@@ -105,7 +118,7 @@ def execute_transform(df: pd.DataFrame, action: Dict[str, Any]) -> pd.DataFrame:
         elif operator == "<=":
             df = df[df[col] <= val]
         elif operator == "contains":
-            df = df[df[col].astype(str).str.contains(str(val), case=False, na=False)]
+            df = df[df[col].astype("string").str.contains(str(val), case=False, na=False, regex=False)]
         else:
             raise ValueError(f"Unsupported filter operator: '{operator}'")
         return df.reset_index(drop=True)
@@ -122,6 +135,8 @@ def execute_transform(df: pd.DataFrame, action: Dict[str, Any]) -> pd.DataFrame:
         for item in aggs_list:
             c = item.get("column")
             f = item.get("func", "sum")
+            if f not in {"sum", "mean", "min", "max", "count", "median", "std", "nunique"}:
+                raise ValueError(f"Unsupported aggregation '{f}'")
             if c not in df.columns:
                 raise ValueError(f"Aggregation column '{c}' does not exist")
             if c not in agg_dict:
@@ -201,7 +216,7 @@ Rules:
 """
 
 
-async def propose_transformations(query: str, df: pd.DataFrame, table_name: str = "data") -> list[dict]:
+async def propose_transformations(query: str, df: pd.DataFrame, table_name: str = "data", llm=None) -> list[dict]:
     """Propose one or more declarative transformations based on natural language query, using LLM or rule fallbacks."""
     query_lower = query.lower()
     proposed = []
@@ -274,9 +289,7 @@ async def propose_transformations(query: str, df: pd.DataFrame, table_name: str 
                 })
 
     # If we found heuristic steps, we can return them directly or check if LLM can do advanced planning
-    from core.llm_client import get_llm_client
-    llm = get_llm_client()
-    if not await llm.is_online():
+    if llm is None or not await llm.is_online():
         logger.info("LLM is offline. Returning local heuristic cleaning plans.")
         # If no heuristics matched but query is non-empty, provide default duplicate scanner
         if not proposed:
@@ -290,7 +303,8 @@ async def propose_transformations(query: str, df: pd.DataFrame, table_name: str 
     # Prepare schema details for advanced LLM mapping
     columns_info = ", ".join(f'"{col}" ({dtype})' for col, dtype in zip(df.columns, df.dtypes))
     import json
-    sample_data = df.head(2).to_dict(orient="records")
+    from core.jsonsafe import to_jsonable
+    sample_data = to_jsonable(df.head(2).to_dict(orient="records"))
 
     prompt = (
         f"Table Name: {table_name}\n"

@@ -3,6 +3,7 @@ report_store.py — SQLite-backed CRUD service for Saved Reports with versioning
 """
 
 import json
+from core import jsonsafe
 import logging
 import uuid
 from datetime import datetime
@@ -65,8 +66,8 @@ def save_report(
                 report_id, session_id, title, description, version, parent_report_id,
                 prompt, content, report_type, chart_data, table_data, kpis, metadata,
                 file_id, filename, tags, starred, scheduled, created_at, updated_at,
-                user_id, workspace_id
-            ) VALUES (?, ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?);
+                user_id, workspace_id, export_formats
+            ) VALUES (?, ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, '[]');
             """,
             (
                 report_id,
@@ -76,13 +77,13 @@ def save_report(
                 prompt,
                 content,
                 report_type,
-                json.dumps(chart_data) if chart_data is not None else None,
-                json.dumps(table_data) if table_data is not None else None,
-                json.dumps(kpis) if kpis is not None else None,
-                json.dumps(metadata or {}),
+                jsonsafe.dumps(chart_data) if chart_data is not None else None,
+                jsonsafe.dumps(table_data) if table_data is not None else None,
+                jsonsafe.dumps(kpis) if kpis is not None else None,
+                jsonsafe.dumps(metadata or {}),
                 file_id,
                 filename,
-                json.dumps(tags),
+                jsonsafe.dumps(tags),
                 now,
                 now,
                 user_id,
@@ -137,8 +138,8 @@ def create_version(
                 report_id, session_id, title, description, version, parent_report_id,
                 prompt, content, report_type, chart_data, table_data, kpis, metadata,
                 file_id, filename, tags, starred, scheduled, created_at, updated_at,
-                user_id, workspace_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                user_id, workspace_id, export_formats
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]');
             """,
             (
                 new_report_id,
@@ -150,13 +151,13 @@ def create_version(
                 base["prompt"],
                 content,
                 base["report_type"],
-                json.dumps(chart_data) if chart_data is not None else json.dumps(base["chart_data"]),
-                json.dumps(base["table_data"]),
-                json.dumps(kpis) if kpis is not None else json.dumps(base["kpis"]),
-                json.dumps(metadata or base["metadata"]),
+                jsonsafe.dumps(chart_data) if chart_data is not None else jsonsafe.dumps(base["chart_data"]),
+                jsonsafe.dumps(base["table_data"]),
+                jsonsafe.dumps(kpis) if kpis is not None else jsonsafe.dumps(base["kpis"]),
+                jsonsafe.dumps(metadata or base["metadata"]),
                 base["file_id"],
                 base["filename"],
-                json.dumps(base["tags"]),
+                jsonsafe.dumps(base["tags"]),
                 1 if base["starred"] else 0,
                 1 if base["scheduled"] else 0,
                 now,
@@ -201,7 +202,7 @@ def update_report(
             values.append(description)
         if tags is not None:
             parts.append("tags = ?")
-            values.append(json.dumps(tags))
+            values.append(jsonsafe.dumps(tags))
         if starred is not None:
             parts.append("starred = ?")
             values.append(1 if starred else 0)

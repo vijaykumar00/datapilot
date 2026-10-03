@@ -1,16 +1,26 @@
 import { useRef } from 'react'
 import createPlotlyComponent from 'react-plotly.js/factory'
-import Plotly from 'plotly.js-dist-min'
+// Cartesian bundle (~1.3 MB vs ~4.6 MB): bar, box, heatmap, histogram, pie,
+// scatter, contour, violin — every trace type the backend produces.
+import Plotly from 'plotly.js-cartesian-dist-min'
 
-// Create Plot component from the min bundle (avoids plotly.js/dist/plotly resolution issue)
 const Plot = createPlotlyComponent(Plotly)
+
+// Charts saved by older versions may use WebGL scatter, which this bundle omits.
+const TRACE_FALLBACKS = { scattergl: 'scatter' }
+function normalizeTraces(data = []) {
+  return data.map(trace => (
+    trace && TRACE_FALLBACKS[trace.type] ? { ...trace, type: TRACE_FALLBACKS[trace.type] } : trace
+  ))
+}
 
 export default function ChartRenderer({ spec, onDataPointClick }) {
   const plotRef = useRef(null)
 
   if (!spec) return null
 
-  const { data, layout } = spec
+  const { layout } = spec
+  const data = normalizeTraces(spec.data)
 
   const mergedLayout = {
     ...layout,

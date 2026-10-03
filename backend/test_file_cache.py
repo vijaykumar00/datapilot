@@ -1,337 +1,127 @@
 """
-test_file_cache.py — Unit tests for the bounded TTL+LRU FileManager cache.
+test_file_cache.py — Durable datasets + memory-bounded cache.
 
-Covers:
-  - TTL expiration
-  - maximum entry eviction (LRU)
-  - deletion cleanup (cache + DuckDB)
-  - failed upload cleanup (no partial cache entry)
-  - workspace eviction
-  - get_cache_stats()
-  - repeated upload memory behaviour (old entry replaced)
+The old design kept datasets ONLY in a 50-entry, 1-hour TTL in-process cache, so
+datasets disappeared after an hour, after a restart, or when other tenants
+uploaded.  These tests pin the new behaviour: storage + registry are the source
+of truth, any process (fresh FileManager == another worker / after restart)
+can load any version, and the cache is bounded by bytes, not entries/TTL.
 """
 
-import asyncio
 import io
 import os
-import sys
-import time
+import threading
 import unittest
-import unittest.mock as mock
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
-# ── Add backend to path ───────────────────────────────────────────────────────
-BACKEND = Path(__file__).parent
-if str(BACKEND) not in sys.path:
-    sys.path.insert(0, str(BACKEND))
+import pandas as pd
 
-# ── Patch heavy external deps before importing file_manager ──────────────────
-# We stub out DuckDB store, storage provider, DB connection, and insight engines
-# so tests run without a real database or LLM.
-
-_FAKE_STORE = MagicMock()
-_FAKE_STORE.register_dataframe = MagicMock()
-_FAKE_STORE.drop_table = MagicMock()
-_FAKE_STORE.execute = MagicMock(return_value=None)
-
-_FAKE_STORAGE = MagicMock()
-_FAKE_STORAGE.save_file = MagicMock(return_value=(Path("/tmp/f.csv"), "local://f.csv"))
-_FAKE_STORAGE.delete_dataset_dir = MagicMock()
-_FAKE_STORAGE.delete_file = MagicMock()
-
-_FAKE_CONN = MagicMock()
-_FAKE_CONN.cursor.return_value.__enter__ = MagicMock(return_value=_FAKE_CONN.cursor())
-_FAKE_CONN.cursor.return_value.__exit__ = MagicMock(return_value=False)
-_FAKE_CONN.cursor.return_value.fetchone = MagicMock(return_value=None)
-_FAKE_CONN.execute = MagicMock()
-_FAKE_CONN.commit = MagicMock()
-_FAKE_CONN.close = MagicMock()
+from core.file_manager import ConcurrentModificationError, DatasetCache, FileManager
+from core.storage import get_storage_provider
 
 
-def _make_upload_file(name="test.csv", content=b"col1,col2\n1,2\n3,4"):
-    """Create a mock UploadFile-like object."""
-    f = MagicMock()
-    f.filename = name
-    f.read = AsyncMock(return_value=content)
-    return f
+def _csv(text: str, name="sales.csv"):
+    path = os.path.join(os.environ["LOCAL_STORAGE_DIR"], f"up_{uuid.uuid4().hex}_{name}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
 
 
-class TestTTLExpiration(unittest.TestCase):
-    """File records expire after TTL seconds."""
+def _ingest(fm: FileManager, text: str, ws: str, name="sales.csv") -> str:
+    from pathlib import Path
 
-    def test_ttl_expiry(self):
-        """Entries should not be accessible after TTL expires."""
-        os.environ["FM_CACHE_TTL_SECONDS"] = "1"   # 1 second TTL for speed
-        os.environ["FM_CACHE_MAX_ENTRIES"] = "50"
-
-        # Force re-import with new env
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
-
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-            rec = FileRecord("id001", "test.csv", df, Path("/tmp/test.csv"),
-                             workspace_id="ws1", user_id="u1")
-            fm._cache["id001"] = rec
-
-            # Immediately accessible
-            self.assertIsNotNone(fm.get_record("id001"))
-
-            # After TTL expires
-            time.sleep(1.2)
-            self.assertIsNone(fm.get_record("id001"), "Record should have expired after TTL")
-
-        del os.environ["FM_CACHE_TTL_SECONDS"]
-        del os.environ["FM_CACHE_MAX_ENTRIES"]
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
+    path = _csv(text, name)
+    dataset_id = fm.stage_upload(Path(path), name, os.path.getsize(path), workspace_id=ws, user_id="u1")
+    fm.ingest(dataset_id)
+    return dataset_id
 
 
-class TestLRUEviction(unittest.TestCase):
-    """Oldest-accessed entries are evicted when maxsize is reached."""
+class TestDatasetCache(unittest.TestCase):
+    def test_bounded_by_bytes_lru(self):
+        df = pd.DataFrame({"a": range(1000)})
+        size = int(df.memory_usage(deep=True).sum())
+        cache = DatasetCache(max_bytes=size * 2 + 10)
+        cache.put(("a", 1), df)
+        cache.put(("b", 1), df)
+        cache.get(("a", 1))  # a is now most recently used
+        cache.put(("c", 1), df)
+        self.assertIsNotNone(cache.get(("a", 1)))
+        self.assertIsNone(cache.get(("b", 1)))
+        self.assertLessEqual(cache.stats()["current_bytes"], cache.max_bytes)
 
-    def test_max_entries_eviction(self):
-        """When maxsize is exceeded, the LRU entry is evicted."""
-        os.environ["FM_CACHE_TTL_SECONDS"] = "3600"
-        os.environ["FM_CACHE_MAX_ENTRIES"] = "3"
-
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
-
-            fm = FileManager()
-            self.assertEqual(fm._cache.maxsize, 3)
-
-            df = pd.DataFrame({"x": [1]})
-            for i in range(3):
-                rec = FileRecord(f"id{i:03d}", f"f{i}.csv", df, Path(f"/tmp/f{i}.csv"),
-                                 workspace_id="ws1", user_id="u1")
-                fm._cache[f"id{i:03d}"] = rec
-
-            self.assertEqual(len(fm._cache), 3)
-
-            # Adding a 4th entry triggers LRU eviction of id000
-            rec4 = FileRecord("id003", "f3.csv", df, Path("/tmp/f3.csv"),
-                              workspace_id="ws1", user_id="u1")
-            fm._cache["id003"] = rec4
-
-            self.assertEqual(len(fm._cache), 3, "Cache should still hold 3 entries")
-            # id000 was the LRU candidate and should be gone
-            self.assertNotIn("id000", fm._cache)
-
-        del os.environ["FM_CACHE_TTL_SECONDS"]
-        del os.environ["FM_CACHE_MAX_ENTRIES"]
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
+    def test_oversized_items_are_not_cached(self):
+        cache = DatasetCache(max_bytes=10)
+        cache.put(("x", 1), pd.DataFrame({"a": range(100)}))
+        self.assertEqual(cache.stats()["current_entries"], 0)
 
 
-class TestDeletionCleanup(unittest.TestCase):
-    """delete_file() removes entry from cache, DuckDB, and storage."""
-
+class TestDurableDatasets(unittest.TestCase):
     def setUp(self):
-        os.environ.setdefault("FM_CACHE_TTL_SECONDS", "3600")
-        os.environ.setdefault("FM_CACHE_MAX_ENTRIES", "50")
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-        _FAKE_STORE.drop_table.reset_mock()
-        _FAKE_STORAGE.delete_dataset_dir.reset_mock()
-        _FAKE_CONN.execute.reset_mock()
+        self.ws = f"ws_{uuid.uuid4().hex[:8]}"
+        self.fm = FileManager()
+        self.dataset_id = _ingest(self.fm, "region,revenue\nN,10\nS,20\nN,30\n", self.ws)
 
-    def test_delete_removes_from_cache(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
+    def tearDown(self):
+        self.fm.delete_file(self.dataset_id)
 
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1]})
-            rec = FileRecord("del01", "d.csv", df, Path("/tmp/d.csv"),
-                             workspace_id="ws2", user_id="u1")
-            fm._cache["del01"] = rec
+    def test_survives_restart_and_other_workers(self):
+        other_worker = FileManager()  # empty cache: simulates a restart or a different process
+        record = other_worker.get_record(self.dataset_id, self.ws)
+        self.assertIsNotNone(record)
+        self.assertEqual(int(record.df["revenue"].sum()), 60)
 
-            ok = fm.delete_file("del01")
-            self.assertTrue(ok)
-            self.assertIsNone(fm.get_record("del01"))
+    def test_is_workspace_scoped(self):
+        self.assertIsNone(self.fm.get_record(self.dataset_id, "another_workspace"))
 
-    def test_delete_calls_drop_table(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
+    def test_transforms_are_versioned_durably_and_undoable(self):
+        self.fm.apply_transform(self.dataset_id, {"action": "filter_rows", "column": "region", "operator": "==", "value": "N"},
+                                "keep N", self.ws)
+        fresh = FileManager().get_record(self.dataset_id, self.ws)
+        self.assertEqual(len(fresh.df), 2)
+        self.assertEqual(fresh.version, 2)
+        self.assertEqual(len(fresh.history), 1)
 
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1]})
-            rec = FileRecord("del02", "d.csv", df, Path("/tmp/d.csv"),
-                             workspace_id="ws2", user_id="u1")
-            fm._cache["del02"] = rec
+        self.fm.undo_transform(self.dataset_id, self.ws)
+        restored = FileManager().get_record(self.dataset_id, self.ws)
+        self.assertEqual(len(restored.df), 3)
+        self.assertEqual(restored.version, 1)
 
-            fm.delete_file("del02")
-            _FAKE_STORE.drop_table.assert_called_once()
+    def test_concurrent_writers_cannot_overwrite_each_other(self):
+        stale = self.fm.get_record(self.dataset_id, self.ws)
+        self.fm.apply_edits(self.dataset_id, [{"row_index": 0, "column": "revenue", "value": 11}], self.ws)
+        with self.assertRaises(ConcurrentModificationError):
+            self.fm._commit(stale, stale.df, "stale write", {"action": "x"})
 
-    def test_delete_calls_storage_delete(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
+    def test_parallel_edits_all_land_or_conflict(self):
+        errors, ok = [], []
 
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1]})
-            rec = FileRecord("del03", "d.csv", df, Path("/tmp/d.csv"),
-                             workspace_id="ws3", user_id="u1")
-            fm._cache["del03"] = rec
+        def edit(i):
+            try:
+                FileManager().apply_edits(self.dataset_id, [{"row_index": 0, "column": "revenue", "value": i}], self.ws)
+                ok.append(i)
+            except ConcurrentModificationError:
+                errors.append(i)
 
-            fm.delete_file("del03")
-            _FAKE_STORAGE.delete_dataset_dir.assert_called_once_with("ws3", "del03")
+        threads = [threading.Thread(target=edit, args=(i,)) for i in range(5)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        final = FileManager().get_record(self.dataset_id, self.ws)
+        self.assertEqual(final.version, 1 + len(ok))
+        self.assertEqual(len(ok) + len(errors), 5)
 
-    def test_delete_returns_false_for_missing(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager
-            fm = FileManager()
-            self.assertFalse(fm.delete_file("nonexistent-id"))
+    def test_delete_removes_registry_and_objects(self):
+        dataset_id = _ingest(self.fm, "a,b\n1,2\n", self.ws, "tmp.csv")
+        prefix_obj = get_storage_provider()._object_path(f"workspace/{self.ws}/datasets/{dataset_id}/")
+        self.assertTrue(prefix_obj.exists())
+        self.assertTrue(self.fm.delete_file(dataset_id, self.ws))
+        self.assertFalse(prefix_obj.exists())
+        self.assertIsNone(self.fm.get_record(dataset_id, self.ws))
 
-
-class TestWorkspaceEviction(unittest.TestCase):
-    """evict_workspace() removes all entries belonging to a workspace."""
-
-    def setUp(self):
-        os.environ.setdefault("FM_CACHE_TTL_SECONDS", "3600")
-        os.environ.setdefault("FM_CACHE_MAX_ENTRIES", "50")
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-        _FAKE_STORE.drop_table.reset_mock()
-
-    def test_evict_workspace_removes_correct_entries(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
-
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1]})
-
-            for i in range(3):
-                rec = FileRecord(f"ws1_{i}", f"f{i}.csv", df, Path(f"/tmp/f{i}.csv"),
-                                 workspace_id="target_ws", user_id="u1")
-                fm._cache[f"ws1_{i}"] = rec
-
-            rec_other = FileRecord("ws2_0", "g.csv", df, Path("/tmp/g.csv"),
-                                   workspace_id="other_ws", user_id="u1")
-            fm._cache["ws2_0"] = rec_other
-
-            evicted = fm.evict_workspace("target_ws")
-            self.assertEqual(evicted, 3)
-            self.assertIsNone(fm.get_record("ws1_0"))
-            self.assertIsNone(fm.get_record("ws1_1"))
-            self.assertIsNone(fm.get_record("ws1_2"))
-            self.assertIsNotNone(fm.get_record("ws2_0"))
-
-    def test_evict_nonexistent_workspace_returns_zero(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager
-            fm = FileManager()
-            self.assertEqual(fm.evict_workspace("no_such_ws"), 0)
-
-
-class TestCacheStats(unittest.TestCase):
-    """get_cache_stats() returns correct shape."""
-
-    def setUp(self):
-        os.environ.setdefault("FM_CACHE_TTL_SECONDS", "3600")
-        os.environ.setdefault("FM_CACHE_MAX_ENTRIES", "50")
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-
-    def test_stats_shape(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
-
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1]})
-            rec = FileRecord("stat01", "s.csv", df, Path("/tmp/s.csv"),
-                             workspace_id="ws_stat", user_id="u1")
-            fm._cache["stat01"] = rec
-
-            stats = fm.get_cache_stats()
-            self.assertIn("current_entries", stats)
-            self.assertIn("max_entries", stats)
-            self.assertIn("ttl_seconds", stats)
-            self.assertIn("file_ids", stats)
-            self.assertEqual(stats["current_entries"], 1)
-            self.assertIn("stat01", stats["file_ids"])
-
-    def test_stats_max_entries_reflects_env(self):
-        os.environ["FM_CACHE_MAX_ENTRIES"] = "77"
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager
-            fm = FileManager()
-            stats = fm.get_cache_stats()
-            self.assertEqual(stats["max_entries"], 77)
-
-        del os.environ["FM_CACHE_MAX_ENTRIES"]
-
-
-class TestRepeatedUploadMemory(unittest.TestCase):
-    """Re-inserting the same file_id replaces the old entry (no accumulation)."""
-
-    def setUp(self):
-        os.environ.setdefault("FM_CACHE_TTL_SECONDS", "3600")
-        os.environ.setdefault("FM_CACHE_MAX_ENTRIES", "50")
-        for mod in list(sys.modules.keys()):
-            if "file_manager" in mod:
-                del sys.modules[mod]
-
-    def test_repeated_insert_does_not_grow_cache(self):
-        with patch("core.data_store.get_store", return_value=_FAKE_STORE), \
-             patch("core.storage.get_storage_provider", return_value=_FAKE_STORAGE), \
-             patch("core.db.get_connection", return_value=_FAKE_CONN):
-            from core.file_manager import FileManager, FileRecord
-            import pandas as pd
-
-            fm = FileManager()
-            df = pd.DataFrame({"a": [1]})
-            for _ in range(5):
-                rec = FileRecord("same_id", "f.csv", df, Path("/tmp/f.csv"),
-                                 workspace_id="ws1", user_id="u1")
-                fm._cache["same_id"] = rec
-
-            # Should still be only 1 entry
-            self.assertEqual(len(fm._cache), 1)
+    def test_list_files_reads_registry_not_memory(self):
+        listed = FileManager().list_files(self.ws)
+        self.assertEqual([f["file_id"] for f in listed], [self.dataset_id])
+        self.assertEqual(listed[0]["row_count"], 3)
 
 
 if __name__ == "__main__":

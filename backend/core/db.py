@@ -51,17 +51,41 @@ def _resolve_database_url() -> str:
 DATABASE_URL = _resolve_database_url()
 is_postgres = DATABASE_URL.startswith("postgresql") or "postgres" in DATABASE_URL
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 # SQLAlchemy engine config
 connect_args = {}
+engine_kwargs: dict = {"pool_pre_ping": True, "pool_recycle": 1800}
 if DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+    # Wait for the write lock instead of failing immediately under concurrency.
+    connect_args = {"check_same_thread": False, "timeout": 30}
+else:
+    # Explicit, configurable pool sizing.  Every API process and worker process
+    # gets its own pool, so size against Postgres max_connections:
+    #   (api_processes + worker_processes) * (DB_POOL_SIZE + DB_MAX_OVERFLOW) < max_connections
+    engine_kwargs.update(
+        pool_size=_int_env("DB_POOL_SIZE", 10),
+        max_overflow=_int_env("DB_MAX_OVERFLOW", 10),
+        pool_timeout=_int_env("DB_POOL_TIMEOUT_SECONDS", 10),
+    )
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True,
-    pool_recycle=1800
-)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
+
+if DATABASE_URL.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - trivial
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -111,8 +135,15 @@ class DBCursorWrapper:
             # Convert SQLite placeholders (?) to PostgreSQL (%s)
             sql = sql.replace("?", "%s")
             
+            # SQLite "INSERT OR REPLACE" has no PostgreSQL equivalent; it must be written
+            # as an explicit upsert by the caller.  Fail loudly instead of silently
+            # producing invalid SQL (this previously broke chat history on Postgres).
+            if "INSERT OR REPLACE" in sql.upper():
+                raise ValueError("INSERT OR REPLACE is SQLite-only; use INSERT ... ON CONFLICT ... DO UPDATE")
             # Simple conversion of SQLite INSERT OR IGNORE to standard SQL + conflict clause
             if "INSERT OR IGNORE INTO" in sql.upper():
+                # The conflict clause must precede the statement terminator.
+                sql = sql.rstrip().rstrip(";").rstrip()
                 sql_upper = sql.upper()
                 if "SESSIONS" in sql_upper:
                     sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO") + " ON CONFLICT (session_id) DO NOTHING"
@@ -241,69 +272,83 @@ def log_api_error(
         )
         conn.commit()
     except Exception as e:
-        print(f"Failed to log API error to DB: {e}")
+        logger.warning("Failed to log API error to DB: %s", e)
     finally:
         conn.close()
 
+def run_migrations() -> None:
+    """Apply Alembic migrations to head.  Raises on failure (never silently diverges)."""
+    from alembic.config import Config
+    from alembic import command
+    from sqlalchemy import inspect
+
+    backend_dir = Path(__file__).parent.parent
+    alembic_cfg = Config(str(backend_dir / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    if "sessions" in tables and "alembic_version" not in tables:
+        command.stamp(alembic_cfg, "96e4e347edff")
+        logger.info("Stamped legacy database to baseline revision 96e4e347edff.")
+    command.upgrade(alembic_cfg, "head")
+    logger.info("Alembic database migrations applied.")
+
+
+def _migrations_on_startup() -> bool:
+    raw = os.getenv("RUN_MIGRATIONS_ON_STARTUP")
+    if raw is None:
+        # Production runs migrations once as a deploy step (compose `migrate`
+        # service / release job), never concurrently from every replica.
+        return not _is_production()
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def init_db() -> None:
-    """Initialize database schemas programmatically using Alembic migrations on startup."""
-    try:
-        # Run alembic migrations dynamically
-        import sys
-        from alembic.config import Config
-        from alembic import command
+    """Prepare the database at process start.
 
-        backend_dir = Path(__file__).parent.parent
-        alembic_ini_path = backend_dir / "alembic.ini"
-        
-        # Configure and run migrations
-        alembic_cfg = Config(str(alembic_ini_path))
-        # Override the migration path to be absolute
-        alembic_cfg.set_main_option("script_location", str(backend_dir / "alembic"))
-        alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
-        
-        # Check if legacy database (has tables but no alembic history)
-        from sqlalchemy import inspect
-        inspector = inspect(engine)
-        has_sessions = "sessions" in inspector.get_table_names()
-        has_alembic = "alembic_version" in inspector.get_table_names()
-        
-        if has_sessions and not has_alembic:
-            command.stamp(alembic_cfg, "96e4e347edff")
-            logger.info("Stamped legacy database to baseline revision 96e4e347edff.")
-            print("Stamped legacy database to baseline revision 96e4e347edff.")
+    * Development: apply migrations automatically.
+    * Production: migrations are a separate deploy step; startup only verifies
+      that the schema is at the expected head and fails loudly if not.
+    """
+    if _migrations_on_startup():
+        run_migrations()
+    else:
+        verify_schema_at_head()
+    seed_plans()
 
-        # Run upgrade head
-        command.upgrade(alembic_cfg, "head")
 
-        logger.info("Alembic database migrations successfully applied.")
-        print("Alembic migrations successfully applied.")
+def verify_schema_at_head() -> None:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import text as _text
 
-        # Seed plan records into database
-        seed_plans()
-    except Exception as e:
-        logger.error(f"Failed to run database migrations: {e}")
-        print(f"Failed to run database migrations: {e}")
-        # Fallback: create tables using SQLAlchemy if migrations fail
+    backend_dir = Path(__file__).parent.parent
+    cfg = Config(str(backend_dir / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    with engine.connect() as conn:
         try:
-            Base.metadata.create_all(bind=engine)
-            print("Fallback table creation applied.")
-            seed_plans()
-        except Exception as fe:
-            print(f"Fallback table creation also failed: {fe}")
+            current = conn.execute(_text("SELECT version_num FROM alembic_version")).scalar()
+        except Exception as exc:
+            raise RuntimeError("Database is not migrated. Run `alembic upgrade head` before starting.") from exc
+    if current != head:
+        raise RuntimeError(
+            f"Database schema revision {current!r} does not match code head {head!r}. "
+            "Run `alembic upgrade head` as a deploy step before starting the API/worker."
+        )
 
 
 def seed_plans() -> None:
     """Seed pricing plans in database plans table."""
+    db = SessionLocal()
     try:
         from core.subscriptions import seed_subscription_catalog
-        db = SessionLocal()
         seed_subscription_catalog(db)
         logger.info("Subscription plan catalog successfully seeded.")
-        print("Subscription plan catalog successfully seeded.")
     except Exception as e:
         logger.warning(f"Failed to seed plans: {e}")
-        print(f"Failed to seed plans: {e}")
     finally:
         db.close()
 

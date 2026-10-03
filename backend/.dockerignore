@@ -10,3 +10,8 @@ logs/
 *.db
 *.sqlite
 .env
+test_*.py
+conftest.py
+requirements-dev.txt
+backend-dev.err.log
+*.log

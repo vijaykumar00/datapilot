@@ -11,6 +11,7 @@ test('frontend API calls are centralized behind same-origin /api by default', ()
   const authContext = read('../src/contexts/AuthContext.jsx')
   const billingClient = read('../src/lib/billingClient.js')
   const dataPilotHook = read('../src/hooks/useDataPilot.js')
+  const authSession = read('../src/lib/authSession.js')
   const savedReports = read('../src/components/SavedReports.jsx')
   const app = read('../src/App.jsx')
 
@@ -18,13 +19,16 @@ test('frontend API calls are centralized behind same-origin /api by default', ()
   assert.match(apiConfig, /VITE_API_URL/)
   assert.match(apiConfig, /must not point to a loopback host/)
 
-  for (const source of [authContext, billingClient, dataPilotHook, savedReports, app]) {
+  // The data hook goes through the shared authed fetch helper, which builds URLs with apiUrl.
+  assert.match(dataPilotHook, /authedFetch/)
+  for (const source of [authContext, billingClient, authSession, savedReports, app]) {
     assert.match(source, /apiUrl/)
     assert.doesNotMatch(source, /http:\/\/localhost:8001/)
     assert.doesNotMatch(source, /http:\/\/127\.0\.0\.1:8001/)
     assert.doesNotMatch(source, /API_BASES/)
     assert.doesNotMatch(source, /__DATAPILOT_API_PORT__/)
   }
+  assert.doesNotMatch(dataPilotHook, /http:\/\/localhost:8001|http:\/\/127\.0\.0\.1:8001/)
 
   assert.match(app, /API_BASE/)
   assert.doesNotMatch(app, /VITE_API_URL \|\| ''/)

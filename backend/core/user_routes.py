@@ -114,6 +114,9 @@ def change_password(
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
     user.password_hash = hash_password(payload.new_password)
     user.updated_at = datetime.datetime.utcnow()
+    # Sign out every other session (refresh tokens); the current access token expires within minutes.
+    from core.auth_routes import revoke_all_refresh_tokens
+    revoke_all_refresh_tokens(user.user_id, db)
     db.add(AuditLog(
         id=str(uuid.uuid4()),
         user_id=user.user_id,

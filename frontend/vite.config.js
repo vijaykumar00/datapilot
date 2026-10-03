@@ -13,7 +13,7 @@ export default defineConfig(() => {
     '/auth', '/guest',
     '/user', '/billing',
     '/analyses', '/templates', '/reports',
-    '/history', '/datasets',
+    '/history', '/datasets', '/jobs',
   ]
 
   const proxy = {
@@ -37,7 +37,7 @@ export default defineConfig(() => {
       proxy,
     },
     optimizeDeps: {
-      include: ['plotly.js-dist-min'],
+      include: ['plotly.js-cartesian-dist-min'],
     },
     build: {
       commonjsOptions: {

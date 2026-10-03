@@ -114,9 +114,13 @@ def infer_semantic_metadata(col_name: Any, series: pd.Series) -> dict:
     # 2. Database ID Index (Checked early to override domain overlaps)
     id_indicators = {"id", "key", "code", "pk", "fk", "idx"}
     is_unique_key = False
-    if len(series) > 0 and series.nunique() == len(series):
+    measure_words = {"revenue", "sales", "price", "amount", "cost", "spend", "salary", "qty", "quantity",
+                     "count", "volume", "units", "total", "value", "score", "profit", "margin", "tax", "fee"}
+    if len(series) > 1 and series.nunique() == len(series) and not any(w in name_lower for w in measure_words):
         if pd.api.types.is_integer_dtype(series.dtype):
-            is_unique_key = True
+            ordered = series.dropna().sort_values()
+            # Sequential/near-sequential unique integers look like surrogate keys.
+            is_unique_key = bool((ordered.diff().dropna() == 1).mean() > 0.9)
     if any(ind in name_lower for ind in id_indicators) or is_unique_key:
         return {
             "semantic_type": "id",
@@ -231,87 +235,77 @@ def infer_semantic_metadata(col_name: Any, series: pd.Series) -> dict:
     }
 
 
-async def profile_columns_semantically(df: pd.DataFrame, table_name: str = "data") -> dict[str, dict]:
-    """Profile all columns using local rules, refining up to 30 columns with LLM bulk mapping if online."""
-    semantic_map = {}
-    
-    # 1. Run zero-fail local heuristic classifiers
+
+def heuristic_semantic_map(df: pd.DataFrame, previous: dict | None = None) -> dict[str, dict]:
+    """Deterministic semantic map. Reuses prior (possibly AI-refined) labels for unchanged columns."""
+    previous = previous or {}
+    semantic_map: dict[str, dict] = {}
     for col in df.columns:
-        lbl = clean_header_to_label(col)
+        key = str(col)
+        if key in previous and isinstance(previous[key], dict):
+            semantic_map[key] = previous[key]
+            continue
         local_meta = infer_semantic_metadata(col, df[col])
-        semantic_map[str(col)] = {
-            "name": str(col),
-            "label": lbl,
+        semantic_map[key] = {
+            "name": key,
+            "label": clean_header_to_label(col),
             "semantic_type": local_meta["semantic_type"],
             "inferred_meaning": local_meta["inferred_meaning"],
             "confidence": local_meta["confidence"],
             "aliases": local_meta["aliases"],
+            "source": "heuristic",
         }
-        
-    # 2. If LLM is online, run a single batched structured mapping for up to the first 30 columns
-    llm = get_llm_client()
-    if not await llm.is_online():
-        logger.info("LLM offline, using fast local semantic mapping classifiers.")
+    return semantic_map
+
+
+async def profile_columns_semantically(df: pd.DataFrame, table_name: str = "data", llm=None) -> dict[str, dict]:
+    """Heuristic column semantics, optionally refined by an LLM (labels/aliases only — never numbers).
+
+    ``llm`` must be an explicitly provided, request/workspace-scoped client.  When it
+    is None or fails, the deterministic heuristic map is returned unchanged.
+    """
+    semantic_map = heuristic_semantic_map(df)
+    if llm is None:
         return semantic_map
-        
+
     target_columns = list(df.columns)[:30]
     schema_summary = []
     for col in target_columns:
-        sample_vals = [str(v) for v in df[col].dropna().head(3).tolist()]
+        sample_vals = [str(v)[:60] for v in df[col].dropna().head(3).tolist()]
         schema_summary.append({
             "name": str(col),
             "dtype": str(df[col].dtype),
             "sample_values": sample_vals,
-            "unique_count": int(df[col].nunique()),
-            "null_pct": round((df[col].isnull().sum() / len(df)) * 100, 1) if len(df) > 0 else 0.0
         })
-        
+
     prompt = (
-        "You are an expert database architect. Analyze these column technical specifications and "
-        "determine their precise business definitions, domain semantic types, and synonym aliases.\n\n"
-        f"Table Name: {table_name}\n"
-        f"Columns to analyze (Max 30):\n" + json.dumps(schema_summary, indent=2) + "\n\n"
-        "Rules:\n"
-        "1. Return a raw JSON object mapping each column name to its inferred business metadata object:\n"
-        "{\n"
-        "  \"col_name\": {\n"
-        "    \"label\": \"Human-readable business name (e.g. 'Customer Phone Number')\",\n"
-        "    \"semantic_type\": \"revenue | quantity | date | currency | percentage | id | customer | invoice | product | email | phone | text | numeric | categorical\",\n"
-        "    \"inferred_meaning\": \"A high-quality business sentence detailing the column purpose (e.g. 'Tracks the customer telephone contact number.')\",\n"
-        "    \"aliases\": [\"list\", \"of\", \"synonyms\", \"users\", \"might\", \"ask\", \"for\", \"in\", \"NLP\"],\n"
-        "    \"confidence\": 0.95\n"
-        "  }\n"
-        "}\n"
-        "2. Keep aliases extremely relevant (e.g. for messy name 'amt_q1_final' alias should include 'sales', 'revenue', 'income').\n"
-        "3. Output ONLY the raw valid JSON object. Nothing else!"
+        "Analyze these spreadsheet columns and describe each one's business meaning.\n\n"
+        f"Columns (max 30):\n{json.dumps(schema_summary, indent=2)}\n\n"
+        "Return ONLY a JSON object mapping each column name to "
+        '{"label": str, "semantic_type": one of revenue|quantity|date|currency|percentage|id|customer|invoice|product|email|phone|text|numeric|categorical, '
+        '"inferred_meaning": str, "aliases": [str]}. Do not include any numbers or statistics.'
     )
-    
     try:
         raw_resp = await llm.generate(
             prompt,
-            system="You are a professional semantic schema cataloger. Output only a valid JSON object.",
-            json_mode=True
+            system="You are a semantic schema cataloger. Output only a valid JSON object.",
+            json_mode=True,
         )
         clean = re.sub(r"```(?:json)?\s*", "", raw_resp).replace("```", "").strip()
         parsed = json.loads(clean)
         if isinstance(parsed, dict):
             for col_name, meta in parsed.items():
                 if col_name in semantic_map and isinstance(meta, dict):
-                    # Gracefully merge and refine
-                    semantic_map[col_name]["label"] = meta.get("label", semantic_map[col_name]["label"])
-                    semantic_map[col_name]["semantic_type"] = meta.get("semantic_type", semantic_map[col_name]["semantic_type"])
-                    semantic_map[col_name]["inferred_meaning"] = meta.get("inferred_meaning", semantic_map[col_name]["inferred_meaning"])
-                    semantic_map[col_name]["confidence"] = float(meta.get("confidence", 0.95))
-                    
-                    # Ensure aliases are merged and deduplicated
-                    custom_aliases = meta.get("aliases", [])
-                    if isinstance(custom_aliases, list):
-                        all_aliases = list(set(semantic_map[col_name]["aliases"] + [str(a).lower() for a in custom_aliases]))
-                        semantic_map[col_name]["aliases"] = all_aliases
-            logger.info("Successfully refined column semantic map with AI.")
+                    entry = semantic_map[col_name]
+                    entry["label"] = str(meta.get("label") or entry["label"])[:120]
+                    entry["semantic_type"] = str(meta.get("semantic_type") or entry["semantic_type"])[:40]
+                    entry["inferred_meaning"] = str(meta.get("inferred_meaning") or entry["inferred_meaning"])[:300]
+                    aliases = meta.get("aliases", [])
+                    if isinstance(aliases, list):
+                        entry["aliases"] = sorted({*entry["aliases"], *[str(a).lower()[:40] for a in aliases[:12]]})
+                    entry["source"] = "ai"
     except Exception as e:
-        logger.warning(f"AI column profiling failed: {e}. Falling back to zero-fail heuristics.")
-        
+        logger.warning("AI column profiling unavailable (%s); using heuristic semantics.", e)
     return semantic_map
 
 
@@ -408,286 +402,209 @@ def profile_dataset(df: pd.DataFrame) -> dict:
     }
 
 
-async def generate_insights(df: pd.DataFrame, table_name: str = "data") -> list[dict]:
-    """Generate high-quality, structured business insights based on statistical profile.
-    Uses LLM if available and online, otherwise triggers a rich rule-based local analyzer.
+
+def _safe_name(col: Any) -> str:
+    return str(col).replace('"', '""')
+
+
+def build_insights(df: pd.DataFrame, table_name: str = "data") -> list[dict]:
+    """Deterministic, data-grounded insights.
+
+    Every number shown is computed from the DataFrame here.  Nothing is
+    extrapolated or invented (the previous version shipped a hard-coded
+    "+7.5% growth" forecast and LLM-written metrics that were never verified).
     """
-    profile = profile_dataset(df)
-
-    # 1. Local Rule-Based Structured Insights Analyzer
-    fallback_insights = []
-
-    date_cols = [c for c in profile["columns"] if c["semantic_type"] == "datetime"]
-    numeric_cols = [c for c in profile["columns"] if c["semantic_type"] in {"currency", "numeric", "percentage"}]
-    cat_cols = [c for c in profile["columns"] if c["semantic_type"] == "categorical"]
-
-    # --- CATEGORY A: STATISTICAL INSIGHTS ---
-    # Col averages and medians
-    num_cols_with_stats = [c for c in profile["columns"] if "stats" in c]
-    for c in num_cols_with_stats[:2]:
-        col_name = c["name"]
-        lbl = c["label"]
-        mean_val = c["stats"]["mean"]
-        min_val = c["stats"]["min"]
-        max_val = c["stats"]["max"]
-        
-        fallback_insights.append({
-            "id": f"stat_summary_{col_name}",
-            "type": "statistical",
-            "title": f"Averages and distribution of {lbl}",
-            "description": f"The average value of '{lbl}' is {mean_val:,.2f}, ranging from a minimum of {min_val:,.2f} to a maximum of {max_val:,.2f}. This represents a standard variance and standard deviation of {c['stats']['std']:,.2f}.",
-            "severity": "info",
-            "metric": f"Mean: {mean_val:,.0f}",
-            "sql": f'SELECT AVG("{col_name}") AS average, MIN("{col_name}") AS minimum, MAX("{col_name}") AS maximum, STDDEV("{col_name}") AS std_dev FROM {table_name}',
-            "chart_type": "bar"
-        })
-
-    # Categorical distributions
-    for c in cat_cols[:1]:
-        col_name = c["name"]
-        lbl = c["label"]
-        fallback_insights.append({
-            "id": f"stat_dist_{col_name}",
-            "type": "statistical",
-            "title": f"Concentration distribution in {lbl}",
-            "description": f"'{lbl}' exhibits high concentration in its {c['unique_count']} unique categories. Segments analysis can identify key performance brackets.",
-            "severity": "info",
-            "metric": f"{c['unique_count']} Categories",
-            "sql": f'SELECT "{col_name}" AS category, COUNT(*) AS frequency, ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM {table_name}), 1) AS percentage FROM {table_name} GROUP BY 1 ORDER BY 2 DESC LIMIT 5',
-            "chart_type": "pie"
-        })
-
-    # --- CATEGORY B: TREND INSIGHTS ---
-    if date_cols and numeric_cols:
-        date_col = date_cols[0]["name"]
-        num_col = numeric_cols[0]["name"]
-        date_lbl = date_cols[0]["label"]
-        num_lbl = numeric_cols[0]["label"]
-        
-        fallback_insights.append({
-            "id": f"trend_timeline_{date_col}_{num_col}",
-            "type": "trend",
-            "title": f"Temporal growth trends for {num_lbl}",
-            "description": f"Timeline analysis grouping {num_lbl} by {date_lbl} shows changes and transactional speed over time. Useful for identifying growth patterns or quarterly cycles.",
-            "severity": "success",
-            "metric": "MoM Growth",
-            "sql": f'SELECT DATE_TRUNC(\'month\', CAST("{date_col}" AS DATE)) AS month, SUM("{num_col}") AS total_amount, COUNT(*) AS count FROM {table_name} GROUP BY 1 ORDER BY 1',
-            "chart_type": "line"
-        })
-    elif numeric_cols:
-        num_col = numeric_cols[0]["name"]
-        num_lbl = numeric_cols[0]["label"]
-        fallback_insights.append({
-            "id": f"trend_distribution_{num_col}",
-            "type": "trend",
-            "title": f"Distribution patterns of {num_lbl}",
-            "description": f"Sequential distribution of '{num_lbl}' exhibits standard variance across all {profile['row_count']} records.",
-            "severity": "info",
-            "metric": "Spike Alert",
-            "sql": f'SELECT ROW_NUMBER() OVER () AS index, "{num_col}" AS value FROM {table_name} LIMIT 100',
-            "chart_type": "line"
-        })
-
-    # --- CATEGORY C: QUALITY INSIGHTS ---
-    # Duplicates check
-    if profile["duplicate_count"] > 0:
-        dup_pct = round((profile["duplicate_count"] / profile["row_count"]) * 100, 1)
-        fallback_insights.append({
-            "id": "quality_duplicates",
-            "type": "quality",
-            "title": f"Duplicate rows detected in dataset",
-            "description": f"Found {profile['duplicate_count']} completely duplicate rows ({dup_pct}% of the dataset). We strongly recommend cleaning or deduplicating to ensure reporting trust.",
-            "severity": "error" if dup_pct > 5.0 else "warning",
-            "metric": f"{profile['duplicate_count']} Dups",
-            "sql": f'SELECT *, COUNT(*) AS duplicates_count FROM {table_name} GROUP BY ALL HAVING COUNT(*) > 1',
-            "chart_type": None
-        })
-
-    # Null rate checks
-    high_nulls = [c for c in profile["columns"] if c["null_count"] > 0]
-    for c in high_nulls[:2]:
-        col_name = c["name"]
-        lbl = c["label"]
-        null_pct = c["null_pct"]
-        null_count = c["null_count"]
-        
-        fallback_insights.append({
-            "id": f"quality_nulls_{col_name}",
-            "type": "quality",
-            "title": f"High missing values in {lbl}",
-            "description": f"The column '{lbl}' is missing {null_count} values ({null_pct}% of all records). This may skew aggregates or introduce analysis bias if left uncleaned.",
-            "severity": "error" if null_pct > 20.0 else "warning",
-            "metric": f"{null_pct}% Nulls",
-            "sql": f'SELECT COUNT(*) - COUNT("{col_name}") AS null_records_count, ROUND(100.0 * (COUNT(*) - COUNT("{col_name}")) / COUNT(*), 2) AS null_percentage FROM {table_name}',
-            "chart_type": None
-        })
-
-    # Outliers alerts
-    for o in profile["outliers"][:2]:
-        col_name = o["column"]
-        lbl = o["label"]
-        cnt = o["count"]
-        pct = o["pct"]
-        
-        fallback_insights.append({
-            "id": f"quality_outliers_{col_name}",
-            "type": "quality",
-            "title": f"Extreme outliers flagged in {lbl}",
-            "description": f"Detected {cnt} extreme values ({pct}% of dataset) outside the Interquartile Range (IQR) bounds. These could represent high-priority sales spikes, invoice anomalies, or data entry errors.",
-            "severity": "warning",
-            "metric": f"{cnt} Outliers",
-            "sql": f'WITH bounds AS (SELECT PERCENTILE_CONT("{col_name}", 0.25) AS q25, PERCENTILE_CONT("{col_name}", 0.75) AS q75 FROM {table_name}) SELECT * FROM {table_name}, bounds WHERE "{col_name}" < (q25 - 1.5 * (q75 - q25)) OR "{col_name}" > (q75 + 1.5 * (q75 - q25))',
-            "chart_type": "scatter"
-        })
-
-    # --- CATEGORY D: FORECAST INSIGHTS ---
-    if date_cols and numeric_cols:
-        date_col = date_cols[0]["name"]
-        num_col = numeric_cols[0]["name"]
-        num_lbl = numeric_cols[0]["label"]
-        
-        fallback_insights.append({
-            "id": f"forecast_{num_col}",
-            "type": "forecast",
-            "title": f"Revenue & volume projection for {num_lbl}",
-            "description": f"Extrapolating historical trend logs indicates positive growth prediction (+7.5% est) in the next business cycle.",
-            "severity": "success",
-            "metric": "+7.5% Est",
-            "sql": f'SELECT SUM("{num_col}") * 1.075 AS projected_next_period FROM {table_name}',
-            "chart_type": "line"
-        })
-    else:
-        fallback_insights.append({
-            "id": "forecast_general",
-            "type": "forecast",
-            "title": "Baseline activity forecast",
-            "description": "Projecting transaction velocity and volume remains stable based on historical dataset run rate.",
-            "severity": "info",
-            "metric": "Stable Est",
-            "sql": f'SELECT COUNT(*) * 1.05 AS projected_rows_next_period FROM {table_name}',
-            "chart_type": "line"
-        })
-
-    # --- CATEGORY E: RELATIONSHIP INSIGHTS ---
-    for corr in profile["correlations"][:2]:
-        col1 = corr["col1"]
-        col2 = corr["col2"]
-        lbl1 = corr["label1"]
-        lbl2 = corr["label2"]
-        coef = corr["coefficient"]
-        
-        strength = "highly positive" if coef > 0.8 else ("highly negative" if coef < -0.8 else "moderately positive")
-        fallback_insights.append({
-            "id": f"relation_corr_{col1}_{col2}",
-            "type": "relationship",
-            "title": f"Strong correlation between {lbl1} and {lbl2}",
-            "description": f"Statistical pearson correlation coefficient is {coef:.3f} ({strength}). This signifies a strong dependency or parallel change pattern between both metrics.",
-            "severity": "success",
-            "metric": f"{coef:+.2f} Corr",
-            "sql": f'SELECT CORR("{col1}", "{col2}") AS correlation_coefficient FROM {table_name}',
-            "chart_type": "scatter"
-        })
-
-    if cat_cols and numeric_cols:
-        cat_col = cat_cols[0]["name"]
-        num_col = numeric_cols[0]["name"]
-        cat_lbl = cat_cols[0]["label"]
-        num_lbl = numeric_cols[0]["label"]
-        
-        fallback_insights.append({
-            "id": f"relation_groupby_{cat_col}_{num_col}",
-            "type": "relationship",
-            "title": f"Performance distribution of {num_lbl} by {cat_lbl}",
-            "description": f"Highlights top performers and volume contributors by '{cat_lbl}' categories.",
-            "severity": "info",
-            "metric": "Top Perf",
-            "sql": f'SELECT "{cat_col}" AS category, SUM("{num_col}") AS total_{num_col}, COUNT(*) AS frequency FROM {table_name} GROUP BY 1 ORDER BY 2 DESC LIMIT 5',
-            "chart_type": "bar"
-        })
-
-    # Ensure we return at least a summary card if empty
-    if not fallback_insights:
-        fallback_insights.append({
+    if df is None or df.empty:
+        return [{
             "id": "stat_summary_dataset",
             "type": "statistical",
-            "title": "Dataset loaded successfully",
-            "description": f"The table containing {profile['row_count']} rows and {profile['col_count']} columns has been imported successfully.",
+            "title": "Dataset is empty",
+            "description": "The table contains no data rows.",
+            "severity": "warning",
+            "metric": "0 Rows",
+            "sql": f"SELECT COUNT(*) AS row_count FROM {table_name}",
+            "chart_type": None,
+            "verified": True,
+        }]
+
+    profile = profile_dataset(df)
+    insights: list[dict] = []
+    row_count = profile["row_count"]
+
+    numeric_cols = [c for c in profile["columns"] if "stats" in c and c["semantic_type"] != "id"]
+    cat_cols = [c for c in profile["columns"] if c["semantic_type"] == "categorical"]
+    date_cols = [c for c in profile["columns"] if c["semantic_type"] in {"datetime", "date"}]
+
+    # A. Distribution of key numeric measures (computed)
+    for c in numeric_cols[:2]:
+        name, lbl, st = c["name"], c["label"], c["stats"]
+        q = _safe_name(name)
+        insights.append({
+            "id": f"stat_summary_{name}",
+            "type": "statistical",
+            "title": f"Distribution of {lbl}",
+            "description": (
+                f"Across {row_count - c['null_count']:,} non-empty values, '{lbl}' averages {st['mean']:,.2f} "
+                f"(min {st['min']:,.2f}, max {st['max']:,.2f}, standard deviation {st['std']:,.2f})."
+            ),
             "severity": "info",
-            "metric": f"{profile['row_count']} Rows",
-            "sql": f"SELECT COUNT(*) FROM {table_name}",
-            "chart_type": None
+            "metric": f"Mean: {st['mean']:,.2f}",
+            "sql": f'SELECT AVG("{q}") AS average, MIN("{q}") AS minimum, MAX("{q}") AS maximum, STDDEV("{q}") AS std_dev FROM {table_name}',
+            "chart_type": "bar",
+            "verified": True,
         })
 
-    # 2. Try LLM for executive-level, highly polished business insights matching the structured JSON format
-    llm = get_llm_client()
-    if not await llm.is_online():
-        logger.info("LLM is offline or unconfigured. Using statistical rule-based insights.")
-        return fallback_insights
+    # B. Category concentration (computed share of the largest category)
+    for c in cat_cols[:1]:
+        name, lbl = c["name"], c["label"]
+        counts = df[name].value_counts(dropna=True)
+        if counts.empty:
+            continue
+        top_val, top_n = counts.index[0], int(counts.iloc[0])
+        share = top_n / max(int(counts.sum()), 1) * 100
+        q = _safe_name(name)
+        insights.append({
+            "id": f"stat_dist_{name}",
+            "type": "statistical",
+            "title": f"Largest '{lbl}' category is {top_val}",
+            "description": f"'{top_val}' accounts for {top_n:,} of {int(counts.sum()):,} rows ({share:.1f}%) across {len(counts)} categories.",
+            "severity": "info",
+            "metric": f"{share:.1f}% share",
+            "sql": f'SELECT "{q}" AS category, COUNT(*) AS frequency FROM {table_name} GROUP BY 1 ORDER BY 2 DESC LIMIT 5',
+            "chart_type": "pie",
+            "verified": True,
+        })
 
-    # Prepare compact schema info for prompt
-    schema_desc = []
-    for col in profile["columns"]:
-        desc = f"- {col['name']} ({col['semantic_type']})"
-        if "stats" in col:
-            desc += f": mean={col['stats']['mean']:.1f}, min={col['stats']['min']:.1f}, max={col['stats']['max']:.1f}"
-        schema_desc.append(desc)
+    # C. Month-over-month change between the last two COMPLETE months (computed)
+    if date_cols and numeric_cols:
+        dcol, ncol = date_cols[0]["name"], numeric_cols[0]["name"]
+        try:
+            dates = pd.to_datetime(df[dcol], errors="coerce")
+            values = pd.to_numeric(df[ncol], errors="coerce")
+            frame = pd.DataFrame({"d": dates, "v": values}).dropna()
+            if not frame.empty:
+                monthly = frame.set_index("d")["v"].resample("MS").sum(min_count=1)
+                last_date = frame["d"].max()
+                month_end = (last_date + pd.offsets.MonthEnd(0)).normalize()
+                if last_date.normalize() < month_end:
+                    monthly = monthly.iloc[:-1]  # drop the incomplete final month
+                monthly = monthly.dropna()
+                if len(monthly) >= 2 and monthly.iloc[-2] != 0:
+                    prev, last = float(monthly.iloc[-2]), float(monthly.iloc[-1])
+                    change = (last - prev) / abs(prev) * 100
+                    qd, qn = _safe_name(dcol), _safe_name(ncol)
+                    insights.append({
+                        "id": f"trend_timeline_{dcol}_{ncol}",
+                        "type": "trend",
+                        "title": f"{numeric_cols[0]['label']} changed {change:+.1f}% month over month",
+                        "description": (
+                            f"Total {numeric_cols[0]['label']} was {last:,.2f} in {monthly.index[-1]:%b %Y} versus "
+                            f"{prev:,.2f} in {monthly.index[-2]:%b %Y} (last two complete months)."
+                        ),
+                        "severity": "success" if change >= 0 else "warning",
+                        "metric": f"{change:+.1f}% MoM",
+                        "sql": f'SELECT DATE_TRUNC(\'month\', TRY_CAST("{qd}" AS TIMESTAMP)) AS month, SUM("{qn}") AS total FROM {table_name} GROUP BY 1 ORDER BY 1',
+                        "chart_type": "line",
+                        "verified": True,
+                    })
+        except Exception as exc:
+            logger.debug("Trend insight skipped: %s", exc)
 
-    corr_desc = [
-        f"- {c['col1']} and {c['col2']} correlate at {c['coefficient']}"
-        for c in profile["correlations"]
-    ]
-    outlier_desc = [
-        f"- {o['column']} has {o['count']} outliers" for o in profile["outliers"]
-    ]
+    # D. Data quality (computed)
+    if profile["duplicate_count"] > 0:
+        dup_pct = round(profile["duplicate_count"] / row_count * 100, 1)
+        insights.append({
+            "id": "quality_duplicates",
+            "type": "quality",
+            "title": "Duplicate rows detected",
+            "description": f"{profile['duplicate_count']:,} rows ({dup_pct}%) are exact duplicates of another row.",
+            "severity": "error" if dup_pct > 5.0 else "warning",
+            "metric": f"{profile['duplicate_count']:,} Dups",
+            "sql": f"SELECT *, COUNT(*) AS duplicates_count FROM {table_name} GROUP BY ALL HAVING COUNT(*) > 1",
+            "chart_type": None,
+            "verified": True,
+        })
+    for c in sorted((c for c in profile["columns"] if c["null_count"] > 0), key=lambda c: -c["null_count"])[:2]:
+        q = _safe_name(c["name"])
+        insights.append({
+            "id": f"quality_nulls_{c['name']}",
+            "type": "quality",
+            "title": f"Missing values in {c['label']}",
+            "description": f"'{c['label']}' is empty in {c['null_count']:,} rows ({c['null_pct']}%).",
+            "severity": "error" if c["null_pct"] > 20.0 else "warning",
+            "metric": f"{c['null_pct']}% Nulls",
+            "sql": f'SELECT COUNT(*) - COUNT("{q}") AS null_records FROM {table_name}',
+            "chart_type": None,
+            "verified": True,
+        })
+    for o in profile["outliers"][:2]:
+        q = _safe_name(o["column"])
+        insights.append({
+            "id": f"quality_outliers_{o['column']}",
+            "type": "quality",
+            "title": f"Outliers in {o['label']}",
+            "description": f"{o['count']:,} values ({o['pct']}%) fall outside 1.5×IQR of '{o['label']}'.",
+            "severity": "warning",
+            "metric": f"{o['count']:,} Outliers",
+            "sql": (
+                f'WITH b AS (SELECT QUANTILE_CONT("{q}", 0.25) AS q1, QUANTILE_CONT("{q}", 0.75) AS q3 FROM {table_name}) '
+                f'SELECT t.* FROM {table_name} t, b WHERE t."{q}" < q1 - 1.5*(q3-q1) OR t."{q}" > q3 + 1.5*(q3-q1)'
+            ),
+            "chart_type": "scatter",
+            "verified": True,
+        })
 
-    prompt = (
-        "You are an expert executive business data analyst. Analyze this dataset profile and generate 4 to 6 "
-        "extremely high-impact, actionable business insights. Each insight MUST be a complete structured JSON object.\n\n"
-        f"Dataset Size: {profile['row_count']} rows, {profile['col_count']} columns\n"
-        f"Table Name: {table_name}\n"
-        f"Duplicate Rows: {profile['duplicate_count']}\n"
-        "Columns:\n" + "\n".join(schema_desc) + "\n"
-        "Correlations:\n" + "\n".join(corr_desc) + "\n"
-        "Outliers:\n" + "\n".join(outlier_desc) + "\n\n"
-        "Rules:\n"
-        "1. Return a raw JSON array of objects conforming EXACTLY to the following schema:\n"
-        "[\n"
-        "  {\n"
-        "    \"id\": \"unique_insight_id\",\n"
-        "    \"type\": \"statistical | trend | quality | forecast | relationship\",\n"
-        "    \"title\": \"Punchy, executive-level business header (e.g. 'Revenue grew 18% MoM')\",\n"
-        "    \"description\": \"Clear business explanation of the metrics, the anomaly/trend, and its business implications.\",\n"
-        "    \"severity\": \"info | success | warning | error\",\n"
-        "    \"metric\": \"Highlight metric badge text (e.g. '+18%', '4 duplicates', '92% corr')\",\n"
-        "    \"sql\": \"A valid DuckDB SQL query that isolates or queries this insight from the table (must use the exact table name provided: " + table_name + ")\",\n"
-        "    \"chart_type\": \"Optional suggested visual: bar | line | scatter | pie | null\"\n"
-        "  }\n"
-        "]\n"
-        "2. Make sure insights are high-fidelity, focused on business logic, and avoid raw technical jargon like CPD1252.\n"
-        "3. Output ONLY the raw JSON array. Nothing else!"
-    )
+    # E. Relationships (computed correlation, top contributor)
+    for corr in profile["correlations"][:2]:
+        coef = corr["coefficient"]
+        insights.append({
+            "id": f"relation_corr_{corr['col1']}_{corr['col2']}",
+            "type": "relationship",
+            "title": f"{corr['label1']} and {corr['label2']} are correlated",
+            "description": f"Pearson correlation is {coef:.3f}. Correlation does not imply causation.",
+            "severity": "info",
+            "metric": f"{coef:+.2f} Corr",
+            "sql": f'SELECT CORR("{_safe_name(corr["col1"])}", "{_safe_name(corr["col2"])}") AS correlation FROM {table_name}',
+            "chart_type": "scatter",
+            "verified": True,
+        })
+    if cat_cols and numeric_cols:
+        ccol, ncol = cat_cols[0]["name"], numeric_cols[0]["name"]
+        grouped = pd.to_numeric(df[ncol], errors="coerce").groupby(df[ccol]).sum(min_count=1).dropna()
+        total = float(grouped.sum()) if not grouped.empty else 0.0
+        if not grouped.empty and total != 0:
+            top = grouped.sort_values(ascending=False)
+            share = float(top.iloc[0]) / total * 100
+            insights.append({
+                "id": f"relation_groupby_{ccol}_{ncol}",
+                "type": "relationship",
+                "title": f"{top.index[0]} leads {numeric_cols[0]['label']}",
+                "description": (
+                    f"'{top.index[0]}' contributes {float(top.iloc[0]):,.2f} of total {total:,.2f} "
+                    f"{numeric_cols[0]['label']} ({share:.1f}%) when grouped by {cat_cols[0]['label']}."
+                ),
+                "severity": "info",
+                "metric": f"{share:.1f}% of total",
+                "sql": f'SELECT "{_safe_name(ccol)}" AS category, SUM("{_safe_name(ncol)}") AS total FROM {table_name} GROUP BY 1 ORDER BY 2 DESC LIMIT 5',
+                "chart_type": "bar",
+                "verified": True,
+            })
 
-    try:
-        raw_resp = await llm.generate(
-            prompt,
-            system="You are a professional business metrics interpreter. Output only a valid JSON array of objects.",
-            json_mode=True
-        )
-        # Parse output
-        import json
-        clean = re.sub(r"```(?:json)?\s*", "", raw_resp).replace("```", "").strip()
-        parsed = json.loads(clean)
-        if isinstance(parsed, list) and len(parsed) > 0:
-            # Validate each parsed object has required keys
-            required_keys = {"id", "type", "title", "description", "severity", "metric"}
-            validated = []
-            for item in parsed:
-                if isinstance(item, dict) and all(k in item for k in required_keys):
-                    validated.append(item)
-            if validated:
-                logger.info("Successfully generated AI insights.")
-                return validated[:6]
-    except Exception as e:
-        logger.warning(f"Failed to generate LLM insights: {e}. Falling back to rule-based insights.")
+    if not insights:
+        insights.append({
+            "id": "stat_summary_dataset",
+            "type": "statistical",
+            "title": "Dataset loaded",
+            "description": f"The table contains {row_count:,} rows and {profile['col_count']} columns.",
+            "severity": "info",
+            "metric": f"{row_count:,} Rows",
+            "sql": f"SELECT COUNT(*) AS row_count FROM {table_name}",
+            "chart_type": None,
+            "verified": True,
+        })
+    return insights
 
-    return fallback_insights
+
+async def generate_insights(df: pd.DataFrame, table_name: str = "data") -> list[dict]:
+    """Async compatibility wrapper around :func:`build_insights` (deterministic)."""
+    return build_insights(df, table_name)

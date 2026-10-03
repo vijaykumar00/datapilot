@@ -97,18 +97,54 @@ class TestSubscriptionFoundation(unittest.TestCase):
 
     def test_feature_checks_are_centralized_by_plan(self):
         self.assertFalse(can_use_feature(self.workspace_id, "can_forecast", self.db))
+        grant = {"workspace_id": self.workspace_id, "plan_id": "team", "reason": "test grant"}
 
-        response = self.client.post(
-            "/billing/admin/subscriptions/grant",
-            headers=self.headers,
-            json={
-                "workspace_id": self.workspace_id,
-                "plan_id": "team",
-                "reason": "test grant",
-            },
-        )
+        # A workspace Owner (every customer) must NOT be able to grant themselves a plan.
+        response = self.client.post("/billing/admin/subscriptions/grant", headers=self.headers, json=grant)
+        self.assertEqual(response.status_code, 404, response.text)
+        self.assertFalse(can_use_feature(self.workspace_id, "can_forecast", self.db))
+
+        # Only an operator-configured platform admin can.
+        previous = os.environ.get("PLATFORM_ADMIN_EMAILS")
+        os.environ["PLATFORM_ADMIN_EMAILS"] = f"owner-{self.user_id}@datapilot.test"
+        try:
+            response = self.client.post("/billing/admin/subscriptions/grant", headers=self.headers, json=grant)
+        finally:
+            if previous is None:
+                os.environ.pop("PLATFORM_ADMIN_EMAILS", None)
+            else:
+                os.environ["PLATFORM_ADMIN_EMAILS"] = previous
         self.assertEqual(response.status_code, 200, response.text)
+        self.db.expire_all()
         self.assertTrue(can_use_feature(self.workspace_id, "can_forecast", self.db))
+
+    def test_customers_cannot_edit_plan_catalog(self):
+        payload = {"name": "Free", "monthly_price_cents": 0, "annual_price_cents": 0,
+                   "limits": {"query_count": -1, "upload_count": -1}, "features": {"can_forecast": True}}
+        self.assertEqual(self.client.post("/billing/admin/plans/free", headers=self.headers, json=payload).status_code, 404)
+        self.assertEqual(self.client.patch("/billing/admin/plans/pro/disable", headers=self.headers).status_code, 404)
+        self.assertEqual(self.client.post("/billing/admin/plans/seed", headers=self.headers).status_code, 404)
+
+    def test_client_cannot_choose_paid_plan_tier(self):
+        resp = self.client.post("/workspaces", headers=self.headers, json={"name": "Free Enterprise?", "plan_tier": "enterprise"})
+        self.assertEqual(resp.status_code, 403, resp.text)
+        resp = self.client.put(f"/workspaces/{self.workspace_id}", headers=self.headers, json={"plan_tier": "enterprise"})
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_canceled_paid_subscription_falls_back_to_free_limits(self):
+        from core.subscriptions import ensure_workspace_subscription, quota_snapshots
+        from core.usage import effective_plan
+
+        sub = ensure_workspace_subscription(self.workspace_id, self.db)
+        sub.plan_id = "pro"
+        sub.status = "canceled"
+        self.db.commit()
+        plan_id, limits, features, status = effective_plan(self.workspace_id, self.db)
+        self.assertEqual(plan_id, "free")
+        self.assertEqual(status, "canceled")
+        self.assertFalse(features["can_forecast"])
+        self.assertNotEqual(limits["query_count"], -1)
+        self.assertEqual(quota_snapshots(self.workspace_id, self.db)["query_count"].limit, limits["query_count"])
 
     def test_quota_enforcement_blocks_over_limit(self):
         self.db.add(UsageStats(

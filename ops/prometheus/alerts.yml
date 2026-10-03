@@ -1,0 +1,86 @@
+# Prometheus alerting rules for DataPilot.
+# Scrape targets: API /metrics (bearer METRICS_TOKEN) and each worker on WORKER_METRICS_PORT.
+# Thresholds are starting points; tune after observing real traffic.
+groups:
+  - name: datapilot-api
+    rules:
+      - alert: DataPilotApiDown
+        expr: up{job="datapilot-api"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "DataPilot API target {{ $labels.instance }} is down"
+
+      - alert: DataPilotHigh5xxRate
+        expr: |
+          sum(rate(datapilot_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(datapilot_http_requests_total[5m])), 1e-9) > 0.02
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "More than 2% of API requests are failing with 5xx"
+
+      - alert: DataPilotHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(datapilot_http_request_duration_seconds_bucket{route!~"/chat/stream|/upload"}[5m]))) > 2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "API p95 latency above 2s (excluding streaming and uploads)"
+
+      - alert: DataPilotRateLimiterBackendErrors
+        expr: increase(datapilot_rate_limiter_backend_errors_total[5m]) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Rate limiter cannot reach Redis (requests are being rejected or limited locally)"
+
+      - alert: DataPilotChatPersistFailures
+        expr: increase(datapilot_chat_persist_failures_total[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Chat messages failed to persist to the database"
+
+  - name: datapilot-jobs
+    rules:
+      - alert: DataPilotWorkersDown
+        expr: absent(up{job="datapilot-worker"} == 1)
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "No DataPilot worker is up: uploads, exports and reports will not complete"
+
+      - alert: DataPilotJobFailureRate
+        expr: |
+          sum(rate(datapilot_jobs_finished_total{status="failed"}[15m]))
+            / clamp_min(sum(rate(datapilot_jobs_finished_total[15m])), 1e-9) > 0.10
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 10% of background jobs are failing"
+
+      - alert: DataPilotJobsSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le, job_type) (rate(datapilot_job_duration_seconds_bucket[15m]))) > 120
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 duration of {{ $labels.job_type }} jobs above 2 minutes"
+
+  - name: datapilot-ai
+    rules:
+      - alert: DataPilotLLMErrorRate
+        expr: |
+          sum by (provider) (rate(datapilot_llm_requests_total{outcome!="ok"}[10m]))
+            / clamp_min(sum by (provider) (rate(datapilot_llm_requests_total[10m])), 1e-9) > 0.20
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 20% of {{ $labels.provider }} LLM calls are failing"
+
+      - alert: DataPilotLLMTokenSpike
+        expr: sum(increase(datapilot_llm_tokens_total[1h])) > 5e6
+        labels: {severity: warning}
+        annotations:
+          summary: "LLM token usage above 5M/hour (cost spike)"

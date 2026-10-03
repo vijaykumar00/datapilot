@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.models import AuditLog, Plan, Workspace, WorkspaceSubscription
-from core.rbac import get_workspace_member
+from core.rbac import get_workspace_member, require_platform_admin
 from core.request_identity import CallerContext, get_caller
 from core.subscriptions import (
     FEATURE_KEYS,
@@ -83,6 +83,13 @@ def _require_workspace_owner(caller: CallerContext, db: Session) -> None:
     get_workspace_member(caller.user, caller.workspace_id, db, required_role="Owner")
 
 
+def _require_platform_admin(caller: CallerContext) -> None:
+    """Plan catalog and subscription grants are platform-operator actions only."""
+    if not caller.is_authenticated or not caller.user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_platform_admin(caller.user)
+
+
 def _audit(db: Session, caller: CallerContext, event_type: str, description: str) -> None:
     db.add(AuditLog(
         id=str(uuid.uuid4()),
@@ -131,6 +138,7 @@ def checkout(
     db: Session = Depends(get_db),
 ):
     _require_workspace_member(caller, db)
+    get_workspace_member(caller.user, caller.workspace_id, db, required_role="Admin")
     response = create_checkout_session(caller, caller.workspace_id, payload, db)
     _audit(db, caller, "STRIPE_CHECKOUT_CREATED", f"Stripe checkout created for plan '{payload.plan_id}'.")
     db.commit()
@@ -144,6 +152,7 @@ def portal(
     db: Session = Depends(get_db),
 ):
     _require_workspace_member(caller, db)
+    get_workspace_member(caller.user, caller.workspace_id, db, required_role="Admin")
     response = create_portal_session(caller, caller.workspace_id, payload or PortalRequest(), db)
     _audit(db, caller, "STRIPE_PORTAL_CREATED", "Stripe customer portal session created.")
     db.commit()
@@ -281,7 +290,7 @@ def seed_plans(
     caller: CallerContext = Depends(get_caller),
     db: Session = Depends(get_db),
 ):
-    _require_workspace_owner(caller, db)
+    _require_platform_admin(caller)
     seed_subscription_catalog(db)
     _audit(db, caller, "SUBSCRIPTION_PLANS_SEEDED", "Subscription catalog was reseeded.")
     db.commit()
@@ -295,7 +304,7 @@ def upsert_plan(
     caller: CallerContext = Depends(get_caller),
     db: Session = Depends(get_db),
 ):
-    _require_workspace_owner(caller, db)
+    _require_platform_admin(caller)
     plan = db.query(Plan).filter(Plan.plan_id == plan_id).first()
     if not plan:
         plan = Plan(plan_id=plan_id)
@@ -353,7 +362,7 @@ def disable_plan(
     caller: CallerContext = Depends(get_caller),
     db: Session = Depends(get_db),
 ):
-    _require_workspace_owner(caller, db)
+    _require_platform_admin(caller)
     plan = db.query(Plan).filter(Plan.plan_id == plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -369,9 +378,7 @@ def grant_promotional_subscription(
     caller: CallerContext = Depends(get_caller),
     db: Session = Depends(get_db),
 ):
-    _require_workspace_owner(caller, db)
-    if payload.workspace_id != caller.workspace_id:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    _require_platform_admin(caller)
     workspace = db.query(Workspace).filter(Workspace.workspace_id == payload.workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")

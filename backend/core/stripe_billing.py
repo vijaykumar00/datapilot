@@ -74,7 +74,10 @@ def validate_stripe_startup() -> None:
     app_env = os.getenv("APP_ENV", "development").lower()
     production = app_env in {"production", "prod"}
     errors: list[str] = []
-    if production:
+    # Same rule as scripts/validate_env.py: billing can be explicitly disabled
+    # (checkout/portal then answer 503 via require_stripe()).
+    billing_enabled = os.getenv("STRIPE_BILLING_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
+    if production and billing_enabled:
         if not settings.secret_key:
             errors.append("STRIPE_SECRET_KEY is required in production.")
         if not settings.publishable_key:
@@ -218,6 +221,22 @@ def active_provider_subscription(workspace_id: str, db: Session) -> Subscription
     ).first()
 
 
+def _safe_return_url(url: str | None, settings: Any) -> str | None:
+    """Only allow redirects back to our own frontend origins (no open redirects)."""
+    if not url:
+        return None
+    from urllib.parse import urlparse
+
+    allowed = {settings.frontend_url.rstrip("/")} | {
+        o.strip().rstrip("/") for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+    }
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if parsed.scheme in {"http", "https"} and origin in allowed:
+        return url
+    raise HTTPException(status_code=400, detail="Redirect URL must point to this application.")
+
+
 def create_checkout_session(caller: Any, workspace_id: str, payload: Any, db: Session) -> dict[str, Any]:
     settings = require_stripe()
     plan_id = payload.plan_id
@@ -251,8 +270,8 @@ def create_checkout_session(caller: Any, workspace_id: str, payload: Any, db: Se
     price_id = stripe_price_for_plan(plan_id, interval)
     customer = ensure_stripe_customer(caller, workspace_id, db)
     internal_sub = ensure_workspace_subscription(workspace_id, db)
-    success_url = payload.success_url or f"{settings.frontend_url}/app/settings/billing?checkout=success"
-    cancel_url = payload.cancel_url or f"{settings.frontend_url}/app/settings/billing?checkout=cancelled"
+    success_url = _safe_return_url(payload.success_url, settings) or f"{settings.frontend_url}/app/settings/billing?checkout=success"
+    cancel_url = _safe_return_url(payload.cancel_url, settings) or f"{settings.frontend_url}/app/settings/billing?checkout=cancelled"
 
     subscription_data: dict[str, Any] = {
         "metadata": {
@@ -296,7 +315,7 @@ def create_portal_session(caller: Any, workspace_id: str, payload: Any, db: Sess
     customer = _workspace_customer(workspace_id, db)
     if not customer:
         raise HTTPException(status_code=404, detail="No Stripe customer exists for this workspace.")
-    return_url = payload.return_url or f"{settings.frontend_url}/app/settings/billing"
+    return_url = _safe_return_url(payload.return_url, settings) or f"{settings.frontend_url}/app/settings/billing"
     session = stripe.billing_portal.Session.create(
         customer=customer.stripe_customer_id,
         return_url=return_url,
@@ -379,8 +398,15 @@ def _plan_from_subscription_object(subscription: Any) -> str | None:
     return None
 
 
-def process_subscription_object(subscription: Any, db: Session, reason: str) -> dict[str, Any]:
+def process_subscription_object(subscription: Any, db: Session, reason: str, event_created: int | None = None) -> dict[str, Any]:
     stripe_subscription_id = _get(subscription, "id")
+    if stripe_subscription_id and event_created is not None:
+        existing = db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_subscription_id).first()
+        if existing is not None and existing.last_event_at and int(event_created) < int(existing.last_event_at):
+            # Stripe does not guarantee delivery order; never let an older event
+            # (e.g. "updated: active") overwrite a newer one (e.g. "deleted").
+            logger.info("Skipping stale Stripe event for %s", stripe_subscription_id)
+            return {"status": "skipped", "reason": "stale_event"}
     customer_id = _get(subscription, "customer")
     metadata = _metadata(subscription)
     workspace_id = metadata.get("workspace_id") or _workspace_from_subscription(stripe_subscription_id, db) or _workspace_from_customer(customer_id, db)
@@ -393,7 +419,7 @@ def process_subscription_object(subscription: Any, db: Session, reason: str) -> 
     current_end = _timestamp(_get(subscription, "current_period_end"))
     stripe_status = _get(subscription, "status", "active")
     cancel_at_period_end = bool(_get(subscription, "cancel_at_period_end", False))
-    _upsert_shadow_subscription(
+    shadow = _upsert_shadow_subscription(
         workspace_id,
         stripe_subscription_id,
         plan_id,
@@ -403,6 +429,8 @@ def process_subscription_object(subscription: Any, db: Session, reason: str) -> 
         current_period_end=current_end,
         cancel_at_period_end=cancel_at_period_end,
     )
+    if event_created is not None:
+        shadow.last_event_at = int(event_created)
     sync_provider_subscription(
         workspace_id,
         plan_id,
@@ -439,7 +467,9 @@ def process_checkout_completed(session: Any, db: Session) -> dict[str, Any]:
     if not workspace_id or not plan_id or not stripe_subscription_id:
         return {"status": "skipped", "reason": "missing_checkout_mapping"}
     subscription = stripe.Subscription.retrieve(stripe_subscription_id)
-    result = process_subscription_object(subscription, db, "checkout.session.completed")
+    # A freshly retrieved subscription is the current truth: stamp it with "now".
+    result = process_subscription_object(subscription, db, "checkout.session.completed",
+                                         event_created=int(datetime.datetime.utcnow().timestamp()))
     if result.get("status") == "skipped":
         sync_provider_subscription(
             workspace_id,
@@ -485,7 +515,7 @@ def handle_webhook_event(event: Any, db: Session) -> dict[str, Any]:
         if event_type == "checkout.session.completed":
             result = process_checkout_completed(data_object, db)
         elif event_type in {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"}:
-            result = process_subscription_object(data_object, db, event_type)
+            result = process_subscription_object(data_object, db, event_type, event_created=_get(event, "created"))
         elif event_type == "invoice.paid":
             result = process_invoice_object(data_object, db, "paid", event_type)
         elif event_type == "invoice.payment_failed":

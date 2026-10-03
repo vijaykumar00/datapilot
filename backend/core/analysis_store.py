@@ -6,6 +6,7 @@ response, and any associated chart/table data — persisted for replay or restor
 """
 
 import json
+from core import jsonsafe
 import logging
 import uuid
 from datetime import datetime
@@ -84,12 +85,12 @@ def save_analysis(
                 query,
                 response,
                 type,
-                json.dumps(chart_data) if chart_data is not None else None,
-                json.dumps(table_data) if table_data is not None else None,
-                json.dumps(metadata or {}),
+                jsonsafe.dumps(chart_data) if chart_data is not None else None,
+                jsonsafe.dumps(table_data) if table_data is not None else None,
+                jsonsafe.dumps(metadata or {}),
                 file_id,
                 filename,
-                json.dumps(tags or []),
+                jsonsafe.dumps(tags or []),
                 user_id,
                 workspace_id,
                 now,
@@ -152,7 +153,7 @@ def update_analysis(
             values.append(title[:200])
         if tags is not None:
             parts.append("tags = ?")
-            values.append(json.dumps(tags))
+            values.append(jsonsafe.dumps(tags))
         if starred is not None:
             parts.append("starred = ?")
             values.append(1 if starred else 0)

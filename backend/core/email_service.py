@@ -42,6 +42,10 @@ def _send_email(to_email: str, subject: str, html_body: str, text_body: str) -> 
     Send an email. Uses SMTP if configured, otherwise logs to console (dev mode).
     Returns True on success, False on failure.
     """
+    if EMAIL_DEV_MODE and os.getenv("APP_ENV", "development").strip().lower() in {"production", "prod"}:
+        # Never write message bodies (verification / password-reset tokens) to production logs.
+        logger.error("SMTP is not configured; email '%s' to %s was NOT sent.", subject, to_email)
+        return False
     if EMAIL_DEV_MODE:
         # Development mode: print the email to the console (UTF-8 safe for Windows)
         separator = "=" * 70

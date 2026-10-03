@@ -65,6 +65,7 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
             "chart_count": 50,
             "api_usage_count": 0,
             "max_file_size_bytes": 25 * 1024 * 1024,
+            "ai_token_count": 2_000_000,
         },
         "features": {
             "can_export_pdf": False,
@@ -98,6 +99,7 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
             "chart_count": 1000,
             "api_usage_count": 1000,
             "max_file_size_bytes": 100 * 1024 * 1024,
+            "ai_token_count": 20_000_000,
         },
         "features": {
             "can_export_pdf": True,
@@ -131,6 +133,7 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
             "chart_count": 5000,
             "api_usage_count": 10000,
             "max_file_size_bytes": 500 * 1024 * 1024,
+            "ai_token_count": 100_000_000,
         },
         "features": {key: True for key in FEATURE_KEYS},
         "trial_days": 14,
@@ -155,6 +158,7 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
             "chart_count": UNLIMITED,
             "api_usage_count": UNLIMITED,
             "max_file_size_bytes": 1024 * 1024 * 1024,
+            "ai_token_count": UNLIMITED,
         },
         "features": {key: True for key in FEATURE_KEYS},
         "trial_days": 14,
@@ -540,9 +544,7 @@ def update_payment_status(
 
 def can_use_feature(workspace_id: str, feature_key: str, db: Session) -> bool:
     sub = refresh_subscription_status(ensure_workspace_subscription(workspace_id, db), db)
-    if sub.status in {"expired", "canceled"}:
-        return False
-    return get_plan_features(sub.plan_id, db).get(feature_key, False)
+    return get_plan_features(effective_plan_id(sub), db).get(feature_key, False)
 
 
 def usage_totals(workspace_id: str, db: Session, period: str | None = None) -> dict[str, int]:
@@ -558,6 +560,7 @@ def usage_totals(workspace_id: str, db: Session, period: str | None = None) -> d
         "export_count": stats.export_count if stats else 0,
         "storage_bytes": stats.storage_bytes if stats else 0,
         "ai_tokens_used": stats.ai_tokens_used if stats else 0,
+        "ai_token_count": stats.ai_tokens_used if stats else 0,
     }
     for row in db.query(UsageRecord).filter(
         UsageRecord.workspace_id == workspace_id,
@@ -567,7 +570,14 @@ def usage_totals(workspace_id: str, db: Session, period: str | None = None) -> d
             continue
         totals[row.metric] = totals.get(row.metric, 0) + int(row.quantity)
 
-    totals.setdefault("dataset_count", 0)
+    from sqlalchemy import func as _func
+    from core.models import DatasetRegistry as _DatasetRegistry
+
+    storage_used, dataset_count = db.query(
+        _func.coalesce(_func.sum(_DatasetRegistry.storage_bytes), 0), _func.count(_DatasetRegistry.dataset_id)
+    ).filter(_DatasetRegistry.workspace_id == workspace_id).one()
+    totals["storage_bytes"] = int(storage_used or 0)
+    totals["dataset_count"] = int(dataset_count or 0)
     totals.setdefault("chart_count", 0)
     totals.setdefault("api_usage_count", 0)
     totals.setdefault("ai_prompt_count", totals.get("query_count", 0))
@@ -577,9 +587,17 @@ def usage_totals(workspace_id: str, db: Session, period: str | None = None) -> d
     return totals
 
 
+ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing", "past_due"}
+
+
+def effective_plan_id(sub: WorkspaceSubscription) -> str:
+    """Plan whose limits/features apply: inactive subscriptions fall back to free."""
+    return sub.plan_id if sub.status in ACTIVE_SUBSCRIPTION_STATUSES else "free"
+
+
 def quota_snapshots(workspace_id: str, db: Session) -> dict[str, QuotaSnapshot]:
     sub = refresh_subscription_status(ensure_workspace_subscription(workspace_id, db), db)
-    limits = get_plan_limits(sub.plan_id, db)
+    limits = get_plan_limits(effective_plan_id(sub), db)
     current = usage_totals(workspace_id, db)
     snapshots = {}
     for metric, limit in limits.items():
@@ -625,8 +643,8 @@ def record_usage(workspace_id: str, action: str, db: Session, increment_by: int 
 def subscription_summary(workspace_id: str, db: Session) -> dict[str, Any]:
     sub = refresh_subscription_status(ensure_workspace_subscription(workspace_id, db), db)
     plan = db.query(Plan).filter(Plan.plan_id == sub.plan_id).first()
-    limits = get_plan_limits(sub.plan_id, db)
-    features = get_plan_features(sub.plan_id, db)
+    limits = get_plan_limits(effective_plan_id(sub), db)
+    features = get_plan_features(effective_plan_id(sub), db)
     quotas = quota_snapshots(workspace_id, db)
     metadata = _load_metadata(sub.metadata_json)
 

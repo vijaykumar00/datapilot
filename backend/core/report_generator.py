@@ -55,24 +55,33 @@ def generate_branded_chart(df: pd.DataFrame, x_col: str, y_col: str, chart_type:
     ax = fig.subplots()
 
     try:
-        if chart_type == "bar":
-            # Group and take mean
-            grouped = plot_df.groupby(x_col)[y_col].mean().head(10)
-            ax.bar(grouped.index.astype(str), grouped.values, color=primary_hex, edgecolor=secondary_hex, alpha=0.85, width=0.55)
-            ax.set_ylabel(y_col, fontsize=8, color="#555555")
-        elif chart_type == "line":
-            sorted_df = plot_df.sort_values(by=x_col).head(60)
-            ax.plot(sorted_df[x_col].astype(str), sorted_df[y_col], color=primary_hex, marker='o', linestyle='-', linewidth=2.0, markersize=4, alpha=0.9)
-            ax.set_ylabel(y_col, fontsize=8, color="#555555")
+        chart_title = f"{y_col} by {x_col}"
+        plot_df[y_col] = pd.to_numeric(plot_df[y_col], errors="coerce")
+        plot_df = plot_df.dropna()
+        if chart_type == "line":
+            grouped = plot_df.groupby(x_col)[y_col].sum().sort_index()
+            if len(grouped) > 60:
+                step = int(np.ceil(len(grouped) / 60))
+                grouped = grouped.iloc[::step]
+                chart_title += f" (every {step}th point)"
+            ax.plot(grouped.index.astype(str), grouped.values, color=primary_hex, marker='o', linestyle='-', linewidth=2.0, markersize=4, alpha=0.9)
+            ax.set_ylabel(f"Total {y_col}", fontsize=8, color="#555555")
+            chart_title = f"Total {chart_title}"
         elif chart_type == "scatter":
+            if len(plot_df) > 2000:
+                plot_df = plot_df.sample(2000, random_state=42)
+                chart_title += " (random sample of 2,000 points)"
             ax.scatter(plot_df[x_col], plot_df[y_col], color=primary_hex, edgecolors=secondary_hex, alpha=0.7, s=30)
             ax.set_xlabel(x_col, fontsize=8, color="#555555")
             ax.set_ylabel(y_col, fontsize=8, color="#555555")
         else:
-            # Default bar
-            grouped = plot_df.groupby(x_col)[y_col].mean().head(10)
-            ax.bar(grouped.index.astype(str), grouped.values, color=primary_hex, alpha=0.85)
-            ax.set_ylabel(y_col, fontsize=8, color="#555555")
+            # Bar (default): total per category, the 10 largest categories.
+            grouped = plot_df.groupby(x_col)[y_col].sum().sort_values(ascending=False)
+            total_groups = len(grouped)
+            grouped = grouped.head(10)
+            ax.bar(grouped.index.astype(str), grouped.values, color=primary_hex, edgecolor=secondary_hex, alpha=0.85, width=0.55)
+            ax.set_ylabel(f"Total {y_col}", fontsize=8, color="#555555")
+            chart_title = f"Total {chart_title}" + (f" (top 10 of {total_groups})" if total_groups > 10 else "")
 
         # Visual styling
         ax.spines['top'].set_visible(False)
@@ -81,7 +90,7 @@ def generate_branded_chart(df: pd.DataFrame, x_col: str, y_col: str, chart_type:
         ax.spines['bottom'].set_color('#e0e0e0')
         ax.tick_params(colors='#555555', labelsize=7)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
-        ax.set_title(f"{y_col} Breakdown by {x_col}", color='#1f2937', fontsize=9.5, fontweight='bold', pad=12)
+        ax.set_title(chart_title, color='#1f2937', fontsize=9.5, fontweight='bold', pad=12)
 
         fig.autofmt_xdate(rotation=30)
         fig.tight_layout()

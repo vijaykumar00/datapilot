@@ -1,362 +1,149 @@
 """
-test_rate_limiter.py — Unit tests for core/rate_limiter.py
+test_rate_limiter.py — Rate limiter behaviour.
 
-Covers:
-  - InMemoryRateLimiter: allow, block, window expiry
-  - RedisRateLimiter: allow, block when mocked, fail-open in dev and fail-closed in prod
-  - Factory: correct backend selected via RATE_LIMITER_BACKEND env var
-  - check_rate_limit convenience function
-  - No sensitive data in Redis keys
-  - Redis readiness behavior
-  - reset_rate_limiter() resets singleton
+* In-memory limiter: allow/block/window/scopes.
+* Redis limiter: O(1) round trips per check (not one GET per second of window),
+  sliding-window-counter decisions, local fallback (not fail-open, not
+  fail-closed-for-everyone) when Redis is down.
+* Identity keys: authenticated users / guests are limited individually, so
+  users behind one proxy/NAT IP do not share a bucket.
+* Path rules: listing saved reports is not limited as "report generation".
 """
 
+import asyncio
 import os
 import sys
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-BACKEND = Path(__file__).parent
-if str(BACKEND) not in sys.path:
-    sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(Path(__file__).parent))
 
+import fakeredis
 
-def _fresh_module(env_overrides: dict | None = None):
-    """Reimport rate_limiter with fresh singleton and env."""
-    for name in list(sys.modules.keys()):
-        if "rate_limiter" in name:
-            del sys.modules[name]
-
-    old = {}
-    for k, v in (env_overrides or {}).items():
-        old[k] = os.environ.get(k)
-        if v is None:
-            os.environ.pop(k, None)
-        else:
-            os.environ[k] = v
-
-    import core.rate_limiter as rl
-    return rl, old
-
-
-def _restore(old: dict):
-    for k, v in old.items():
-        if v is None:
-            os.environ.pop(k, None)
-        else:
-            os.environ[k] = v
+import core.rate_limiter as rl
+from core.auth import create_access_token
 
 
 class TestInMemoryRateLimiter(unittest.TestCase):
-
-    def _make(self, window=10, max_req=5):
-        from core.rate_limiter import InMemoryRateLimiter
-        return InMemoryRateLimiter(window_seconds=window, max_requests=max_req)
-
-    def setUp(self):
-        for name in list(sys.modules.keys()):
-            if "rate_limiter" in name:
-                del sys.modules[name]
-
-    def test_allows_requests_below_limit(self):
-        rl = self._make(max_req=5)
-        for _ in range(5):
-            self.assertTrue(rl.is_allowed("1.2.3.4"))
-
-    def test_blocks_request_at_limit(self):
-        rl = self._make(max_req=3)
+    def test_blocks_at_limit_and_scopes_are_independent(self):
+        limiter = rl.InMemoryRateLimiter(window_seconds=60, max_requests=3)
         for _ in range(3):
-            rl.is_allowed("1.2.3.4")
-        self.assertFalse(rl.is_allowed("1.2.3.4"), "4th request should be blocked")
+            self.assertTrue(limiter.is_allowed("1.2.3.4"))
+        self.assertFalse(limiter.is_allowed("1.2.3.4"))
+        self.assertTrue(limiter.is_allowed("1.2.3.5"))
+        self.assertTrue(limiter.is_allowed("1.2.3.4", scope="other"))
 
-    def test_different_ips_independent(self):
-        rl = self._make(max_req=2)
-        rl.is_allowed("10.0.0.1")
-        rl.is_allowed("10.0.0.1")
-        # ip1 is now at limit
-        self.assertFalse(rl.is_allowed("10.0.0.1"))
-        # ip2 is untouched
-        self.assertTrue(rl.is_allowed("10.0.0.2"))
-
-    def test_window_expiry_allows_new_requests(self):
-        rl = self._make(window=1, max_req=2)
-        rl.is_allowed("5.5.5.5")
-        rl.is_allowed("5.5.5.5")
-        self.assertFalse(rl.is_allowed("5.5.5.5"))
-
-        time.sleep(1.1)  # wait for window to expire
-        self.assertTrue(rl.is_allowed("5.5.5.5"), "Should be allowed after window resets")
-
-    def test_backend_name(self):
-        rl = self._make()
-        self.assertEqual(rl.backend_name, "memory")
-
-    def test_scopes_are_independent(self):
-        rl = self._make(max_req=1)
-        self.assertTrue(rl.is_allowed("1.2.3.4", scope="auth_login"))
-        self.assertFalse(rl.is_allowed("1.2.3.4", scope="auth_login"))
-        self.assertTrue(rl.is_allowed("1.2.3.4", scope="auth_signup"))
+    def test_window_expiry(self):
+        limiter = rl.InMemoryRateLimiter(window_seconds=1, max_requests=1)
+        self.assertTrue(limiter.is_allowed("5.5.5.5"))
+        self.assertFalse(limiter.is_allowed("5.5.5.5"))
+        time.sleep(1.1)
+        self.assertTrue(limiter.is_allowed("5.5.5.5"))
 
 
-class TestRedisRateLimiterMocked(unittest.TestCase):
-    """Test RedisRateLimiter with a mocked redis client."""
+class _CountingRedis(fakeredis.FakeRedis):
+    commands = 0
 
+    def pipeline(self, *args, **kwargs):
+        pipe = super().pipeline(*args, **kwargs)
+        original = pipe.execute
+
+        def execute(*a, **k):
+            _CountingRedis.commands += len(pipe.command_stack)
+            return original(*a, **k)
+
+        pipe.execute = execute
+        return pipe
+
+
+class TestRedisRateLimiter(unittest.TestCase):
     def setUp(self):
-        for name in list(sys.modules.keys()):
-            if "rate_limiter" in name:
-                del sys.modules[name]
+        self.limiter = rl.RedisRateLimiter(window_seconds=3600, max_requests=5, env_label="test")
+        self.limiter._sync_client = _CountingRedis()
 
-    def _make_redis_limiter(self, total_count=0):
-        """Return a RedisRateLimiter whose Redis client is mocked."""
-        from core.rate_limiter import RedisRateLimiter
+    def test_blocks_when_over_limit(self):
+        results = [self.limiter.is_allowed("u:1", scope="upload") for _ in range(7)]
+        self.assertEqual(results[:5], [True] * 5)
+        self.assertFalse(results[5])
 
-        mock_pipe = MagicMock()
-        # Simulate 'total_count' existing requests in the window
-        mock_pipe.execute.return_value = [str(total_count).encode()] + [None] * 59
-        mock_pipe2 = MagicMock()
-        mock_pipe2.execute.return_value = [1, True]
+    def test_constant_redis_cost_per_check_for_long_windows(self):
+        _CountingRedis.commands = 0
+        self.limiter.is_allowed("u:2", scope="upload")
+        # Previously 3,601 GETs for a one-hour window; now INCR + EXPIRE + GET.
+        self.assertLessEqual(_CountingRedis.commands, 3)
 
-        mock_redis = MagicMock()
-        mock_redis.pipeline.side_effect = [mock_pipe, mock_pipe2]
-        mock_redis.ping.return_value = True
+    def test_key_has_scope_identity_and_bucket(self):
+        key = self.limiter._key("u:abc", 123, "upload")
+        self.assertEqual(key, "dp:test:rl:upload:u:abc:123")
 
-        rl = RedisRateLimiter(window_seconds=60, max_requests=100)
-        rl._redis = mock_redis
-        return rl
+    def test_redis_outage_uses_local_fallback_not_fail_open(self):
+        broken = rl.RedisRateLimiter(redis_url="redis://127.0.0.1:1/0", window_seconds=60, max_requests=2,
+                                     connect_timeout=0.05, socket_timeout=0.05)
+        self.assertTrue(broken.is_allowed("ip:9.9.9.9"))
+        self.assertTrue(broken.is_allowed("ip:9.9.9.9"))
+        self.assertFalse(broken.is_allowed("ip:9.9.9.9"), "limits must still be enforced during an outage")
+        self.assertIsNotNone(broken.last_error)
 
-    def test_allows_when_under_limit(self):
-        rl = self._make_redis_limiter(total_count=50)
-        self.assertTrue(rl.is_allowed("7.7.7.7"))
+    def test_async_path(self):
+        limiter = rl.RedisRateLimiter(window_seconds=60, max_requests=2, env_label="test")
+        limiter._async_client = fakeredis.FakeAsyncRedis()
 
-    def test_blocks_when_at_limit(self):
-        rl = self._make_redis_limiter(total_count=100)
-        self.assertFalse(rl.is_allowed("7.7.7.7"))
+        async def run():
+            return [await limiter.is_allowed_async("u:3") for _ in range(3)]
 
-    def test_backend_name(self):
-        from core.rate_limiter import RedisRateLimiter
-        rl = RedisRateLimiter()
-        self.assertEqual(rl.backend_name, "redis")
-
-    def test_fail_open_on_redis_error_in_development(self):
-        """Development Redis errors are allowed so local work is not blocked."""
-        from core.rate_limiter import RedisRateLimiter
-
-        mock_redis = MagicMock()
-        mock_redis.pipeline.side_effect = Exception("Connection refused")
-
-        rl = RedisRateLimiter(window_seconds=60, max_requests=100, fail_open=True)
-        rl._redis = mock_redis
-
-        result = rl.is_allowed("8.8.8.8")
-        self.assertTrue(result, "Should fail open when Redis is down")
-
-    def test_fail_closed_on_redis_error_in_production(self):
-        """Production Redis errors fail closed for security-critical limiting."""
-        from core.rate_limiter import RedisRateLimiter
-
-        mock_redis = MagicMock()
-        mock_redis.pipeline.side_effect = Exception("Connection refused")
-
-        rl = RedisRateLimiter(window_seconds=60, max_requests=100, fail_open=False)
-        rl._redis = mock_redis
-
-        result = rl.is_allowed("8.8.4.4")
-        self.assertFalse(result, "Should fail closed when Redis is down in production")
-
-    def test_redis_connection_resets_after_error(self):
-        """After an error, self._redis is reset to None for reconnect on next call."""
-        from core.rate_limiter import RedisRateLimiter
-
-        mock_redis = MagicMock()
-        mock_redis.pipeline.side_effect = Exception("Timeout")
-
-        rl = RedisRateLimiter(window_seconds=60, max_requests=100)
-        rl._redis = mock_redis
-
-        rl.is_allowed("9.9.9.9")
-        self.assertIsNone(rl._redis, "Redis client should be reset after error")
+        self.assertEqual(asyncio.run(run()), [True, True, False])
 
 
-class TestRedisKeyFormat(unittest.TestCase):
-    """Verify Redis key format contains no sensitive user data."""
+class TestIdentityAndRules(unittest.TestCase):
+    def test_authenticated_users_are_keyed_individually(self):
+        token_a = create_access_token("user-a", "a@x.test", "ws")
+        token_b = create_access_token("user-b", "b@x.test", "ws")
+        self.assertEqual(rl.caller_key(f"Bearer {token_a}", None, "10.0.0.1"), "u:user-a")
+        self.assertEqual(rl.caller_key(f"Bearer {token_b}", None, "10.0.0.1"), "u:user-b")
+        self.assertTrue(rl.caller_key(None, "guest-token", "10.0.0.1").startswith("g:"))
+        self.assertEqual(rl.caller_key("Bearer forged", None, "10.0.0.1"), "ip:10.0.0.1")
 
-    def setUp(self):
-        for name in list(sys.modules.keys()):
-            if "rate_limiter" in name:
-                del sys.modules[name]
+    def test_listing_reports_is_not_report_generation(self):
+        scope, _, _ = rl.limit_for_path("/reports", "GET")
+        self.assertEqual(scope, "global")
+        scope, _, _ = rl.limit_for_path("/report/generate", "POST")
+        self.assertEqual(scope, "reports")
 
-    def test_key_format(self):
-        from core.rate_limiter import RedisRateLimiter
-        rl = RedisRateLimiter(env_label="test")
-        key = rl._key("192.168.1.1", 1_700_000_000)
-        self.assertTrue(key.startswith("dp:test:rl:192.168.1.1:"))
-        # No user passwords, tokens, or emails
-        self.assertNotIn("@", key)
-        self.assertNotIn("token", key)
-        self.assertNotIn("password", key)
+    def test_auth_endpoints_keyed_by_ip(self):
+        _, _, _, ip_only = rl.limit_rule("/auth/login", "POST")
+        self.assertTrue(ip_only)
 
-    def test_key_contains_ip(self):
-        from core.rate_limiter import RedisRateLimiter
-        rl = RedisRateLimiter(env_label="prod")
-        key = rl._key("10.0.0.5", 1234567890)
-        self.assertIn("10.0.0.5", key)
-
-    def test_key_contains_epoch(self):
-        from core.rate_limiter import RedisRateLimiter
-        rl = RedisRateLimiter(env_label="prod")
-        key = rl._key("10.0.0.5", 9999)
-        self.assertIn("9999", key)
-
-    def test_scoped_key_contains_endpoint_scope(self):
-        from core.rate_limiter import RedisRateLimiter
-        rl = RedisRateLimiter(env_label="prod")
-        key = rl._key("10.0.0.5", 9999, scope="auth_login")
-        self.assertEqual(key, "dp:prod:rl:auth_login:10.0.0.5:9999")
-
-
-class TestFactorySelection(unittest.TestCase):
-    """get_rate_limiter() selects the right backend from env."""
-
-    def test_memory_backend_selected(self):
-        rl, old = _fresh_module({"RATE_LIMITER_BACKEND": "memory"})
-        limiter = rl.get_rate_limiter()
-        self.assertEqual(limiter.backend_name, "memory")
-        _restore(old)
-
-    def test_redis_backend_selected_by_default(self):
-        rl, old = _fresh_module({"RATE_LIMITER_BACKEND": None})
-        # We won't actually connect, just check the type
-        limiter = rl.get_rate_limiter()
-        self.assertEqual(limiter.backend_name, "redis")
-        _restore(old)
-
-    def test_singleton_reused(self):
-        rl, old = _fresh_module({"RATE_LIMITER_BACKEND": "memory"})
-        a = rl.get_rate_limiter()
-        b = rl.get_rate_limiter()
-        self.assertIs(a, b, "Should return the same singleton instance")
-        _restore(old)
-
-    def test_reset_creates_new_instance(self):
-        rl, old = _fresh_module({"RATE_LIMITER_BACKEND": "memory"})
-        a = rl.get_rate_limiter()
-        rl.reset_rate_limiter()
-        b = rl.get_rate_limiter()
-        self.assertIsNot(a, b, "reset_rate_limiter should create a new instance")
-        _restore(old)
-
-
-class TestCheckRateLimitFunction(unittest.TestCase):
-    """check_rate_limit() convenience function."""
-
-    def setUp(self):
-        rl, self.old = _fresh_module({"RATE_LIMITER_BACKEND": "memory",
-                                       "RATE_LIMIT_MAX_REQUESTS": "3",
-                                       "RATE_LIMIT_WINDOW_SECONDS": "60"})
-        self.rl = rl
-
-    def tearDown(self):
-        _restore(self.old)
-
-    def test_check_rate_limit_allows(self):
-        self.assertTrue(self.rl.check_rate_limit("1.1.1.1"))
-
-    def test_check_rate_limit_blocks_after_limit(self):
-        for _ in range(3):
-            self.rl.check_rate_limit("2.2.2.2")
-        self.assertFalse(self.rl.check_rate_limit("2.2.2.2"))
-
-    def test_path_specific_limit_uses_independent_scope(self):
-        _restore(self.old)
-        rl, self.old = _fresh_module({
-            "RATE_LIMITER_BACKEND": "memory",
-            "RATE_LIMIT_AUTH_LOGIN_MAX_REQUESTS": "1",
-            "RATE_LIMIT_AUTH_WINDOW_SECONDS": "60",
-            "RATE_LIMIT_MAX_REQUESTS": "100",
-        })
-        self.rl = rl
-
-        self.assertTrue(self.rl.check_rate_limit("5.5.5.5", "/auth/login"))
-        self.assertFalse(self.rl.check_rate_limit("5.5.5.5", "/auth/login"))
-        self.assertTrue(self.rl.check_rate_limit("5.5.5.5", "/auth/signup"))
-
-
-class TestRedisUnavailableModes(unittest.TestCase):
-    """RedisRateLimiter has explicit development and production failure modes."""
-
-    def setUp(self):
-        for name in list(sys.modules.keys()):
-            if "rate_limiter" in name:
-                del sys.modules[name]
-
-    def test_dev_fails_open_when_redis_package_missing(self):
-        """Simulate redis package not installed."""
-        import builtins
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "redis":
-                raise ImportError("No module named 'redis'")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            from core.rate_limiter import RedisRateLimiter
-            rl = RedisRateLimiter(fail_open=True)
-            result = rl.is_allowed("3.3.3.3")
-            self.assertTrue(result, "Should fail open when redis package is missing")
-
-    def test_dev_fails_open_when_redis_connection_refused(self):
-        """Simulate Redis connection failure."""
-        from core.rate_limiter import RedisRateLimiter
-
-        mock_redis_module = MagicMock()
-        mock_redis_instance = MagicMock()
-        mock_redis_instance.ping.side_effect = Exception("Connection refused")
-        mock_redis_module.Redis.from_url.return_value = mock_redis_instance
-
-        with patch.dict("sys.modules", {"redis": mock_redis_module}):
-            rl = RedisRateLimiter(redis_url="redis://badhost:9999/0", fail_open=True)
-            result = rl.is_allowed("4.4.4.4")
-            self.assertTrue(result, "Should fail open when Redis connection is refused")
-
-    def test_prod_fails_closed_when_redis_package_missing(self):
-        import builtins
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "redis":
-                raise ImportError("No module named 'redis'")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            from core.rate_limiter import RedisRateLimiter
-            rl = RedisRateLimiter(fail_open=False)
-            result = rl.is_allowed("3.3.3.4")
-            self.assertFalse(result, "Should fail closed when redis package is missing in production")
-
-    def test_health_reports_unavailable_redis(self):
-        rl, old = _fresh_module({
-            "APP_ENV": "production",
-            "RATE_LIMITER_BACKEND": "redis",
-            "REDIS_URL": "redis://badhost:9999/0",
-        })
-
-        mock_redis_module = MagicMock()
-        mock_redis_instance = MagicMock()
-        mock_redis_instance.ping.side_effect = Exception("Connection refused")
-        mock_redis_module.Redis.from_url.return_value = mock_redis_instance
-
+    def test_factory(self):
+        old = os.environ.get("RATE_LIMITER_BACKEND")
         try:
-            with patch.dict("sys.modules", {"redis": mock_redis_module}):
-                health = rl.rate_limiter_health()
-            self.assertFalse(health["ok"])
-            self.assertEqual(health["backend"], "redis")
-            self.assertTrue(health["required"])
-            self.assertFalse(health["fail_open"])
+            os.environ["RATE_LIMITER_BACKEND"] = "memory"
+            rl.reset_rate_limiter()
+            self.assertEqual(rl.get_rate_limiter().backend_name, "memory")
+            os.environ["RATE_LIMITER_BACKEND"] = "redis"
+            rl.reset_rate_limiter()
+            self.assertEqual(rl.get_rate_limiter().backend_name, "redis")
         finally:
-            _restore(old)
+            if old is None:
+                os.environ.pop("RATE_LIMITER_BACKEND", None)
+            else:
+                os.environ["RATE_LIMITER_BACKEND"] = old
+            rl.reset_rate_limiter()
+
+    def test_production_health_reports_redis_down(self):
+        old = os.environ.get("APP_ENV")
+        try:
+            os.environ["APP_ENV"] = "production"
+            limiter = rl.RedisRateLimiter(redis_url="redis://127.0.0.1:1/0", connect_timeout=0.05, socket_timeout=0.05)
+            rl._limiter_instance = limiter
+            health = rl.rate_limiter_health()
+            self.assertFalse(health["ok"])
+        finally:
+            if old is None:
+                os.environ.pop("APP_ENV", None)
+            else:
+                os.environ["APP_ENV"] = old
+            rl.reset_rate_limiter()
 
 
 if __name__ == "__main__":

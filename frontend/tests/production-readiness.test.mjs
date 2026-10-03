@@ -21,8 +21,21 @@ test('RC-2 Docker artifacts exist and include production health checks', () => {
   assert.match(compose, /redis:/)
   assert.match(compose, /minio:/)
   assert.match(compose, /condition: service_healthy/)
-  assert.match(compose, /backend_uploads:/)
   assert.match(compose, /POSTGRES_PASSWORD:\?\Set POSTGRES_PASSWORD/)
+  // Durable jobs need a worker; schema changes run once before API/workers start.
+  assert.match(compose, /\n  worker:/)
+  assert.match(compose, /python worker\.py/)
+  assert.match(compose, /\n  migrate:/)
+  assert.match(compose, /alembic upgrade head/)
+  assert.match(compose, /condition: service_completed_successfully/)
+  assert.match(compose, /JOB_EXECUTION_MODE: worker/)
+  // The app reads LLM_PROVIDER (AI_PROVIDER was silently ignored) and needs a persistent key.
+  assert.match(compose, /LLM_PROVIDER: \$\{LLM_PROVIDER:\?/)
+  assert.doesNotMatch(compose, /AI_PROVIDER:/)
+  assert.match(compose, /ENCRYPTION_KEY: \$\{ENCRYPTION_KEY:\?/)
+  // Internal services are not published on the host.
+  assert.doesNotMatch(compose, /"8000:8000"|"9000:9000"|"9001:9001"|"11434:11434"/)
+  assert.match(backendDockerfile, /--forwarded-allow-ips/)
 })
 
 test('RC-2 environment examples and validator document production requirements', () => {
@@ -62,7 +75,7 @@ test('RC-2 backend exposes liveness and readiness probes', () => {
   assert.match(main, /@app\.get\("\/live"\)/)
   assert.match(main, /@app\.get\("\/ready"\)/)
   assert.match(main, /SELECT 1/)
-  assert.match(main, /uploads_writable/)
+  assert.match(main, /upload_spool_writable/)
   assert.match(main, /jwt_secret/)
   assert.match(main, /rate_limiter/)
   assert.match(main, /storage/)
@@ -107,4 +120,19 @@ test('RC-2 nginx config serves SPA with baseline security headers', () => {
   assert.match(nginx, /Content-Security-Policy/)
   assert.match(nginx, /frame-ancestors 'none'/)
   assert.match(nginx, /Cache-Control "public, immutable"/)
+  // Upload size, SSE streaming and spoof-proof client IP for rate limiting.
+  assert.match(nginx, /client_max_body_size 55m/)
+  assert.match(nginx, /location = \/api\/chat\/stream[\s\S]*proxy_buffering off/)
+  assert.match(nginx, /X-Forwarded-For \$remote_addr/)
+  assert.doesNotMatch(nginx, /\$proxy_add_x_forwarded_for/)
+})
+
+test('legacy service worker is retired, never re-registered', () => {
+  const sw = read('../public/sw.js')
+  const main = read('../src/main.jsx')
+  const html = read('../index.html')
+  assert.match(sw, /registration\.unregister\(\)/)
+  assert.doesNotMatch(sw, /addEventListener\('fetch'/)
+  assert.doesNotMatch(sw, /localhost|127\.0\.0\.1/)
+  assert.doesNotMatch(main + html, /serviceWorker\.register/)
 })

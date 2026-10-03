@@ -90,6 +90,14 @@ def _load_master_key() -> bytes:
 
         logger.warning("ENCRYPTION_KEY is present but too short (<32 bytes). Using ephemeral key.")
 
+    if os.getenv("APP_ENV", "development").strip().lower() in {"production", "prod"}:
+        # An ephemeral key would silently make every stored secret undecryptable
+        # after a restart (and differ between workers).  Refuse instead.
+        raise RuntimeError(
+            "ENCRYPTION_KEY is missing or invalid. Production requires a persistent 32-byte key "
+            "(generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")."
+        )
+
     if not _ephemeral_warned:
         logger.warning(
             "ENCRYPTION_KEY not set or invalid. Using ephemeral key — "

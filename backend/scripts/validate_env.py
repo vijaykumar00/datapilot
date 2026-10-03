@@ -12,13 +12,14 @@ REQUIRED_PRODUCTION = {
     "DATABASE_URL": "PostgreSQL connection URL for production.",
     "ALLOWED_ORIGINS": "Comma-separated HTTPS frontend origins.",
     "REDIS_URL": "Redis connection URL for shared rate limiting.",
+    "LLM_PROVIDER": "Platform AI provider: gemini | openai | claude | ollama.",
+    "ENCRYPTION_KEY": "Persistent 32-byte key (Fernet/base64) for stored user API keys.",
 }
 
 OPTIONAL_SECRETS = {
-    "ENCRYPTION_KEY": "Required before storing user API keys in production.",
-    "GEMINI_API_KEY": "Required when AI_PROVIDER=gemini.",
-    "OPENAI_API_KEY": "Required when AI_PROVIDER=openai.",
-    "ANTHROPIC_API_KEY": "Required when AI_PROVIDER=claude.",
+    "GEMINI_API_KEY": "Required when LLM_PROVIDER=gemini.",
+    "OPENAI_API_KEY": "Required when LLM_PROVIDER=openai.",
+    "ANTHROPIC_API_KEY": "Required when LLM_PROVIDER=claude.",
     "STRIPE_SECRET_KEY": "Required when Stripe billing is enabled.",
     "STRIPE_PUBLISHABLE_KEY": "Required when Stripe billing is enabled.",
     "STRIPE_WEBHOOK_SECRET": "Required when Stripe webhooks are enabled.",
@@ -107,14 +108,36 @@ def validate(env: dict[str, str]) -> list[str]:
         if storage_provider in {"s3", "r2", "minio"} and not env.get("S3_BUCKET"):
             errors.append("S3_BUCKET is required when STORAGE_PROVIDER uses an S3-compatible backend.")
 
-    provider = env.get("AI_PROVIDER", "gemini").lower()
+    # The application reads LLM_PROVIDER.  AI_PROVIDER was a misnamed setting that the
+    # code never read (production silently fell back to Ollama); reject it explicitly.
+    if env.get("AI_PROVIDER") and not env.get("LLM_PROVIDER"):
+        errors.append("AI_PROVIDER is not read by the application; set LLM_PROVIDER instead.")
+    provider = (env.get("LLM_PROVIDER") or "").lower()
+    if provider and provider not in {"gemini", "openai", "claude", "ollama"}:
+        errors.append(f"LLM_PROVIDER must be one of gemini, openai, claude, ollama (got '{provider}').")
     provider_key = {
         "gemini": "GEMINI_API_KEY",
         "openai": "OPENAI_API_KEY",
         "claude": "ANTHROPIC_API_KEY",
     }.get(provider)
     if production and provider_key and not env.get(provider_key):
-        errors.append(f"{provider_key} is required when AI_PROVIDER={provider}.")
+        errors.append(f"{provider_key} is required when LLM_PROVIDER={provider}.")
+    if production and provider == "ollama" and not env.get("OLLAMA_BASE_URL"):
+        errors.append("OLLAMA_BASE_URL is required when LLM_PROVIDER=ollama.")
+
+    encryption_key = env.get("ENCRYPTION_KEY", "")
+    if encryption_key and len(encryption_key.strip()) < 32:
+        errors.append("ENCRYPTION_KEY must be at least 32 characters (use a Fernet key).")
+
+    if production and not env.get("SMTP_HOST"):
+        errors.append("SMTP_HOST is required in production (verification and password-reset emails).")
+
+    if production:
+        mode = env.get("JOB_EXECUTION_MODE", "worker").lower()
+        if mode != "worker":
+            errors.append("JOB_EXECUTION_MODE must be 'worker' in production (run worker.py processes).")
+        if _truthy(env.get("RUN_MIGRATIONS_ON_STARTUP")):
+            errors.append("RUN_MIGRATIONS_ON_STARTUP must not be enabled in production; run `alembic upgrade head` as a deploy step.")
 
     stripe_enabled = env.get("STRIPE_BILLING_ENABLED", "true").lower() in {"1", "true", "yes"}
     if production and stripe_enabled:

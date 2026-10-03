@@ -161,27 +161,34 @@ class TestRC1Regression(unittest.TestCase):
     # 7. Staged Transformation Expiry & Eviction
     # ─────────────────────────────────────────────────────────────
     def test_staged_transformations_eviction(self):
-        """Verify that staged transformations expire after their TTL and eviction functions normally."""
-        from main import _staged_transformations, _evict_expired_staged
-        # Insert a simulated staged transform with an expired epoch timestamp
-        trans_id = "test_expired"
-        _staged_transformations[trans_id] = ([], "file_id", 0.0) # 0.0 is way in the past (1970)
-        
-        # Insert an active one
-        active_id = "test_active"
-        import time
-        _staged_transformations[active_id] = ([], "file_id", time.time())
-        
-        # Run eviction
-        _evict_expired_staged()
-        
-        # Verify expired was removed
-        self.assertNotIn(trans_id, _staged_transformations)
-        # Verify active remains
-        self.assertIn(active_id, _staged_transformations)
-        
-        # Cleanup
-        _staged_transformations.pop(active_id, None)
+        """Staged transformation plans are durable DB rows; expired ones are purged by maintenance."""
+        from core.job_handlers import cleanup_staged_transforms
+        from core.models import DatasetRegistry, StagedTransform
+
+        db = SessionLocal()
+        ds_id = f"stg_{uuid.uuid4().hex[:8]}"
+        now = datetime.datetime.utcnow()
+        try:
+            db.add(DatasetRegistry(dataset_id=ds_id, filename="f.csv", display_name="f.csv", tags="[]",
+                                   archived=0, upload_date=now.isoformat(), column_summary="[]",
+                                   schema_warnings="[]", workspace_id="ws_stage", user_id="u",
+                                   created_at=now.isoformat(), updated_at=now.isoformat()))
+            db.flush()
+            db.add(StagedTransform(id="test_expired_" + ds_id, dataset_id=ds_id, workspace_id="ws_stage", base_version=1,
+                                   actions_json="[]", created_at=now, expires_at=now - datetime.timedelta(seconds=1)))
+            db.add(StagedTransform(id="test_active_" + ds_id, dataset_id=ds_id, workspace_id="ws_stage", base_version=1,
+                                   actions_json="[]", created_at=now, expires_at=now + datetime.timedelta(minutes=30)))
+            db.commit()
+
+            self.assertGreaterEqual(cleanup_staged_transforms(), 1)
+            remaining = {r.id for r in db.query(StagedTransform).filter(StagedTransform.dataset_id == ds_id).all()}
+            self.assertNotIn("test_expired_" + ds_id, remaining)
+            self.assertIn("test_active_" + ds_id, remaining)
+        finally:
+            db.query(StagedTransform).filter(StagedTransform.dataset_id == ds_id).delete()
+            db.query(DatasetRegistry).filter(DatasetRegistry.dataset_id == ds_id).delete()
+            db.commit()
+            db.close()
 
     # ─────────────────────────────────────────────────────────────
     # 8. Workspace N+1 Query Reduction Check

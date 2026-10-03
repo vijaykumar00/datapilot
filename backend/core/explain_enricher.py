@@ -23,7 +23,7 @@ def enrich_explain_metadata(
             if record:
                 filename = record.filename
                 sheet = record.metadata.get("active_sheet") or "Sheet1"
-                columns = list(record.df.columns)[:8] # Standard slice of columns used
+                columns = [str(c) for c in list(record.df.columns)[:8]] # Standard slice of columns used
         except Exception:
             pass
             
@@ -45,8 +45,9 @@ def enrich_explain_metadata(
         
     explain.setdefault("intermediate_calculations", explain.get("intermediate_calculations") or default_calcs)
     
-    # Confidence score (0.0 to 1.0)
-    explain.setdefault("confidence_score", explain.get("confidence_score") or 0.90)
+    # No synthetic confidence numbers: only agents that compute a real statistic set one.
+    explain.setdefault("confidence_score", None)
+    explain.setdefault("verification", "AI-generated text" if response_metadata.get("agent_used") == "general" else "Computed from your data")
     
     # Reasoning summary
     explain.setdefault(

@@ -3,6 +3,7 @@ session_store.py — SQLite-backed session storage for chat and query persistenc
 """
 
 import json
+from core import jsonsafe
 import logging
 import uuid
 from datetime import datetime
@@ -15,8 +16,13 @@ logger = logging.getLogger("datapilot.session")
 def _get_or_create_session(conn: Any, session_id: str, name: str = None, user_id: str = "default_user", workspace_id: str = "default_workspace") -> None:
     """Helper to ensure a session exists in the DB with the right context."""
     cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM sessions WHERE session_id = ?;", (session_id,))
-    if not cursor.fetchone():
+    cursor.execute("SELECT user_id, workspace_id FROM sessions WHERE session_id = ?;", (session_id,))
+    existing = cursor.fetchone()
+    if existing:
+        if user_id is not None and (existing["user_id"] != user_id or existing["workspace_id"] != workspace_id):
+            raise PermissionError("Session belongs to a different user/workspace")
+        return
+    if not existing:
         now = datetime.utcnow().isoformat()
         session_name = name or f"Analysis Session {now[:10]}"
         cursor.execute(
@@ -258,14 +264,23 @@ def append_message(session_id: str, role: str, content: str, extra: dict | None 
         # Extract fields from extra or defaults
         msg_id = str(extra.get("id") or uuid.uuid4().hex)
         msg_type = extra.get("type", "text")
-        chart_data = json.dumps(extra.get("chart_data")) if extra.get("chart_data") is not None else None
-        table_data = json.dumps(extra.get("table_data")) if extra.get("table_data") is not None else None
-        metadata = json.dumps(extra.get("metadata", {}))
+        chart_data = jsonsafe.dumps(extra.get("chart_data")) if extra.get("chart_data") is not None else None
+        table_data = jsonsafe.dumps(extra.get("table_data")) if extra.get("table_data") is not None else None
+        metadata = jsonsafe.dumps(extra.get("metadata", {}))
 
+        # Portable upsert (SQLite >= 3.24 and PostgreSQL). Scope columns are not
+        # overwritten on conflict, so a message id can never be moved across tenants.
         cursor.execute(
             """
-            INSERT OR REPLACE INTO messages (id, session_id, role, content, type, chart_data, table_data, metadata, user_id, workspace_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO messages (id, session_id, role, content, type, chart_data, table_data, metadata, user_id, workspace_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                content = excluded.content,
+                type = excluded.type,
+                chart_data = excluded.chart_data,
+                table_data = excluded.table_data,
+                metadata = excluded.metadata
+            WHERE messages.user_id = excluded.user_id AND messages.workspace_id = excluded.workspace_id;
             """,
             (msg_id, session_id, role, content, msg_type, chart_data, table_data, metadata, user_id, workspace_id, now),
         )

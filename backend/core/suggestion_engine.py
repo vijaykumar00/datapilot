@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from core.parsing import _looks_identifier
 
 logger = logging.getLogger("datapilot.suggestions")
 
@@ -262,6 +263,10 @@ def generate_suggestions(df: pd.DataFrame, filename: str, metadata: dict) -> lis
     type_issues = []
     for col in df.select_dtypes(include="object").columns:
         sample = df[col].dropna().head(50)
+        # Identifier-like text (ZIP codes, account numbers with leading zeros) is
+        # intentionally kept as text by the parser; converting it would corrupt it.
+        if _looks_identifier(sample.astype(str)):
+            continue
         try:
             converted = pd.to_numeric(sample, errors="coerce")
             ratio = converted.notna().sum() / max(len(sample), 1)

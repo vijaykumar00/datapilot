@@ -95,6 +95,55 @@ class BaseStorageProvider(ABC):
         """Human-readable provider name."""
         raise NotImplementedError
 
+    # ── Generic object API (durable dataset versions, originals, exports) ──────
+    @abstractmethod
+    def put_object(self, key: str, content: bytes) -> str:
+        """Store bytes under *key* and return a durable URI."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def put_object_file(self, key: str, path: Path) -> str:
+        """Store a local file under *key* without loading it fully into memory."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_object(self, key: str) -> bytes:
+        """Return the bytes stored under *key* (FileNotFoundError when missing)."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def download_object(self, key: str, path: Path) -> None:
+        """Stream the object stored under *key* into a local file."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete_object(self, key: str) -> None:
+        """Delete one object (no error when missing)."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete_prefix(self, prefix: str) -> int:
+        """Delete every object whose key starts with *prefix*; return count."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def object_exists(self, key: str) -> bool:
+        raise NotImplementedError
+
+
+def dataset_prefix(storage_workspace_id: str, dataset_id: str) -> str:
+    """Canonical object-key prefix for one dataset (identical for every provider)."""
+    return (
+        f"workspace/{_safe_part(storage_workspace_id, 'workspace')}/"
+        f"datasets/{_safe_part(dataset_id, 'dataset')}/"
+    )
+
+
+def _validate_key(key: str) -> str:
+    if not key or key.startswith("/") or ".." in key.split("/") or "\\" in key:
+        raise ValueError(f"Invalid storage key: {key!r}")
+    return key
+
 
 class LocalStorageProvider(BaseStorageProvider):
     """Local disk provider for development and single-node testing."""
@@ -177,6 +226,58 @@ class LocalStorageProvider(BaseStorageProvider):
     @property
     def provider_name(self) -> str:
         return "local"
+
+    def _object_path(self, key: str) -> Path:
+        path = (self.base_dir / "objects" / _validate_key(key)).resolve()
+        root = (self.base_dir / "objects").resolve()
+        if root not in path.parents:
+            raise ValueError(f"Invalid storage key: {key!r}")
+        return path
+
+    def put_object(self, key: str, content: bytes) -> str:
+        path = self._object_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_bytes(content)
+        os.replace(tmp, path)
+        return f"local://{key}"
+
+    def put_object_file(self, key: str, path: Path) -> str:
+        target = self._object_path(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        shutil.copyfile(path, tmp)
+        os.replace(tmp, target)
+        return f"local://{key}"
+
+    def get_object(self, key: str) -> bytes:
+        path = self._object_path(key)
+        if not path.exists():
+            raise FileNotFoundError(key)
+        return path.read_bytes()
+
+    def download_object(self, key: str, path: Path) -> None:
+        source = self._object_path(key)
+        if not source.exists():
+            raise FileNotFoundError(key)
+        shutil.copyfile(source, path)
+
+    def delete_object(self, key: str) -> None:
+        self._object_path(key).unlink(missing_ok=True)
+
+    def delete_prefix(self, prefix: str) -> int:
+        root = self._object_path(prefix.rstrip("/") or ".")
+        if not root.exists():
+            return 0
+        if root.is_file():
+            root.unlink()
+            return 1
+        count = sum(1 for p in root.rglob("*") if p.is_file())
+        shutil.rmtree(root, ignore_errors=True)
+        return count
+
+    def object_exists(self, key: str) -> bool:
+        return self._object_path(key).exists()
 
 
 class S3CompatibleStorageProvider(BaseStorageProvider):
@@ -336,6 +437,58 @@ class S3CompatibleStorageProvider(BaseStorageProvider):
     def provider_name(self) -> str:
         return "s3"
 
+    def put_object(self, key: str, content: bytes) -> str:
+        self._ensure_bucket()
+        self._client_for_s3().put_object(Bucket=self.bucket, Key=_validate_key(key), Body=content)
+        return f"s3://{self.bucket}/{key}"
+
+    def put_object_file(self, key: str, path: Path) -> str:
+        self._ensure_bucket()
+        self._client_for_s3().upload_file(str(path), self.bucket, _validate_key(key))
+        return f"s3://{self.bucket}/{key}"
+
+    def get_object(self, key: str) -> bytes:
+        self._ensure_bucket()
+        client = self._client_for_s3()
+        try:
+            return client.get_object(Bucket=self.bucket, Key=_validate_key(key))["Body"].read()
+        except client.exceptions.NoSuchKey as exc:
+            raise FileNotFoundError(key) from exc
+
+    def download_object(self, key: str, path: Path) -> None:
+        self._ensure_bucket()
+        client = self._client_for_s3()
+        try:
+            client.download_file(self.bucket, _validate_key(key), str(path))
+        except Exception as exc:
+            if "404" in str(exc) or "Not Found" in str(exc) or "NoSuchKey" in str(exc):
+                raise FileNotFoundError(key) from exc
+            raise
+
+    def delete_object(self, key: str) -> None:
+        self._ensure_bucket()
+        self._client_for_s3().delete_object(Bucket=self.bucket, Key=_validate_key(key))
+
+    def delete_prefix(self, prefix: str) -> int:
+        self._ensure_bucket()
+        client = self._client_for_s3()
+        paginator = client.get_paginator("list_objects_v2")
+        deleted = 0
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=_validate_key(prefix)):
+            objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+            if objects:
+                client.delete_objects(Bucket=self.bucket, Delete={"Objects": objects})
+                deleted += len(objects)
+        return deleted
+
+    def object_exists(self, key: str) -> bool:
+        try:
+            self._ensure_bucket()
+            self._client_for_s3().head_object(Bucket=self.bucket, Key=_validate_key(key))
+            return True
+        except Exception:
+            return False
+
 
 _storage_provider: BaseStorageProvider | None = None
 
@@ -357,7 +510,8 @@ def get_storage_provider() -> BaseStorageProvider:
             "ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true only for an explicitly accepted single-node beta."
         )
 
-    _storage_provider = LocalStorageProvider()
+    local_dir = os.getenv("LOCAL_STORAGE_DIR")
+    _storage_provider = LocalStorageProvider(Path(local_dir) if local_dir else None)
     return _storage_provider
 
 

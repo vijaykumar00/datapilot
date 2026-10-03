@@ -1,53 +1,73 @@
 """
-insight_agent.py — NL → DuckDB SQL → formatted results.
-Uses few-shot prompting for reliable SQL generation.
+insight_agent.py — NL → sandboxed DuckDB SQL → formatted, data-grounded results.
+
+* SQL runs in a fresh, locked-down DuckDB connection that contains only the
+  caller's dataset (see core.data_store).
+* Results are JSON-safe, capped at ``QUERY_MAX_RESULT_ROWS`` and flagged when
+  truncated.
+* The answer cache is keyed by dataset *version*, so any edit/transform/sheet
+  switch automatically invalidates previous answers.
 """
 
+import copy
+import difflib
 import hashlib
 import json
 import logging
 import re
+import threading
 import time
+from collections import OrderedDict
 
 from agents.base_agent import AgentResponse, BaseAgent
-from core.error_intelligence import diagnose_sql_error, diagnose_empty_result, format_for_user
+from core.data_store import QueryTimeoutError, UnsafeQueryError
+from core.error_intelligence import diagnose_empty_result, diagnose_sql_error, format_for_user
+from core.jsonsafe import to_jsonable
 
 logger = logging.getLogger("datapilot.agent.insight")
+_AS_SPLIT = re.compile(r"\bAS\b", re.IGNORECASE)
 
-# Simple 5-minute query cache: {hash: (result, timestamp)}
-_query_cache: dict[str, tuple[AgentResponse, float]] = {}
-CACHE_TTL = 300  # 5 minutes
+CACHE_TTL = 300
+CACHE_MAX_ENTRIES = 512
+_query_cache: "OrderedDict[str, tuple[dict, float]]" = OrderedDict()
+_cache_lock = threading.Lock()
 
 
-def _build_sql_explain(
-    sql: str,
-    explanation: str,
-    row_count: int,
-    table_name: str,
-    filename: str = "N/A",
-    sheet: str = "N/A"
-) -> dict:
+def _cache_get(key: str) -> dict | None:
+    with _cache_lock:
+        item = _query_cache.get(key)
+        if not item:
+            return None
+        payload, ts = item
+        if time.time() - ts > CACHE_TTL:
+            _query_cache.pop(key, None)
+            return None
+        _query_cache.move_to_end(key)
+        return copy.deepcopy(payload)
+
+
+def _cache_put(key: str, payload: dict) -> None:
+    with _cache_lock:
+        _query_cache[key] = (copy.deepcopy(payload), time.time())
+        while len(_query_cache) > CACHE_MAX_ENTRIES:
+            _query_cache.popitem(last=False)
+
+
+def _cache_key(query: str, dataset_id: str, version: int, provider: str) -> str:
+    return hashlib.sha256(f"{dataset_id}:{version}:{provider}:{query.strip().lower()}".encode()).hexdigest()
+
+
+def _build_sql_explain(sql: str, explanation: str, row_count: int, table_name: str, filename: str = "N/A",
+                       sheet: str = "N/A", truncated: bool = False) -> dict:
     """Parse SQL into a structured explain block for the frontend ExplainPanel."""
-    sql_upper = sql.upper()
     sections = []
-
-    # 1. Query Intent
     if explanation:
-        sections.append({
-            "label": "Query Intent",
-            "icon": "🎯",
-            "content": explanation
-        })
+        sections.append({"label": "Query Intent", "icon": "🎯", "content": explanation})
 
-    # 2. SELECT clause — extract column/expression list
     select_match = re.search(r"SELECT\s+(.+?)\s+FROM", sql, re.IGNORECASE | re.DOTALL)
     if select_match:
-        fields_raw = select_match.group(1).strip()
-        # Split on top-level commas (not inside parens)
-        fields = []
-        depth = 0
-        current = []
-        for ch in fields_raw:
+        fields, depth, current = [], 0, []
+        for ch in select_match.group(1).strip():
             if ch == "(":
                 depth += 1
             elif ch == ")":
@@ -59,94 +79,48 @@ def _build_sql_explain(
                 current.append(ch)
         if current:
             fields.append("".join(current).strip())
-
-        field_lines = []
+        lines = []
         for f in fields:
-            f = f.strip()
             alias_match = re.search(r"\bAS\b\s+(\S+)$", f, re.IGNORECASE)
             alias = alias_match.group(1).strip('"') if alias_match else None
             agg_match = re.match(r"(COUNT|SUM|AVG|MIN|MAX|ROUND)\s*\(", f, re.IGNORECASE)
             if agg_match:
-                agg = agg_match.group(1).upper()
-                label = f"→ {agg}({alias or '?'}) — aggregation"
+                lines.append(f"→ {agg_match.group(1).upper()}({alias or '?'}) — aggregation")
             elif alias:
-                label = f"→ {f.split('AS')[0].strip()} as {alias}"
+                expr = _AS_SPLIT.split(f)[0].strip()
+                lines.append(f"→ {expr} as {alias}")
             else:
-                label = f"→ {f}"
-            field_lines.append(label)
+                lines.append(f"→ {f}")
+        sections.append({"label": "Fields Selected", "icon": "📋", "content": lines})
 
-        sections.append({
-            "label": "Fields Selected",
-            "icon": "📋",
-            "content": field_lines
-        })
-
-    # 3. FROM clause
     from_match = re.search(r"FROM\s+(\S+)", sql, re.IGNORECASE)
     if from_match:
-        sections.append({
-            "label": "Data Source",
-            "icon": "🗄️",
-            "content": f"Scanning table `{from_match.group(1)}`"
-        })
-
-    # 4. WHERE clause
+        sections.append({"label": "Data Source", "icon": "🗄️", "content": f"Scanning table `{from_match.group(1)}`"})
     where_match = re.search(r"WHERE\s+(.+?)(?:GROUP\s+BY|ORDER\s+BY|LIMIT|$)", sql, re.IGNORECASE | re.DOTALL)
     if where_match:
-        sections.append({
-            "label": "Row Filters",
-            "icon": "🔍",
-            "content": where_match.group(1).strip()
-        })
-
-    # 5. GROUP BY clause
+        sections.append({"label": "Row Filters", "icon": "🔍", "content": where_match.group(1).strip()})
     group_match = re.search(r"GROUP\s+BY\s+(.+?)(?:ORDER\s+BY|LIMIT|HAVING|$)", sql, re.IGNORECASE | re.DOTALL)
     if group_match:
-        sections.append({
-            "label": "Grouping",
-            "icon": "📦",
-            "content": f"Results grouped by: {group_match.group(1).strip()}"
-        })
-
-    # 6. ORDER BY clause
+        sections.append({"label": "Grouping", "icon": "📦", "content": f"Results grouped by: {group_match.group(1).strip()}"})
     order_match = re.search(r"ORDER\s+BY\s+(.+?)(?:LIMIT|$)", sql, re.IGNORECASE | re.DOTALL)
     if order_match:
-        sections.append({
-            "label": "Sorting",
-            "icon": "⬇️",
-            "content": f"Ordered by: {order_match.group(1).strip()}"
-        })
-
-    # 7. LIMIT clause
+        sections.append({"label": "Sorting", "icon": "⬇️", "content": f"Ordered by: {order_match.group(1).strip()}"})
     limit_match = re.search(r"LIMIT\s+(\d+)", sql, re.IGNORECASE)
     if limit_match:
-        sections.append({
-            "label": "Row Limit",
-            "icon": "✂️",
-            "content": f"Capped at {limit_match.group(1)} rows for safety"
-        })
+        sections.append({"label": "Row Limit", "icon": "✂️", "content": f"Query limited to {limit_match.group(1)} rows"})
+    result_text = f"{row_count} row{'s' if row_count != 1 else ''} returned from `{table_name}`"
+    if truncated:
+        result_text += " (display capped — export for the full result)"
+    sections.append({"label": "Execution Result", "icon": "✅", "content": result_text})
 
-    # 8. Execution result
-    sections.append({
-        "label": "Execution Result",
-        "icon": "✅",
-        "content": f"{row_count} row{'s' if row_count != 1 else ''} returned from `{table_name}`"
-    })
-
-    # 9. Column usage
     col_refs = re.findall(r'"?([a-zA-Z_][a-zA-Z0-9_]*)"?', sql)
-    sql_keywords = {"SELECT", "FROM", "WHERE", "GROUP", "BY", "ORDER", "LIMIT", "AS",
-                    "AND", "OR", "NOT", "NULL", "IS", "IN", "LIKE", "BETWEEN", "DESC",
-                    "ASC", "COUNT", "SUM", "AVG", "MIN", "MAX", "ROUND", "DISTINCT", "TRUE", "FALSE"}
-    user_cols = sorted(set(c for c in col_refs if c.upper() not in sql_keywords and not c.isdigit()))
+    sql_keywords = {"SELECT", "FROM", "WHERE", "GROUP", "BY", "ORDER", "LIMIT", "AS", "AND", "OR", "NOT", "NULL",
+                    "IS", "IN", "LIKE", "BETWEEN", "DESC", "ASC", "COUNT", "SUM", "AVG", "MIN", "MAX", "ROUND",
+                    "DISTINCT", "TRUE", "FALSE"}
+    user_cols = sorted({c for c in col_refs if c.upper() not in sql_keywords and not c.isdigit()})
     if user_cols:
-        sections.append({
-            "label": "Columns Referenced",
-            "icon": "🏷️",
-            "content": user_cols
-        })
+        sections.append({"label": "Columns Referenced", "icon": "🏷️", "content": user_cols})
 
-    # Calculations
     calcs = [f"SQL returned row count: {row_count}"]
     if group_match:
         calcs.append(f"Grouping keys: {group_match.group(1).strip()}")
@@ -162,210 +136,139 @@ def _build_sql_explain(
         "columns": user_cols,
         "filters": where_match.group(1).strip() if where_match else "None",
         "intermediate_calculations": calcs,
-        "confidence_score": 0.98,
-        "reasoning_summary": explanation or "SQL statement formed and successfully run on target dataset."
+        "confidence_score": None,
+        "verification": "Computed by executing SQL on your data",
+        "reasoning_summary": explanation or "SQL statement executed on the dataset.",
     }
+
 
 SQL_SYSTEM = """You are a SQL expert. Generate a single DuckDB SQL SELECT query for the user's question.
 
 Rules:
 1. Return ONLY valid JSON: {"sql": "<sql_query>", "explanation": "<one sentence>"}
-2. Use the table name provided exactly as given
-3. Use LIMIT 100 for safety unless user asks for all rows
-4. Use double quotes for column names with spaces: "My Column"
+2. Use the table name provided exactly as given; it is the ONLY table available
+3. Use LIMIT 100 unless the user asks for all rows
+4. Use double quotes for column names: "My Column"
 5. For aggregations, use GROUP BY and ORDER BY DESC
-6. Never use DELETE, DROP, INSERT, UPDATE — only SELECT
+6. Only a single read-only SELECT statement (WITH ... SELECT allowed)
 7. If a column doesn't exist, pick the closest matching one
 
 Few-shot examples:
 Q: top 5 products by revenue | table: file_abc123
-A: {"sql": "SELECT product, SUM(revenue) as total_revenue FROM file_abc123 GROUP BY product ORDER BY total_revenue DESC LIMIT 5", "explanation": "Groups by product and sums revenue, ordered by highest total"}
+A: {"sql": "SELECT \\"product\\", SUM(\\"revenue\\") AS total_revenue FROM file_abc123 GROUP BY 1 ORDER BY total_revenue DESC LIMIT 5", "explanation": "Groups by product and sums revenue, ordered by highest total"}
 
 Q: average salary by department | table: file_xyz789
-A: {"sql": "SELECT department, ROUND(AVG(salary), 2) as avg_salary FROM file_xyz789 GROUP BY department ORDER BY avg_salary DESC LIMIT 100", "explanation": "Averages salary per department"}
-
-Q: how many rows have null values | table: file_aaa111
-A: {"sql": "SELECT COUNT(*) as null_count FROM file_aaa111 WHERE TRUE AND (col1 IS NULL OR col2 IS NULL)", "explanation": "Counts rows with any null value"}
+A: {"sql": "SELECT \\"department\\", ROUND(AVG(\\"salary\\"), 2) AS avg_salary FROM file_xyz789 GROUP BY 1 ORDER BY avg_salary DESC LIMIT 100", "explanation": "Averages salary per department"}
 """
 
 
-def _cache_key(query: str, table_name: str) -> str:
-    return hashlib.md5(f"{query}:{table_name}".encode()).hexdigest()
+def _extract_sql(raw: str) -> tuple[str, str]:
+    clean = re.sub(r"```(?:json|sql)?\s*", "", raw or "").replace("```", "").strip()
+    try:
+        parsed = json.loads(clean)
+        if isinstance(parsed, dict):
+            return str(parsed.get("sql", "")).strip(), str(parsed.get("explanation", ""))
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    json_match = re.search(r'\{[^{}]*"sql"\s*:\s*"((?:[^"\\]|\\.)+)"[^{}]*\}', clean, re.DOTALL)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group(0))
+            return str(parsed.get("sql", "")).strip(), str(parsed.get("explanation", ""))
+        except Exception:
+            return json_match.group(1).strip(), ""
+    sel_match = re.search(r"((?:WITH|SELECT)\s+.+)", clean, re.IGNORECASE | re.DOTALL)
+    return (sel_match.group(1).strip().rstrip(";"), "") if sel_match else ("", "")
 
 
 class InsightAgent(BaseAgent):
     agent_type = "insight"
 
-    async def _execute(
-        self,
-        query: str,
-        file_ids: list[str],
-        context: list[dict],
-    ) -> AgentResponse:
-        file_id, record = self._get_primary_file(file_ids)
+    async def _execute(self, query: str, file_ids: list[str], context: list[dict]) -> AgentResponse:
+        file_id, record = await self._get_primary_file(file_ids)
         if not record:
-            return AgentResponse.error_response(
-                "No file loaded. Please upload a CSV or Excel file first.",
-                "insight",
-            )
+            return AgentResponse.error_response("No file loaded. Please upload a CSV or Excel file first.", "insight")
 
         table_name = record.table_name
         df = record.df
+        provider = getattr(getattr(self.llm, "settings", None), "provider", "llm")
+        key = _cache_key(query, record.file_id, record.version, provider)
+        cached = _cache_get(key)
+        if cached is not None:
+            cached["metadata"]["cached"] = True
+            return AgentResponse(**cached)
 
-        # Check cache
-        key = _cache_key(query, table_name)
-        now = time.time()
-        if key in _query_cache:
-            cached, ts = _query_cache[key]
-            if now - ts < CACHE_TTL:
-                logger.info("Cache hit for insight query")
-                cached.metadata["cached"] = True
-                return cached
+        columns_info = ", ".join(f'"{col}" ({dtype})' for col, dtype in zip(df.columns, df.dtypes))
+        sample = json.dumps(to_jsonable(df.head(2).to_dict(orient="records")))[:4000]
+        prompt = f"Table: {table_name}\nColumns: {columns_info}\nSample values: {sample}\nQuestion: {query}"
 
-        # Build schema context for LLM
-        columns_info = ", ".join(
-            f'"{col}" ({dtype})' for col, dtype in zip(df.columns, df.dtypes)
-        )
-        prompt = (
-            f"Table: {table_name}\n"
-            f"Columns: {columns_info}\n"
-            f"Sample values: {df.head(2).to_dict(orient='records')}\n"
-            f"Question: {query}"
-        )
-
-        # Generate SQL
         raw = await self.llm.generate(prompt, system=SQL_SYSTEM, json_mode=True)
+        sql, explanation = _extract_sql(raw)
+        if not sql:
+            logger.warning("Could not extract SQL from model output")
+            return AgentResponse.error_response(f"Could not generate a valid SQL query for: '{query}'", "insight")
 
-        sql = ""
-        explanation = ""
-
-        # Strip markdown code fences (Gemini/Claude often wrap output in ```json...```)
-        clean = re.sub(r"```(?:json|sql)?\s*", "", raw).replace("```", "").strip()
-
-        # Try JSON parse first
+        tables = {table_name: df}
+        auto_recovery = None
         try:
-            parsed = json.loads(clean)
-            sql = parsed.get("sql", "").strip()
-            explanation = parsed.get("explanation", "")
-        except (json.JSONDecodeError, AttributeError):
-            # Try extracting JSON object with sql key from anywhere in the text
-            json_match = re.search(r'\{[^{}]*"sql"\s*:\s*"([^"]+)"[^{}]*\}', clean, re.DOTALL)
-            if json_match:
-                try:
-                    parsed = json.loads(json_match.group(0))
-                    sql = parsed.get("sql", "").strip()
-                    explanation = parsed.get("explanation", "")
-                except Exception:
-                    sql = json_match.group(1).strip()
-            else:
-                # Last resort: find a SELECT statement directly in the text
-                sel_match = re.search(r"(SELECT\s+.+)", clean, re.IGNORECASE | re.DOTALL)
-                if sel_match:
-                    sql = sel_match.group(1).strip().rstrip(";")
-
-        if not sql or not sql.upper().lstrip().startswith("SELECT"):
-            logger.warning(f"Could not extract SQL. Raw LLM output: {raw[:300]}")
+            result = await self.cpu(self.store.execute, sql, tables)
+        except UnsafeQueryError as exc:
             return AgentResponse.error_response(
-                f"Could not generate a valid SQL query for: '{query}'", "insight"
+                f"The generated query was rejected for safety reasons ({exc}). Try rephrasing the question.", "insight"
             )
-
-        # Execute
-        try:
-            results = self.store.execute(sql)
+        except QueryTimeoutError as exc:
+            return AgentResponse.error_response(f"{exc} Try a narrower question.", "insight")
         except Exception as e:
             intelligent_err = diagnose_sql_error(e, sql, df, file_record=record)
-            
-            # Automatic recovery:
-            if intelligent_err.get("code") == "COLUMN_NOT_FOUND" and df is not None:
-                bad_col = intelligent_err.get("affected_column")
-                import difflib
-                close = difflib.get_close_matches(bad_col, list(df.columns), n=1, cutoff=0.6)
+            result = None
+            if intelligent_err.get("code") == "COLUMN_NOT_FOUND":
+                bad_col = intelligent_err.get("affected_column") or ""
+                close = difflib.get_close_matches(bad_col, [str(c) for c in df.columns], n=1, cutoff=0.6)
                 if close:
                     suggested = close[0]
-                    # Automatically replace bad column name in SQL
-                    fixed_sql = re.sub(r'\b' + re.escape(bad_col) + r'\b', suggested, sql, flags=re.IGNORECASE)
-                    fixed_sql = fixed_sql.replace(f'"{bad_col}"', f'"{suggested}"').replace(f"'{bad_col}'", f"'{suggested}'")
+                    fixed_sql = re.sub(r'"?\b' + re.escape(bad_col) + r'\b"?', f'"{suggested}"', sql, flags=re.IGNORECASE)
                     try:
-                        logger.info(f"Auto-recovery: retrying SQL with '{suggested}' instead of '{bad_col}'")
-                        results = self.store.execute(fixed_sql)
-                        row_count = len(results)
-                        
-                        content_lines = [
-                            f"⚠️ **Note:** Column '{bad_col}' was not found. We automatically corrected it to '{suggested}' and ran the query.\n",
-                            f"**Query:** `{fixed_sql}`\n"
-                        ]
-                        if explanation:
-                            content_lines.append(f"*{explanation}*\n")
-                        content_lines.append(f"**{row_count} row(s) returned.**")
-                        
-                        filename = record.filename if record else "N/A"
-                        sheet = record.metadata.get("active_sheet") or "Sheet1"
-                        
-                        explain = _build_sql_explain(fixed_sql, explanation, row_count, table_name, filename, sheet)
-                        
-                        return AgentResponse(
-                            type="insight",
-                            content="\n".join(content_lines),
-                            table_data=results,
-                            metadata={
-                                "sql": fixed_sql,
-                                "explanation": explanation,
-                                "row_count": row_count,
-                                "table_name": table_name,
-                                "cached": False,
-                                "explain": explain,
-                                "auto_recovered": True,
-                                "recovery_message": f"Automatically replaced missing column '{bad_col}' with '{suggested}'"
-                            },
-                        )
+                        result = await self.cpu(self.store.execute, fixed_sql, tables)
+                        auto_recovery = f"Column '{bad_col}' was not found; '{suggested}' was used instead."
+                        sql = fixed_sql
                     except Exception:
-                        pass
-            
-            return AgentResponse.error_response(
-                format_for_user(intelligent_err), "insight", intelligent_error=intelligent_err
-            )
+                        result = None
+            if result is None:
+                return AgentResponse.error_response(format_for_user(intelligent_err), "insight", intelligent_error=intelligent_err)
 
-        # Zero-row result — provide context-rich explanation
-        row_count = len(results)
+        row_count = len(result.rows)
         if row_count == 0:
             empty_err = diagnose_empty_result(sql, df, query)
-            return AgentResponse.error_response(
-                format_for_user(empty_err), "insight", intelligent_error=empty_err
-            )
+            return AgentResponse.error_response(format_for_user(empty_err), "insight", intelligent_error=empty_err)
 
-        # Format response
-        content_lines = [f"**Query:** `{sql}`\n"]
+        content_lines = []
+        if auto_recovery:
+            content_lines.append(f"⚠️ **Note:** {auto_recovery}\n")
+        content_lines.append(f"**Query:** `{sql}`\n")
         if explanation:
             content_lines.append(f"*{explanation}*\n")
-        content_lines.append(f"**{row_count} row(s) returned.**")
+        if result.truncated:
+            content_lines.append(f"**Showing the first {row_count:,} rows** — use Export to download the full result.")
+        else:
+            content_lines.append(f"**{row_count} row(s) returned.**")
 
-        filename = "N/A"
-        sheet = "N/A"
-        if record:
-            filename = record.filename
-            sheet = record.metadata.get("active_sheet") or "Sheet1"
+        sheet = record.metadata.get("active_sheet") or "Sheet1"
+        explain = _build_sql_explain(sql, explanation, row_count, table_name, record.filename, sheet, result.truncated)
+        metadata = {
+            "sql": sql,
+            "explanation": explanation,
+            "row_count": row_count,
+            "truncated": result.truncated,
+            "row_limit": result.row_limit,
+            "table_name": table_name,
+            "dataset_version": record.version,
+            "cached": False,
+            "explain": explain,
+        }
+        if auto_recovery:
+            metadata["auto_recovered"] = True
+            metadata["recovery_message"] = auto_recovery
 
-        explain = _build_sql_explain(sql, explanation, row_count, table_name, filename, sheet)
-
-        response = AgentResponse(
-            type="insight",
-            content="\n".join(content_lines),
-            table_data=results,
-            metadata={
-                "sql": sql,
-                "explanation": explanation,
-                "row_count": row_count,
-                "table_name": table_name,
-                "cached": False,
-                "explain": explain,
-            },
-        )
-
-        # Cache it
-        _query_cache[key] = (response, now)
-        # Evict old entries
-        expired = [k for k, (_, ts) in _query_cache.items() if now - ts > CACHE_TTL]
-        for k in expired:
-            del _query_cache[k]
-
-        return response
+        payload = {"type": "insight", "content": "\n".join(content_lines), "table_data": result.rows, "metadata": metadata}
+        _cache_put(key, payload)
+        return AgentResponse(**payload)

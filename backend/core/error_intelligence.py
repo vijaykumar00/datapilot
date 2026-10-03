@@ -88,14 +88,27 @@ def diagnose_upload_error(exc: Exception, filename: str, raw_bytes: bytes | None
             severity="error",
         )
 
+    # ── Too many rows / columns (limits are on the parsed dataset, not the file size) ──
+    if "too many rows" in msg or "too many columns" in msg:
+        return _make_error(
+            code="DATASET_TOO_LARGE",
+            title="Dataset exceeds row/column limit",
+            message=f"'{filename}' could not be loaded: {str(exc)}",
+            suggestions=[
+                "Filter the file to the relevant date range before uploading.",
+                "Split into multiple files by year, region, or category.",
+                "Remove unused columns that are not needed for your analysis.",
+            ],
+            severity="error",
+        )
+
     # ── File too large ──
-    if "too large" in msg or "max" in msg:
+    if "file too large" in msg or "too large for available memory" in msg:
         return _make_error(
             code="FILE_TOO_LARGE",
             title="File exceeds size limit",
             message=(
-                f"'{filename}' is {size_mb} MB, which exceeds the 50 MB upload limit. "
-                f"Large files slow down in-browser analysis and may exceed available memory."
+                f"'{filename}' ({size_mb} MB) could not be processed: {str(exc)}"
             ),
             suggestions=[
                 "Filter the file to the relevant date range before uploading.",
@@ -410,15 +423,15 @@ def diagnose_sql_error(
 
         # Cross-sheet column search for automatic Excel sheet suggestion
         recovery = None
-        if file_record is not None and file_record.path.suffix.lower() in {".xlsx", ".xls"}:
+        sheet_columns = (file_record.metadata.get("sheet_columns") or {}) if file_record is not None else {}
+        if file_record is not None and sheet_columns:
             sheet_names = file_record.metadata.get("sheet_names", [])
             active_sheet = file_record.metadata.get("active_sheet")
             for sheet in sheet_names:
                 if sheet == active_sheet:
                     continue
                 try:
-                    engine = "openpyxl" if file_record.path.suffix.lower() == ".xlsx" else "xlrd"
-                    sheet_df = pd.read_excel(file_record.path, sheet_name=sheet, nrows=0, engine=engine)
+                    sheet_df = pd.DataFrame(columns=[str(c) for c in sheet_columns.get(sheet, [])])
                     if bad_col in sheet_df.columns or difflib.get_close_matches(bad_col, list(sheet_df.columns), cutoff=0.8):
                         err = _make_error(
                             code="COLUMN_NOT_FOUND",

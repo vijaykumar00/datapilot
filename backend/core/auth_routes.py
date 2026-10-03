@@ -10,7 +10,7 @@ import secrets
 import uuid
 from typing import Optional
 from urllib.parse import urlencode, urlparse
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, Request, Response, status
 import httpx
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from core.models import (
     PasswordResetToken,
     PhoneOtpChallenge,
     AuditLog,
+    OAuthIdentity,
 )
 from core.auth import (
     hash_password,
@@ -68,10 +69,11 @@ class TokenResponse(BaseModel):
     phone_number: str | None = None
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
+    workspace_id: str | None = None
 
 class LogoutRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 class VerifyEmailRequest(BaseModel):
     token: str
@@ -173,6 +175,7 @@ def _token_response_for_user(
         token_hash=refresh_token_hash,
         expires_at=expires_at,
         revoked=False,
+        workspace_id=workspace_id,
     ))
     db.add(AuditLog(
         id=str(uuid.uuid4()),
@@ -192,6 +195,41 @@ def _token_response_for_user(
         full_name=user.full_name,
         phone_number=getattr(user, "phone_number", None),
     )
+
+
+REFRESH_COOKIE = "dp_refresh"
+
+
+REFRESH_REUSE_GRACE_SECONDS = int(os.getenv("REFRESH_REUSE_GRACE_SECONDS", "20"))
+
+
+def set_refresh_cookie(response: Response, raw_refresh_token: str) -> None:
+    """Refresh tokens travel in an HttpOnly, SameSite=Strict cookie (not readable by JS)."""
+    response.set_cookie(
+        REFRESH_COOKIE,
+        raw_refresh_token,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        httponly=True,
+        secure=_is_production() or os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"},
+        samesite="strict",
+        path="/",
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(REFRESH_COOKIE, path="/")
+
+
+def _issue(response: Response, token: "TokenResponse") -> "TokenResponse":
+    set_refresh_cookie(response, token.refresh_token)
+    return token
+
+
+def revoke_all_refresh_tokens(user_id: str, db: Session) -> int:
+    tokens = db.query(RefreshToken).filter(RefreshToken.user_id == user_id, RefreshToken.revoked == False).all()  # noqa: E712
+    for t in tokens:
+        t.revoked = True
+    return len(tokens)
 
 
 def _first_or_create_workspace(user: User, db: Session, workspace_name: str | None = None) -> WorkspaceMember:
@@ -305,16 +343,41 @@ def _require_oauth_config(provider: str) -> dict:
 
 
 def _social_user_from_profile(provider: str, profile: dict, db: Session) -> User:
-    email = (profile.get("email") or profile.get("preferred_username") or "").strip().lower()
+    """Resolve the local user for a verified OAuth identity.
+
+    Accounts are linked by the provider's stable subject id.  An existing
+    password account is only linked automatically when the provider *asserts
+    the email is verified* (Google ``email_verified=true``).  Microsoft's
+    ``preferred_username``/``email`` claims are not verified for every tenant,
+    so they never auto-link to an existing account (prevents account takeover).
+    """
+    subject = str(profile.get("sub") or profile.get("oid") or profile.get("id") or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="OAuth provider did not return a subject identifier.")
+    email = (profile.get("email") or (profile.get("preferred_username") if provider == "microsoft" else "") or "").strip().lower()
+    email_verified = provider == "google" and profile.get("email_verified") is True
+
+    identity = db.query(OAuthIdentity).filter(OAuthIdentity.provider == provider, OAuthIdentity.subject == subject).first()
+    if identity:
+        user = db.query(User).filter(User.user_id == identity.user_id).first()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is inactive or not found.")
+        return user
+
     if not email:
         raise HTTPException(status_code=400, detail="OAuth provider did not return an email address.")
-    if provider == "google" and profile.get("email_verified") is False:
+    if provider == "google" and not email_verified:
         raise HTTPException(status_code=403, detail="Google email address is not verified.")
 
-    user = db.query(User).filter(User.email == email).first()
     full_name = profile.get("name") or profile.get("given_name")
     avatar_url = profile.get("picture")
+    user = db.query(User).filter(User.email == email).first()
     if user:
+        if not email_verified:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Sign in with your password instead.",
+            )
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is inactive or not found.")
         user.email_verified = True
@@ -322,19 +385,19 @@ def _social_user_from_profile(provider: str, profile: dict, db: Session) -> User
             user.full_name = full_name
         if avatar_url and not user.avatar_url:
             user.avatar_url = avatar_url
+    else:
+        user = User(
+            user_id=str(uuid.uuid4()),
+            email=email,
+            password_hash=hash_password(generate_random_token()),
+            full_name=full_name,
+            avatar_url=avatar_url,
+            is_active=True,
+            email_verified=email_verified,
+        )
+        db.add(user)
         db.flush()
-        return user
-
-    user = User(
-        user_id=str(uuid.uuid4()),
-        email=email,
-        password_hash=hash_password(generate_random_token()),
-        full_name=full_name,
-        avatar_url=avatar_url,
-        is_active=True,
-        email_verified=True,
-    )
-    db.add(user)
+    db.add(OAuthIdentity(id=str(uuid.uuid4()), provider=provider, subject=subject, user_id=user.user_id, email=email))
     db.flush()
     return user
 
@@ -512,10 +575,10 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     }
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     # 1. Query user
     user = db.query(User).filter(User.email == payload.email).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         # Audit failed login
         failed_log = AuditLog(
             id=str(uuid.uuid4()),
@@ -564,13 +627,13 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             db.add(membership)
             db.commit()
 
-    return _token_response_for_user(
+    return _issue(response, _token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
         event_type="LOGIN_SUCCESS",
         description=f"User successfully logged into workspace: {membership.workspace_id}",
-    )
+    ))
 
 
 @router.get("/oauth/providers")
@@ -612,7 +675,7 @@ def oauth_start(provider: str, payload: OAuthStartRequest):
 
 
 @router.post("/oauth/{provider}/callback", response_model=TokenResponse)
-def oauth_callback(provider: str, payload: OAuthCallbackRequest, db: Session = Depends(get_db)):
+def oauth_callback(provider: str, payload: OAuthCallbackRequest, response: Response, db: Session = Depends(get_db)):
     provider = provider.lower()
     cfg = _require_oauth_config(provider)
     redirect_uri = _validate_redirect_uri(payload.redirect_uri)
@@ -654,13 +717,13 @@ def oauth_callback(provider: str, payload: OAuthCallbackRequest, db: Session = D
 
     user = _social_user_from_profile(provider, profile, db)
     membership = _first_or_create_workspace(user, db)
-    return _token_response_for_user(
+    return _issue(response, _token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
         event_type="OAUTH_LOGIN",
         description=f"User signed in with {cfg['display_name']}.",
-    )
+    ))
 
 
 @router.post("/otp/request")
@@ -695,7 +758,7 @@ def request_phone_otp(payload: PhoneOtpRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/otp/verify", response_model=TokenResponse)
-def verify_phone_otp(payload: PhoneOtpVerifyRequest, db: Session = Depends(get_db)):
+def verify_phone_otp(payload: PhoneOtpVerifyRequest, response: Response, db: Session = Depends(get_db)):
     if not _phone_otp_enabled():
         raise HTTPException(status_code=503, detail="Phone OTP sign-in is not enabled.")
 
@@ -721,58 +784,83 @@ def verify_phone_otp(payload: PhoneOtpVerifyRequest, db: Session = Depends(get_d
     challenge.consumed = True
     user = _phone_user(phone_number, db)
     membership = _first_or_create_workspace(user, db, payload.workspace_name or "Phone Workspace")
-    return _token_response_for_user(
+    return _issue(response, _token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
         event_type="PHONE_OTP_LOGIN",
         description="User signed in with phone OTP.",
-    )
+    ))
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
-    hashed = hash_token(payload.refresh_token)
-    token_entry = db.query(RefreshToken).filter(
-        RefreshToken.token_hash == hashed,
-        RefreshToken.revoked == False
-    ).first()
+def refresh(
+    response: Response,
+    payload: RefreshRequest | None = None,
+    dp_refresh: str | None = Cookie(None),
+    db: Session = Depends(get_db),
+):
+    raw = (payload.refresh_token if payload else None) or dp_refresh
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
+    hashed = hash_token(raw)
+    token_entry = db.query(RefreshToken).filter(RefreshToken.token_hash == hashed).first()
+
+    if token_entry and token_entry.revoked and token_entry.rotated_at is not None and (
+        datetime.datetime.utcnow() - token_entry.rotated_at
+    ).total_seconds() < REFRESH_REUSE_GRACE_SECONDS:
+        # Benign race: two tabs/requests refreshed with the same cookie at once.  The
+        # winner already set the new cookie, so do NOT clear it; the client retries.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail={"message": "Refresh token was just rotated; retry.", "code": "REFRESH_RACE"})
+
+    if token_entry and token_entry.revoked:
+        # A rotated (already used) token was replayed: assume theft and revoke the whole family.
+        revoke_all_refresh_tokens(token_entry.user_id, db)
+        db.add(AuditLog(id=str(uuid.uuid4()), user_id=token_entry.user_id, event_type="REFRESH_TOKEN_REUSE",
+                        description="Revoked all sessions after refresh-token reuse was detected."))
+        db.commit()
+        clear_refresh_cookie(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
 
     if not token_entry or token_entry.expires_at < datetime.datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-        )
+        clear_refresh_cookie(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
 
     user = db.query(User).filter(User.user_id == token_entry.user_id).first()
     if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User is inactive or not found",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is inactive or not found")
 
-    # Rotate refresh token: revoke old one
-    token_entry.revoked = True
+    token_entry.revoked = True  # rotate
+    token_entry.rotated_at = datetime.datetime.utcnow()
 
-    # Find their first/current workspace
-    membership = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.user_id).first()
+    # Keep the workspace the user was working in (explicit request > token's workspace > first membership).
+    membership = None
+    for candidate in ((payload.workspace_id if payload else None), token_entry.workspace_id):
+        if candidate:
+            membership = db.query(WorkspaceMember).filter(
+                WorkspaceMember.user_id == user.user_id, WorkspaceMember.workspace_id == candidate
+            ).first()
+            if membership:
+                break
+    if membership is None:
+        membership = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.user_id).first()
     if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found.",
-        )
-    return _token_response_for_user(
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+    return _issue(response, _token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
         event_type="TOKEN_REFRESH",
         description="Refresh token rotated.",
-    )
+    ))
 
 @router.post("/logout")
-def logout(payload: LogoutRequest, db: Session = Depends(get_db)):
-    hashed = hash_token(payload.refresh_token)
-    token_entry = db.query(RefreshToken).filter(RefreshToken.token_hash == hashed).first()
-    
+def logout(response: Response, payload: LogoutRequest | None = None, dp_refresh: str | None = Cookie(None),
+           db: Session = Depends(get_db)):
+    clear_refresh_cookie(response)
+    raw = (payload.refresh_token if payload else None) or dp_refresh
+    token_entry = db.query(RefreshToken).filter(RefreshToken.token_hash == hash_token(raw)).first() if raw else None
+
     if token_entry:
         token_entry.revoked = True
         
@@ -789,7 +877,8 @@ def logout(payload: LogoutRequest, db: Session = Depends(get_db)):
     return {"success": True, "message": "Successfully logged out"}
 
 @router.post("/logout-all")
-def logout_all(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def logout_all(response: Response, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    clear_refresh_cookie(response)
     # Revoke/Delete all refresh tokens for this user
     tokens = db.query(RefreshToken).filter(
         RefreshToken.user_id == user_id,
@@ -894,10 +983,10 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 
     user = db.query(User).filter(User.user_id == token_entry.user_id).first()
     if user:
-        # Update password
+        # Update password, invalidate every reset token and every existing session.
         user.password_hash = hash_password(payload.new_password)
-        # Delete token
-        db.delete(token_entry)
+        db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.user_id).delete(synchronize_session=False)
+        revoke_all_refresh_tokens(user.user_id, db)
 
         # Audit log completion
         reset_complete_log = AuditLog(
