@@ -235,7 +235,7 @@ def claim_next(owner: str, job_types: list[str] | None = None) -> str | None:
 
 def requeue_stale(visibility_timeout: int | None = None) -> int:
     """Return jobs whose worker stopped heart-beating to the queue (or fail them)."""
-    timeout = visibility_timeout or _int_env("JOB_VISIBILITY_TIMEOUT_SECONDS", 300)
+    timeout = visibility_timeout or _int_env("JOB_VISIBILITY_TIMEOUT_SECONDS", 90)
     cutoff = _now() - dt.timedelta(seconds=timeout)
     now = _now()
     with engine.begin() as conn:
@@ -266,15 +266,19 @@ def _ensure_handlers_loaded() -> None:
     import core.job_handlers  # noqa: F401
 
 
-def _heartbeat(job_id: str, stop: threading.Event) -> None:
+def _heartbeat(job_id: str, stop: threading.Event, owner: str | None = None) -> None:
     interval = _int_env("JOB_HEARTBEAT_SECONDS", 15)
     while not stop.wait(interval):
         try:
             with engine.begin() as conn:
-                conn.execute(
-                    text("UPDATE jobs SET heartbeat_at=:now WHERE id=:id AND status='running'"),
-                    {"now": _now(), "id": job_id},
+                res = conn.execute(
+                    text("UPDATE jobs SET heartbeat_at=:now WHERE id=:id AND status='running' "
+                         "AND (locked_by = :owner OR :owner IS NULL)"),
+                    {"now": _now(), "id": job_id, "owner": owner},
                 )
+            if res.rowcount == 0:
+                logger.warning("Job %s lease lost (re-queued or taken over); stopping heartbeat", job_id)
+                return
         except Exception as exc:  # pragma: no cover - transient DB errors
             logger.warning("Job heartbeat failed for %s: %s", job_id, exc)
 
@@ -291,12 +295,17 @@ def run_claimed(job_id: str) -> dict:
         payload = json.loads(job.payload_json or "{}")
         ctx = JobContext(job.id, job.job_type, job.workspace_id, job.user_id, job.attempts)
         max_attempts = job.max_attempts
+        # Lease fence: the claim stamped locked_by with this worker's id.  Only the
+        # current lease holder may heartbeat or record the outcome, so a worker that
+        # was presumed dead (and whose job was re-queued and re-claimed) can never
+        # overwrite the result of the newer attempt.
+        owner = job.locked_by
     finally:
         db.close()
 
     handler = _HANDLERS.get(job_type)
     stop = threading.Event()
-    hb = threading.Thread(target=_heartbeat, args=(job_id, stop), daemon=True)
+    hb = threading.Thread(target=_heartbeat, args=(job_id, stop, owner), daemon=True)
     hb.start()
     started = time.monotonic()
     status, error, result, result_key = "succeeded", None, None, None
@@ -317,7 +326,14 @@ def run_claimed(job_id: str) -> dict:
     now = _now()
     db = SessionLocal()
     try:
-        job = db.query(Job).filter(Job.id == job_id).first()
+        fenced = db.query(Job).filter(Job.id == job_id, Job.status == "running")
+        if owner is not None:
+            fenced = fenced.filter(Job.locked_by == owner)
+        job = fenced.with_for_update().first()
+        if job is None:
+            logger.warning("Job %s (%s) finished after its lease was lost; outcome %s discarded",
+                           job_id, job_type, status)
+            return {"status": "lease_lost", "error": error, "result": None}
         job.status = status
         job.error = error
         job.updated_at = now

@@ -97,18 +97,23 @@ class BaseAgent(ABC):
             )
             msg = format_for_user(err)
             self.logger.error(msg)
-            return AgentResponse.error_response(msg, self.agent_type, intelligent_error=err)
+            # ``no_result``: the caller must not bill a query that produced no answer.
+            return AgentResponse.error_response(msg, self.agent_type, intelligent_error=err,
+                                                metadata={"no_result": True, "timed_out": True})
         except LLMConfigError as exc:
             # ``llm_failure`` tells the caller no result was produced, so the query is not billed.
             return AgentResponse.error_response(str(exc), self.agent_type, metadata={"llm_failure": True})
         except LLMError as exc:
-            msg = f"The AI provider could not complete this request ({exc}). No result was generated; please retry."
+            # Provider error text can include endpoints/model ids: log it, never show it.
+            self.logger.warning("AI provider error in %s agent: %s", self.agent_type, exc)
+            msg = "The AI provider could not complete this request. No result was generated; please retry."
             return AgentResponse.error_response(msg, self.agent_type, metadata={"llm_failure": True})
         except Exception as e:
             err = diagnose_agent_error(e, self.agent_type, None, query)
             msg = format_for_user(err)
             self.logger.exception(msg)
-            return AgentResponse.error_response(msg, self.agent_type, intelligent_error=err)
+            return AgentResponse.error_response(msg, self.agent_type, intelligent_error=err,
+                                                metadata={"no_result": True})
 
     @abstractmethod
     async def _execute(self, query: str, file_ids: list[str], context: list[dict]) -> AgentResponse:

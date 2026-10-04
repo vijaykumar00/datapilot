@@ -13,7 +13,12 @@ Architecture notes (production):
 
 from __future__ import annotations
 
-import asyncio
+# Load backend/.env before any core module reads configuration at import time.
+from core.env_file import load_local_env
+
+load_local_env()
+
+import asyncio  # noqa: E402
 import datetime as dt
 import json
 import hmac
@@ -69,7 +74,7 @@ from agents.summary_agent import SummaryAgent  # noqa: E402
 from agents.viz_agent import VizAgent  # noqa: E402
 from core import jobs, jsonsafe  # noqa: E402
 from core.data_store import get_store  # noqa: E402
-from core.db import SessionLocal, get_db, log_api_error  # noqa: E402
+from core.db import SessionLocal, connection_released, get_db, log_api_error, release_connection  # noqa: E402
 from core.error_intelligence import IntelligentException  # noqa: E402
 from core.explain_enricher import enrich_explain_metadata  # noqa: E402
 from core.file_manager import (  # noqa: E402
@@ -298,6 +303,9 @@ async def request_context_middleware(request: Request, call_next):
     if not rid or len(rid) > 64 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", rid):
         rid = uuid.uuid4().hex
     token = request_id_var.set(rid)
+    # Also kept on the request scope: the outermost 500 handler runs after this
+    # middleware has reset the contextvar and must still report the same id.
+    request.state.request_id = rid
     user_id_var.set(None)
     workspace_id_var.set(None)
     started = time.perf_counter()
@@ -352,9 +360,20 @@ def _error_message(detail) -> str:
     return "Request failed"
 
 
-def _error_response(status_code: int, detail, extra: dict | None = None, headers: dict | None = None) -> JSONResponse:
+def _request_id(request: Request | None = None) -> str | None:
+    rid = request_id_var.get()
+    if not rid and request is not None:
+        rid = getattr(request.state, "request_id", None)
+    return rid
+
+
+def _error_response(status_code: int, detail, extra: dict | None = None, headers: dict | None = None,
+                    request: Request | None = None) -> JSONResponse:
+    rid = _request_id(request)
     body = {"success": False, "error": _error_message(detail), "detail": jsonsafe.to_jsonable(detail),
-            "request_id": request_id_var.get()}
+            "request_id": rid}
+    if rid:
+        headers = {**(headers or {}), "X-Request-ID": rid}
     if isinstance(detail, dict) and detail.get("error"):
         body["code"] = detail["error"]
     if extra:
@@ -399,14 +418,92 @@ async def llm_config_handler(request: Request, exc: LLMConfigError):
 
 @app.exception_handler(LLMError)
 async def llm_error_handler(request: Request, exc: LLMError):
-    return _error_response(502, f"The AI provider failed to respond ({exc}). Please retry.", {"code": "AI_PROVIDER_ERROR"})
+    # Provider error strings can contain endpoints/model names: log, never echo.
+    logger.warning("AI provider error on %s: %s", request.url.path, exc)
+    return _error_response(502, "The AI provider failed to respond. Please retry.", {"code": "AI_PROVIDER_ERROR"},
+                           request=request)
+
+
+# ── Infrastructure failures: clear, retryable 502/503 with a request id; no internals ──
+
+def _infrastructure_status(exc: BaseException) -> tuple[int, str, str] | None:
+    """Classify dependency outages.  Returns (status, code, public message) or None."""
+    from sqlalchemy import exc as sa_exc
+    from core.storage import StorageUnavailableError, _is_connectivity_error
+
+    if isinstance(exc, StorageUnavailableError) or _is_connectivity_error(exc):
+        return 503, "STORAGE_UNAVAILABLE", "File storage is temporarily unavailable. Please retry shortly."
+    if isinstance(exc, (sa_exc.TimeoutError, sa_exc.OperationalError, sa_exc.InterfaceError,
+                        sa_exc.DisconnectionError)):
+        return 503, "DATABASE_UNAVAILABLE", "The service is temporarily unavailable. Please retry shortly."
+    try:
+        import stripe as _stripe
+
+        if isinstance(exc, (_stripe.error.APIConnectionError, _stripe.error.RateLimitError)):
+            return 502, "BILLING_PROVIDER_UNAVAILABLE", "The billing provider is temporarily unavailable. Please retry."
+        if isinstance(exc, _stripe.error.StripeError):
+            return 502, "BILLING_PROVIDER_ERROR", "The billing provider rejected the request. Please retry or contact support."
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
+
+        if isinstance(exc, (RedisConnectionError, RedisTimeoutError)):
+            return 503, "SERVICE_UNAVAILABLE", "The service is temporarily unavailable. Please retry shortly."
+    except ImportError:  # pragma: no cover
+        pass
+    return None
+
+
+def _infrastructure_response(request: Request, exc: BaseException, info: tuple[int, str, str]) -> JSONResponse:
+    status_code, code, message = info
+    logger.error("Dependency failure on %s [%s]: %s: %s", request.url.path, code, type(exc).__name__, exc)
+    headers = {"Retry-After": "5"} if status_code == 503 else None
+    return _error_response(status_code, message, {"code": code}, headers=headers, request=request)
+
+
+async def infrastructure_exception_handler(request: Request, exc: Exception):
+    info = _infrastructure_status(exc) or (503, "SERVICE_UNAVAILABLE",
+                                           "The service is temporarily unavailable. Please retry shortly.")
+    return _infrastructure_response(request, exc, info)
+
+
+def _register_infrastructure_handlers() -> None:
+    """Handle dependency outages inside the middleware stack (so access logs/metrics
+    record the real 502/503 and the X-Request-ID header is set)."""
+    from sqlalchemy import exc as sa_exc
+    from core.storage import StorageUnavailableError
+
+    classes: list[type] = [StorageUnavailableError, sa_exc.TimeoutError, sa_exc.OperationalError,
+                           sa_exc.InterfaceError, sa_exc.DisconnectionError]
+    try:
+        import stripe as _stripe
+
+        classes.append(_stripe.error.StripeError)
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        from botocore.exceptions import EndpointConnectionError, ConnectTimeoutError, ReadTimeoutError
+
+        classes += [EndpointConnectionError, ConnectTimeoutError, ReadTimeoutError]
+    except ImportError:  # pragma: no cover
+        pass
+    for cls in classes:
+        app.add_exception_handler(cls, infrastructure_exception_handler)
+
+
+_register_infrastructure_handlers()
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback as _tb
 
-    rid = request_id_var.get()
+    rid = _request_id(request)
+    info = _infrastructure_status(exc)
+    if info is not None:
+        # Do not try to write an error_logs row: the database may be the failing dependency.
+        return _infrastructure_response(request, exc, info)
     logger.error("Unhandled exception on %s: %s", request.url.path, exc, exc_info=True)
     await run_in_threadpool(
         log_api_error,
@@ -418,9 +515,10 @@ async def global_exception_handler(request: Request, exc: Exception):
         user_id=user_id_var.get(),
         workspace_id=workspace_id_var.get(),
     )
-    debug = os.getenv("DEBUG", "false").lower() == "true"
+    # Exception text is only ever echoed in local development (never in production).
+    debug = os.getenv("DEBUG", "false").lower() == "true" and not _is_production_env()
     message = str(exc) if debug else "An unexpected error occurred. It has been logged."
-    return _error_response(500, message, {"error": "Internal Server Error", "message": message})
+    return _error_response(500, message, {"error": "Internal Server Error", "message": message}, request=request)
 
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
@@ -924,8 +1022,12 @@ async def upload_file(file: UploadFile = File(...), caller: CallerContext = Depe
             )
             return ds_id, j_id
 
+        def _stage_released():
+            with connection_released(db):
+                return _stage()
+
         try:
-            dataset_id, job_id = await run_in_threadpool(_stage)
+            dataset_id, job_id = await run_in_threadpool(_stage_released)
         except ValueError as exc:
             return _error_response(422, str(exc))
     finally:
@@ -936,7 +1038,11 @@ async def upload_file(file: UploadFile = File(...), caller: CallerContext = Depe
         if os.path.exists(tmp.name):
             os.unlink(tmp.name)
 
-    await run_in_threadpool(_audit_log, caller, "FILE_UPLOADED", f"File '{filename}' uploaded (id={dataset_id})", db)
+    def _audit_and_release():
+        with connection_released(db):  # do not pin a connection while the ingest job runs
+            _audit_log(caller, "FILE_UPLOADED", f"File '{filename}' uploaded (id={dataset_id})", db)
+
+    await run_in_threadpool(_audit_and_release)
 
     if jobs.execution_mode() == "inline":
         job = await run_in_threadpool(jobs.run_inline, job_id)
@@ -1022,6 +1128,7 @@ def export_file_data(file_id: str, format: str = "csv", caller: CallerContext = 
         raise HTTPException(400, "Unsupported export format. Use csv or xlsx")
     caller.consume("export", db)
     filename = f"{_safe_export_name(record.filename, 'dataset')}.{fmt}"
+    release_connection(db)  # never hold a pooled connection while waiting on a job
     job = jobs.submit_and_wait(
         "data_export",
         {"file_id": file_id, "format": fmt, "filename": filename, "media_type": EXPORT_MEDIA[fmt],
@@ -1045,6 +1152,7 @@ def export_result_rows(req: ExportRowsRequest, format: str = "csv", caller: Call
         for fid in req.file_ids:
             _require_file_record(fid, caller)
         caller.consume("export", db)
+        release_connection(db)  # never hold a pooled connection while waiting on a job
         job = jobs.submit_and_wait(
             "data_export",
             {"sql": req.sql, "file_ids": req.file_ids, "format": fmt, "filename": filename,
@@ -1169,14 +1277,23 @@ async def transform_preview(file_id: str, req: TransformPreviewRequest, caller: 
 
     record = await run_in_threadpool(_require_file_record, file_id, caller)
     caller.require_role("Member")
-    try:
-        llm = await run_in_threadpool(_llm_for_caller, caller, db)
-    except LLMConfigError:
-        llm = None
+    def _llm_released():
+        # Resolve the AI client and end the transaction in the same thread: the AI call
+        # below can take many seconds and must not keep a pooled connection open.
+        with connection_released(db):
+            try:
+                return _llm_for_caller(caller, db)
+            except LLMConfigError:
+                return None
+
+    llm = await run_in_threadpool(_llm_released)
     try:
         proposed_actions = await propose_transformations(req.query, record.df, record.table_name, llm=llm)
+    except LLMError:
+        raise
     except Exception as e:
-        raise HTTPException(400, f"Failed to generate transformation proposal: {e}")
+        logger.warning("Transformation proposal failed for %s: %s", file_id, e)
+        raise HTTPException(400, "Could not turn that request into a transformation. Please rephrase it.")
 
     def _dry_run():
         df_slice = record.df.head(5000)
@@ -1288,6 +1405,7 @@ def report_generate(req: ReportGenerateRequest, caller: CallerContext = Depends(
     caller.require_feature("can_generate_report", db, "Report generation")
     caller.check_ai_budget(db)
     caller.consume("report", db)
+    release_connection(db)  # never hold a pooled connection while waiting on a job
     job = jobs.submit_and_wait(
         "report_generate",
         {**req.model_dump(), "is_guest": caller.is_guest, "quota": _quota_payload(caller, "report")},
@@ -1309,6 +1427,7 @@ def report_export(req: ReportExportRequest, caller: CallerContext = Depends(get_
     if fmt == "pdf":
         caller.require_feature("can_export_pdf", db, "PDF export")
     filename = f"{_safe_export_name(req.title or 'report', 'report')}.{fmt}"
+    release_connection(db)  # never hold a pooled connection while waiting on a job
     job = jobs.submit_and_wait(
         "report_export",
         {**req.model_dump(), "format": fmt, "filename": filename, "media_type": EXPORT_MEDIA[fmt]},
@@ -1499,21 +1618,24 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
         raise HTTPException(400, "Empty message")
 
     def _prepare():
-        for fid in req.file_ids:
-            _require_file_record(fid, caller)
-        caller.check_ai_budget(db)
-        caller.consume("query", db)
-        try:
-            llm_client = _llm_for_caller(caller, db)
-        except LLMConfigError:
-            caller.release("query", db)
-            raise
-        _, _, features = caller.plan(db)
-        return llm_client, features
+        # End the transaction in THIS thread.  Handing an open transaction back to the
+        # event loop and closing it in a later threadpool call deadlocks under load: all
+        # threadpool tokens can be held by requests blocked on pool checkout, so the
+        # close never runs and the connection is never returned.
+        with connection_released(db):
+            for fid in req.file_ids:
+                _require_file_record(fid, caller)
+            caller.check_ai_budget(db)
+            caller.consume("query", db)
+            try:
+                llm_client = _llm_for_caller(caller, db)
+            except LLMConfigError:
+                caller.release("query", db)
+                raise
+            _, _, features = caller.plan(db)
+            return llm_client, features
 
     llm, features = await run_in_threadpool(_prepare)
-    # Release the request-scoped DB connection before streaming: long streams never hold a pool slot.
-    await run_in_threadpool(db.close)
 
     file_ids = list(req.file_ids)
     sid = req.session_id
@@ -1521,6 +1643,14 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
         {"role": str(m.get("role", ""))[:16], "content": str(m.get("content", ""))[:4000]}
         for m in (req.conversation_history or [])[-10:] if isinstance(m, dict)
     ]
+
+    quota_state = {"released": False}
+
+    async def _release_once() -> None:
+        # The query was reserved in _prepare(); return it at most once when no answer is produced.
+        if not quota_state["released"]:
+            quota_state["released"] = True
+            await run_in_threadpool(_release_query, caller)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         final_sent = False
@@ -1568,7 +1698,7 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
             feature = INTENT_FEATURES.get(intent)
             if feature and not features.get(feature[0], False):
                 text_ = f"🔒 {feature[1]} is not included in your current plan. Upgrade to use it."
-                await run_in_threadpool(_release_query, caller)  # nothing was run
+                await _release_once()  # nothing was run
                 await run_in_threadpool(_persist, sid, "bot", text_, {"type": "error"}, user_id, workspace_id)
                 final_sent = True
                 yield _sse({"type": "error", "content": text_, "error": text_, "is_final": True,
@@ -1598,9 +1728,10 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
                         await asyncio.sleep(1.0)
                 if not job or job.get("status") != "succeeded":
                     err = (job or {}).get("error") or "The analysis is taking longer than expected. Please retry in a moment."
-                    if job and job.get("status") == "failed":
-                        await run_in_threadpool(_release_query, caller)  # no result was produced
-                    response = {"type": "error", "content": err, "error": err, "metadata": {}}
+                    # Failed, or no result within the wait window: the user got no answer,
+                    # so the query is not billed.
+                    await _release_once()
+                    response = {"type": "error", "content": err, "error": err, "metadata": {"quota_released": True}}
                 else:
                     response = job["result"]
             else:
@@ -1611,14 +1742,19 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
                     if not done:
                         if await request.is_disconnected():
                             task.cancel()
+                            await _release_once()  # cancelled before any result
                             return
                         yield ": keep-alive\n\n"
                 response = task.result().to_dict()
 
             meta = response.get("metadata") or {}
-            if meta.pop("llm_failure", False):
-                # The AI provider failed: no answer was produced, so do not bill the query.
-                await run_in_threadpool(_release_query, caller)
+            no_result = bool(meta.pop("llm_failure", False)) | bool(meta.pop("no_result", False))
+            already_released = bool(meta.pop("quota_released", False))
+            if (no_result or response.get("error")) and not already_released:
+                # Timeout, AI-provider failure or agent error: no valid answer was produced,
+                # so the query is not billed.
+                await _release_once()
+            if no_result or response.get("error"):
                 response["type"] = "error"
             meta["agent_used"] = intent
             meta["dataset_refs"] = file_ids
@@ -1634,14 +1770,18 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
             final_sent = True
             yield _sse(response)
         except (LLMConfigError, LLMError) as exc:
-            await run_in_threadpool(_release_query, caller)
+            await _release_once()
+            if isinstance(exc, LLMError):
+                logger.warning("AI provider error during chat: %s", exc)
             msg = (str(exc) if isinstance(exc, LLMConfigError)
-                   else f"The AI provider could not answer right now ({exc}). This query was not counted; please retry.")
+                   else "The AI provider could not answer right now. This query was not counted; please retry.")
             await run_in_threadpool(_persist, sid, "bot", msg, {"type": "error"}, user_id, workspace_id)
             final_sent = True
             yield _sse({"type": "error", "content": msg, "error": msg, "is_final": True})
         except Exception as exc:
             logger.exception("Chat stream failed: %s", exc)
+            if not final_sent:
+                await _release_once()  # no answer was delivered
             msg = "Something went wrong while answering. Please retry."
             await run_in_threadpool(_persist, sid, "bot", msg, {"type": "error"}, user_id, workspace_id)
             final_sent = True

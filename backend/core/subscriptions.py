@@ -352,37 +352,48 @@ def ensure_workspace_subscription(workspace_id: str, db: Session) -> WorkspaceSu
     plan_id = workspace.plan_tier if workspace.plan_tier in PLAN_BLUEPRINTS else "free"
     plan = db.query(Plan).filter(Plan.plan_id == plan_id).first()
     trial_days = plan.trial_days if plan else 14
-    sub = WorkspaceSubscription(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace_id,
-        plan_id=plan_id,
-        status="trialing",
-        trial_started_at=now,
-        trial_ends_at=now + datetime.timedelta(days=trial_days),
-        current_period_start=now,
-        current_period_end=period_end(now),
-        renews_at=period_end(now),
-    )
-    db.add(sub)
-    db.add(Trial(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace_id,
-        plan_id=plan_id,
-        status="active",
-        started_at=sub.trial_started_at,
-        ends_at=sub.trial_ends_at,
-    ))
-    db.flush()
-    db.add(SubscriptionHistory(
-        id=str(uuid.uuid4()),
-        workspace_subscription_id=sub.id,
-        workspace_id=workspace_id,
-        to_plan_id=plan_id,
-        to_status=sub.status,
-        event_type="subscription_created",
-        reason="Default Phase 4.1 workspace subscription created.",
-    ))
-    db.commit()
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        sub = WorkspaceSubscription(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            plan_id=plan_id,
+            status="trialing",
+            trial_started_at=now,
+            trial_ends_at=now + datetime.timedelta(days=trial_days),
+            current_period_start=now,
+            current_period_end=period_end(now),
+            renews_at=period_end(now),
+        )
+        db.add(sub)
+        db.add(Trial(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            plan_id=plan_id,
+            status="active",
+            started_at=sub.trial_started_at,
+            ends_at=sub.trial_ends_at,
+        ))
+        db.flush()
+        db.add(SubscriptionHistory(
+            id=str(uuid.uuid4()),
+            workspace_subscription_id=sub.id,
+            workspace_id=workspace_id,
+            to_plan_id=plan_id,
+            to_status=sub.status,
+            event_type="subscription_created",
+            reason="Default Phase 4.1 workspace subscription created.",
+        ))
+        db.commit()
+    except IntegrityError:
+        # Concurrent first requests for a new workspace race to create the default
+        # subscription (unique workspace_id).  The loser uses the winner's row.
+        db.rollback()
+        sub = db.query(WorkspaceSubscription).filter(WorkspaceSubscription.workspace_id == workspace_id).first()
+        if sub is None:
+            raise
+        return sub
     db.refresh(sub)
     return sub
 

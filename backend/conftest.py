@@ -31,6 +31,8 @@ os.environ.setdefault("RATE_LIMIT_REPORT_MAX_REQUESTS", "100000")
 os.environ.setdefault("RATE_LIMIT_AUTH_LOGIN_MAX_REQUESTS", "100000")
 os.environ.setdefault("RATE_LIMIT_AUTH_SIGNUP_MAX_REQUESTS", "100000")
 os.environ.setdefault("RATE_LIMIT_AUTH_REFRESH_MAX_REQUESTS", "100000")
+os.environ.setdefault("RATE_LIMIT_BILLING_MAX_REQUESTS", "100000")
+os.environ.setdefault("RATE_LIMIT_WEBHOOK_MAX_REQUESTS", "100000")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

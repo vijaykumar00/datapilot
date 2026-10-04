@@ -14,6 +14,7 @@ REQUIRED_PRODUCTION = {
     "REDIS_URL": "Redis connection URL for shared rate limiting.",
     "LLM_PROVIDER": "Platform AI provider: gemini | openai | claude | ollama.",
     "ENCRYPTION_KEY": "Persistent 32-byte key (Fernet/base64) for stored user API keys.",
+    "APP_URL": "Public HTTPS URL of the web app (used in verification and password-reset links).",
 }
 
 OPTIONAL_SECRETS = {
@@ -56,6 +57,16 @@ def validate(env: dict[str, str]) -> list[str]:
             errors.append("DATABASE_URL must use PostgreSQL in production.")
         if _has_localhost(database_url):
             errors.append("DATABASE_URL must not point at localhost in production.")
+
+    app_url = (env.get("APP_URL") or "").strip()
+    if production and app_url:
+        parsed_app = urlparse(app_url)
+        if parsed_app.scheme != "https" or not parsed_app.netloc:
+            errors.append(f"APP_URL must be an absolute https:// URL in production (got {app_url!r}).")
+        elif _has_localhost(app_url):
+            errors.append("APP_URL must not point at localhost in production.")
+        elif parsed_app.query or parsed_app.fragment:
+            errors.append("APP_URL must not contain a query string or fragment.")
 
     allowed_origins = env.get("ALLOWED_ORIGINS", "")
     if production and allowed_origins:

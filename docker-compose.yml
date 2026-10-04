@@ -77,6 +77,8 @@ services:
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
       RUN_MIGRATIONS_ON_STARTUP: "false"
       JOB_EXECUTION_MODE: worker
+      # Crashed-worker recovery window (heartbeat every 15 s); keep well above the heartbeat.
+      JOB_VISIBILITY_TIMEOUT_SECONDS: ${JOB_VISIBILITY_TIMEOUT_SECONDS:-90}
       RATE_LIMITER_BACKEND: ${RATE_LIMITER_BACKEND:-redis}
       RATE_LIMITER_FAIL_OPEN: "false"
       RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
@@ -92,6 +94,10 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY before running compose}
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
       S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
+      S3_CONNECT_TIMEOUT_SECONDS: ${S3_CONNECT_TIMEOUT_SECONDS:-2}
+      S3_READ_TIMEOUT_SECONDS: ${S3_READ_TIMEOUT_SECONDS:-5}
+      S3_MAX_ATTEMPTS: ${S3_MAX_ATTEMPTS:-2}
+      S3_CIRCUIT_SECONDS: ${S3_CIRCUIT_SECONDS:-10}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
       DATASET_CACHE_MAX_BYTES: ${DATASET_CACHE_MAX_BYTES:-536870912}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET before running compose}
@@ -129,7 +135,10 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
-      FRONTEND_URL: ${FRONTEND_URL:-${VITE_PUBLIC_SITE_URL}}
+      # Public HTTPS URL of the web app: used in verification / password-reset links.
+      # Startup fails in production when it is missing, not https, or points at localhost.
+      APP_URL: ${APP_URL:?Set APP_URL (public https URL of the web app) before running compose}
+      FRONTEND_URL: ${FRONTEND_URL:-${APP_URL}}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       LOG_FORMAT: json

@@ -4,6 +4,7 @@ db.py — Database helper with SQLAlchemy connection pooling, supporting SQLite 
 
 import os
 import logging
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -225,6 +226,50 @@ def get_connection():
         raw_conn.execute("PRAGMA foreign_keys = ON;")
     return DBConnectionWrapper(raw_conn, is_postgres)
 
+def release_connection(db, *detach) -> None:
+    """End the session's current transaction so its pooled connection goes back to the pool.
+
+    Call this before any long wait or CPU-heavy work (job waits, exports, report
+    generation, password hashing).  A Session only holds a pooled connection while
+    a transaction is open; leaving one open across a wait shows up in Postgres as
+    "idle in transaction" and exhausts the pool under load.
+
+    ``detach`` objects are expunged first so later attribute reads never trigger a
+    lazy reload (which would silently check a connection out again).  Pending
+    changes are committed; a read-only transaction is simply rolled back.
+    """
+    if db is None:
+        return
+    for obj in detach:
+        if obj is not None and obj in db:
+            db.expunge(obj)
+    if db.new or db.dirty or db.deleted:
+        db.commit()
+    else:
+        db.rollback()
+
+
+@contextmanager
+def connection_released(db):
+    """Run a block of session work and end its transaction in the SAME thread.
+
+    On success pending changes are committed (see :func:`release_connection`); on
+    error the transaction is rolled back — partial work is never committed.  Use it
+    inside every ``run_in_threadpool`` call whose session is used again later from
+    the event loop: an open transaction must never wait for another threadpool slot.
+    """
+    try:
+        yield db
+    except BaseException:
+        try:
+            db.rollback()
+        except Exception:  # pragma: no cover - connection already broken
+            logger.warning("Rollback after failed request step also failed", exc_info=True)
+        raise
+    else:
+        release_connection(db)
+
+
 def get_db():
     """FastAPI Dependency for database sessions."""
     db = SessionLocal()
@@ -276,6 +321,34 @@ def log_api_error(
     finally:
         conn.close()
 
+def _drop_stale_alembic_tmp_tables(tables: list[str]) -> None:
+    """Remove ``_alembic_tmp_<table>`` leftovers from an interrupted SQLite batch migration.
+
+    Alembic's SQLite batch mode copies a table into ``_alembic_tmp_<name>``, drops the
+    original and renames the copy.  If the process is killed in between, the temp
+    table survives and every later upgrade fails with "table _alembic_tmp_... already
+    exists", so the API never starts.  The temp table is only dropped when the
+    original table still exists (i.e. the copy never replaced it); otherwise we stop
+    with a clear message instead of guessing which copy holds the data.
+    """
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    prefix = "_alembic_tmp_"
+    for name in tables:
+        if not name.startswith(prefix):
+            continue
+        original = name[len(prefix):]
+        if original in tables:
+            with engine.begin() as conn:
+                conn.execute(text(f'DROP TABLE "{name}"'))
+            logger.warning("Dropped stale %s left by an interrupted migration (%s is intact).", name, original)
+        else:
+            raise RuntimeError(
+                f"Found {name} but no {original} table: a previous migration was interrupted mid-copy. "
+                f"Back up the database, then rename {name} to {original} and restart."
+            )
+
+
 def run_migrations() -> None:
     """Apply Alembic migrations to head.  Raises on failure (never silently diverges)."""
     from alembic.config import Config
@@ -289,6 +362,7 @@ def run_migrations() -> None:
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
+    _drop_stale_alembic_tmp_tables(tables)
     if "sessions" in tables and "alembic_version" not in tables:
         command.stamp(alembic_cfg, "96e4e347edff")
         logger.info("Stamped legacy database to baseline revision 96e4e347edff.")

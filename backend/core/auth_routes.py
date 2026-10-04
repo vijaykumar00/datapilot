@@ -13,9 +13,10 @@ from urllib.parse import urlencode, urlparse
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, Request, Response, status
 import httpx
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
-from core.db import get_db
+from core.db import get_db, release_connection
 from core.models import (
     User,
     Workspace,
@@ -557,6 +558,8 @@ def _phone_user(phone_number: str, db: Session) -> User:
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 def signup(payload: SignupRequest, db: Session = Depends(get_db)):
+    # Hash first: ~0.2 s of CPU that must not run while a pooled DB connection is checked out.
+    password_hash = hash_password(payload.password)
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == payload.email).first()
     if existing_user:
@@ -570,7 +573,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     new_user = User(
         user_id=user_id,
         email=payload.email,
-        password_hash=hash_password(payload.password),
+        password_hash=password_hash,
         full_name=payload.full_name,
         is_active=True,
         email_verified=False
@@ -639,7 +642,11 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
 def login(payload: LoginRequest, response: Response, request: Request, db: Session = Depends(get_db)):
     # 1. Query user
     user = db.query(User).filter(User.email == payload.email).first()
-    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
+    stored_hash = user.password_hash if user else None
+    is_active = bool(user and user.is_active)
+    # Release the pooled connection before the CPU-bound password check.
+    release_connection(db)
+    if not user or not is_active or not verify_password(payload.password, stored_hash):
         # Audit failed login
         failed_log = AuditLog(
             id=str(uuid.uuid4()),
@@ -900,8 +907,23 @@ def refresh(
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is inactive or not found")
 
-    token_entry.revoked = True  # rotate
-    token_entry.rotated_at = datetime.datetime.utcnow()
+    # Atomic rotation (compare-and-set): exactly one concurrent refresh with the same
+    # token can flip revoked false->true.  On Postgres the loser blocks on the row lock
+    # and re-evaluates the WHERE clause after the winner commits (rowcount 0); SQLite
+    # serialises writers.  The loser gets the same benign 409 as the grace-window path.
+    rotated_at = datetime.datetime.utcnow()
+    swapped = db.execute(
+        sa_update(RefreshToken)
+        .where(RefreshToken.id == token_entry.id, RefreshToken.revoked == False)  # noqa: E712
+        .values(revoked=True, rotated_at=rotated_at)
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if swapped != 1:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail={"message": "Refresh token was just rotated; retry.", "code": "REFRESH_RACE"})
+    token_entry.revoked = True
+    token_entry.rotated_at = rotated_at
 
     # Keep the workspace the user was working in (explicit request > token's workspace > first membership).
     membership = None
@@ -1040,6 +1062,8 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
 
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    # Hash the new password before touching the DB (CPU work must not pin a connection).
+    new_password_hash = hash_password(payload.new_password)
     hashed = hash_token(payload.token)
     token_entry = db.query(PasswordResetToken).filter(
         PasswordResetToken.token_hash == hashed
@@ -1054,7 +1078,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     user = db.query(User).filter(User.user_id == token_entry.user_id).first()
     if user:
         # Update password, invalidate every reset token and every existing session.
-        user.password_hash = hash_password(payload.new_password)
+        user.password_hash = new_password_hash
         db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.user_id).delete(synchronize_session=False)
         revoke_all_refresh_tokens(user.user_id, db)
 

@@ -265,7 +265,7 @@ def generate_suggestions(df: pd.DataFrame, filename: str, metadata: dict) -> lis
         sample = df[col].dropna().head(50)
         # Identifier-like text (ZIP codes, account numbers with leading zeros) is
         # intentionally kept as text by the parser; converting it would corrupt it.
-        if _looks_identifier(sample.astype(str)):
+        if _looks_identifier(df[col]):
             continue
         try:
             converted = pd.to_numeric(sample, errors="coerce")

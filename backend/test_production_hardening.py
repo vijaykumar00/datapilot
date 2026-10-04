@@ -205,6 +205,7 @@ class TestProductionHardening(unittest.TestCase):
         from core.request_identity import CallerContext
 
         results = []
+        errors = []
 
         def consume():
             s = SessionLocal()
@@ -212,15 +213,16 @@ class TestProductionHardening(unittest.TestCase):
                 user = s.query(User).filter(User.user_id == owner["user_id"]).first()
                 CallerContext(user=user, workspace_id=owner["workspace_id"], role="Owner").consume("query", s)
                 results.append(True)
-            except Exception:
+            except Exception as exc:
                 results.append(False)
+                errors.append(repr(exc)[:300])
             finally:
                 s.close()
 
         threads = [threading.Thread(target=consume) for _ in range(12)]
         [t.start() for t in threads]
         [t.join() for t in threads]
-        self.assertEqual(results.count(True), 5)  # free plan: 200 queries
+        self.assertEqual(results.count(True), 5, errors)  # free plan: 200 queries
         db = SessionLocal()
         try:
             self.assertEqual(db.query(UsageStats).filter(UsageStats.workspace_id == owner["workspace_id"]).first().query_count, 200)

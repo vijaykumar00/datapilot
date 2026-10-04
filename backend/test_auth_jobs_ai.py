@@ -271,6 +271,7 @@ def test_complete_production_env_passes_and_email_tokens_never_logged(caplog, mo
         "RATE_LIMITER_BACKEND": "redis", "STORAGE_PROVIDER": "s3", "S3_BUCKET": "dp",
         "LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "k", "ENCRYPTION_KEY": "x" * 44,
         "JOB_EXECUTION_MODE": "worker", "STRIPE_BILLING_ENABLED": "false", "SMTP_HOST": "smtp.internal",
+        "APP_URL": "https://app.datapilot.test",
     }
     assert validate(env) == []
     assert any("SMTP_HOST" in e for e in validate({**env, "SMTP_HOST": ""}))

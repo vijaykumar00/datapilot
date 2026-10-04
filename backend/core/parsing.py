@@ -145,10 +145,27 @@ def _decimal_comma_votes(sample: pd.Series) -> bool:
     return comma > dot
 
 
+_LEADING_ZERO_RE = r"^\s*[+-]?0\d+(?:[.,]\d+)?\s*$"
+
+
 def _looks_identifier(values: pd.Series) -> bool:
-    sample = values.head(200)
-    lead_zero = sample.str.match(r"^0\d+$").mean() if len(sample) else 0
-    return bool(lead_zero > 0.2)
+    """True when ANY value carries a meaningful leading zero (ZIP codes, account
+    numbers, SKUs, phone extensions…).
+
+    Converting such a column to a number silently destroys data ("02134" -> 2134),
+    so a single leading-zero value anywhere in the column keeps the whole column
+    as text.  Plain zero and decimals below one ("0", "0.5", "0,5") do not count.
+    The whole column is scanned — a sample can miss the one value that matters.
+    """
+    if values is None or len(values) == 0:
+        return False
+    text = values.dropna()
+    if text.empty:
+        return False
+    if text.dtype != object and not pd.api.types.is_string_dtype(text):
+        return False
+    text = text.astype(str)
+    return bool(text.str.match(_LEADING_ZERO_RE).any())
 
 
 def coerce_numeric_text(df: pd.DataFrame, threshold: float = 0.97) -> list[dict[str, Any]]:

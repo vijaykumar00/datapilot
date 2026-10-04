@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import re
 import shutil
 from abc import ABC, abstractmethod
@@ -34,6 +35,95 @@ def _safe_part(value: str, fallback: str) -> str:
 
 def _safe_filename(filename: str) -> str:
     return _safe_part(Path(filename or "dataset").name, "dataset")
+
+
+class StorageUnavailableError(RuntimeError):
+    """Object storage could not be reached in time (network error / timeout).
+
+    Mapped to HTTP 503 by the API so clients see a clear, retryable error instead of
+    a request that hangs until the gateway times out.
+    """
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return max(0.1, float(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_connectivity_error(exc: BaseException) -> bool:
+    try:
+        from botocore.exceptions import (  # type: ignore
+            ConnectionClosedError,
+            ConnectTimeoutError,
+            EndpointConnectionError,
+            ReadTimeoutError,
+        )
+        from botocore.exceptions import ConnectionError as BotoConnectionError  # type: ignore
+    except ImportError:  # pragma: no cover - boto not installed
+        return False
+    return isinstance(exc, (EndpointConnectionError, ConnectTimeoutError, ReadTimeoutError,
+                            ConnectionClosedError, BotoConnectionError))
+
+
+class _GuardedS3Client:
+    """Proxy around a boto3 client that turns connectivity failures/timeouts into
+    :class:`StorageUnavailableError` (all other errors, e.g. NoSuchKey, pass through).
+
+    It also acts as a small circuit breaker: after a connectivity failure, calls fail
+    immediately for ``S3_CIRCUIT_SECONDS`` instead of each waiting out its own
+    timeout, so an object-store outage cannot pile up blocked request threads.
+    """
+
+    _TRANSFER_METHODS = {"upload_file", "download_file", "upload_fileobj", "download_fileobj"}
+
+    def __init__(self, client):
+        self._client = client
+        self._open_until = 0.0
+        self._lock = threading.Lock()
+
+    def trip(self) -> None:
+        import time as _time
+
+        with self._lock:
+            self._open_until = _time.monotonic() + _float_env("S3_CIRCUIT_SECONDS", 10)
+
+    def __getattr__(self, name):
+        attr = getattr(self._client, name)
+        if not callable(attr) or name in {"get_paginator", "exceptions", "generate_presigned_url"}:
+            return attr
+
+        def call(*args, **kwargs):
+            import time as _time
+
+            if _time.monotonic() < self._open_until:
+                raise StorageUnavailableError(f"Object storage unavailable (circuit open) during {name}")
+            if name in self._TRANSFER_METHODS and "Config" not in kwargs:
+                # s3transfer retries socket errors up to 5x on its own; botocore retries suffice.
+                kwargs["Config"] = _transfer_config()
+            try:
+                return attr(*args, **kwargs)
+            except Exception as exc:
+                if _is_connectivity_error(exc) or _is_connectivity_error(getattr(exc, "__cause__", None) or exc):
+                    self.trip()
+                    raise StorageUnavailableError(f"Object storage unavailable during {name}") from exc
+                raise
+
+        return call
+
+
+def _transfer_config():
+    from boto3.s3.transfer import TransferConfig  # type: ignore
+
+    return TransferConfig(num_download_attempts=1, use_threads=True)
 
 
 class BaseStorageProvider(ABC):
@@ -307,19 +397,45 @@ class S3CompatibleStorageProvider(BaseStorageProvider):
 
         access_key = os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID")
         secret_key = os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+        # Short, explicit timeouts: botocore defaults (60 s connect + 60 s read, retried)
+        # let a frozen object store hang a request for minutes.
         config = Config(
             signature_version=os.getenv("S3_SIGNATURE_VERSION", "s3v4"),
             s3={"addressing_style": os.getenv("S3_ADDRESSING_STYLE", "path")},
+            connect_timeout=_float_env("S3_CONNECT_TIMEOUT_SECONDS", 2),
+            read_timeout=_float_env("S3_READ_TIMEOUT_SECONDS", 5),
+            retries={"max_attempts": _int_env("S3_MAX_ATTEMPTS", 2), "mode": "standard"},
         )
-        self._client = boto3.client(
+        self._client = _GuardedS3Client(boto3.client(
             "s3",
             region_name=self.region,
             endpoint_url=self.endpoint_url,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             config=config,
-        )
+        ))
         return self._client
+
+    def _health_client(self):
+        """Separate client with a very short timeout and no retries for readiness probes."""
+        if getattr(self, "_probe_client", None) is not None:
+            return self._probe_client
+        import boto3  # type: ignore
+        from botocore.config import Config  # type: ignore
+
+        timeout = _float_env("S3_HEALTH_TIMEOUT_SECONDS", 2)
+        self._probe_client = boto3.client(
+            "s3",
+            region_name=self.region,
+            endpoint_url=self.endpoint_url,
+            aws_access_key_id=os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY"),
+            config=Config(signature_version=os.getenv("S3_SIGNATURE_VERSION", "s3v4"),
+                          s3={"addressing_style": os.getenv("S3_ADDRESSING_STYLE", "path")},
+                          connect_timeout=timeout, read_timeout=timeout,
+                          retries={"max_attempts": 1, "mode": "standard"}),
+        )
+        return self._probe_client
 
     def _ensure_bucket(self) -> None:
         if self._bucket_checked:
@@ -327,6 +443,8 @@ class S3CompatibleStorageProvider(BaseStorageProvider):
         client = self._client_for_s3()
         try:
             client.head_bucket(Bucket=self.bucket)
+        except StorageUnavailableError:
+            raise  # unreachable: never try to "create" a bucket we cannot even see
         except Exception:
             if not self.create_bucket:
                 raise
@@ -427,11 +545,33 @@ class S3CompatibleStorageProvider(BaseStorageProvider):
         return keys
 
     def health_check(self) -> tuple[bool, str]:
+        """Live probe (HeadBucket, short timeout) cached briefly so /ready stays cheap."""
+        import time as _time
+
+        ttl = _float_env("S3_HEALTH_CACHE_SECONDS", 5)
+        cached = getattr(self, "_health_cache", None)
+        now = _time.monotonic()
+        if cached and now - cached[0] < ttl:
+            return cached[1], cached[2]
         try:
-            self._ensure_bucket()
-            return True, f"s3:{self.bucket}"
+            try:
+                self._health_client().head_bucket(Bucket=self.bucket)
+            except Exception as exc:
+                code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+                if not (self.create_bucket and code in {"404", "NoSuchBucket", "NotFound"}):
+                    raise
+                # Reachable but the bucket does not exist yet and auto-create is enabled.
+                self._bucket_checked = False
+                self._ensure_bucket()
+            result = (True, f"s3:{self.bucket}")
         except Exception as exc:
-            return False, str(exc)
+            result = (False, f"{type(exc).__name__}: object storage unreachable or bucket missing")
+            if _is_connectivity_error(exc) and isinstance(self._client, _GuardedS3Client):
+                # The probe saw the outage first: open the request-path circuit too, so
+                # user requests fail fast instead of each waiting out the timeouts.
+                self._client.trip()
+        self._health_cache = (now, result[0], result[1])
+        return result
 
     @property
     def provider_name(self) -> str:

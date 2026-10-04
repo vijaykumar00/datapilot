@@ -25,6 +25,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from core.env_file import load_local_env  # noqa: E402
+
+load_local_env()  # backend/.env for local runs; real env vars win
+
 from core.observability import configure_logging, init_sentry  # noqa: E402
 
 configure_logging()
@@ -66,14 +70,24 @@ def _loop(slot: int, job_types: list[str] | None, poll: float) -> None:
 def _maintenance(interval: int = int(os.getenv("WORKER_MAINTENANCE_SECONDS", "60"))) -> None:
     from core.job_handlers import cleanup_expired_guests, cleanup_staged_transforms
 
+    # Stale-job recovery runs on its own short cadence: with a 90 s visibility timeout a
+    # 60 s sweep would add up to a minute to every crashed-job recovery.
+    sweep = max(1, int(os.getenv("JOB_REQUEUE_SWEEP_SECONDS", "15")))
     last_hourly = 0.0
+    last_maintenance = float("-inf")
     # Run immediately on start (recovers jobs orphaned by a crashed worker right
-    # away), then every ``interval`` seconds.
+    # away), then every ``sweep`` seconds (other housekeeping every ``interval``).
     first = True
-    while first or not _stop.wait(interval):
+    while first or not _stop.wait(sweep):
         first = False
         try:
             jobs.requeue_stale()
+        except Exception as exc:
+            logger.error("Stale-job recovery failed: %s", exc)
+        if time.monotonic() - last_maintenance < interval:
+            continue
+        last_maintenance = time.monotonic()
+        try:
             cleanup_staged_transforms()
             if time.monotonic() - last_hourly > 3600:
                 last_hourly = time.monotonic()

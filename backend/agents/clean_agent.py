@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from agents.base_agent import AgentResponse, BaseAgent
+from core.parsing import _looks_identifier
 
 logger = logging.getLogger("datapilot.agent.clean")
 
@@ -85,6 +86,10 @@ class CleanAgent(BaseAgent):
 
             # --- 3. Type mismatches (numbers stored as strings) ---
             for col in df.select_dtypes(include="object").columns:
+                # ZIP codes / IDs with leading zeros are text on purpose: never propose
+                # a numeric conversion that would strip them.
+                if _looks_identifier(df[col]):
+                    continue
                 sample = df[col].dropna().head(100)
                 numeric_count = pd.to_numeric(sample, errors="coerce").notna().sum()
                 if numeric_count / max(len(sample), 1) > 0.8:

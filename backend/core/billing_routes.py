@@ -165,9 +165,12 @@ async def stripe_webhook(
     stripe_signature: str | None = Header(None, alias="Stripe-Signature"),
     db: Session = Depends(get_db),
 ):
+    from starlette.concurrency import run_in_threadpool
+
     payload = await request.body()
     event = construct_webhook_event(payload, stripe_signature)
-    return handle_webhook_event(event, db)
+    # Processing does blocking DB work and may call the Stripe API: never on the event loop.
+    return await run_in_threadpool(handle_webhook_event, event, db)
 
 
 @router.get("/plans")

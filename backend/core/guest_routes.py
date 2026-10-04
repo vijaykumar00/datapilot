@@ -184,6 +184,8 @@ def convert_guest_to_user(
     if not x_guest_token:
         raise HTTPException(status_code=400, detail="X-Guest-Token header required for conversion.")
 
+    # Hash before any DB access so the CPU-bound work never pins a pooled connection.
+    password_hash = hash_password(payload.password)
     guest = _get_guest_from_token(x_guest_token, db)
     if not guest:
         raise HTTPException(status_code=404, detail="Guest session not found or already converted.")
@@ -198,7 +200,7 @@ def convert_guest_to_user(
     user = User(
         user_id=user_id,
         email=payload.email,
-        password_hash=hash_password(payload.password),
+        password_hash=password_hash,
         full_name=payload.full_name,
         is_active=True,
         email_verified=False,

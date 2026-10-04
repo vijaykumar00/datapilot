@@ -32,14 +32,17 @@ browser ─► nginx (frontend container, /api proxy) ─► API (uvicorn, N rep
 
 - Uploads are spooled to disk, stored in S3, and parsed and profiled by a worker (`dataset_ingest`). The API waits up to `UPLOAD_WAIT_SECONDS`, otherwise it answers `202 {job_id}` and the browser polls `/jobs/{id}`.
 - Full exports, report generation and export, forecasts, and long reports run as jobs. Results are downloaded from `/jobs/{id}/download`, scoped to the workspace.
-- Workers heartbeat while running jobs. A job whose worker died is requeued after `JOB_VISIBILITY_TIMEOUT_SECONDS`. Maintenance also removes expired guest data, staged transforms, and old job rows.
+- Workers heartbeat every `JOB_HEARTBEAT_SECONDS` (15) while running jobs. Each worker sweeps for stale jobs every `JOB_REQUEUE_SWEEP_SECONDS` (15), and a job whose worker stopped heart-beating is requeued after `JOB_VISIBILITY_TIMEOUT_SECONDS` (90). Recovery therefore takes about 90 to 105 s plus the job's own run time. Completion is fenced on the lease (`locked_by`): a worker presumed dead cannot overwrite the result of the newer attempt. Maintenance also removes expired guest data, staged transforms, and old job rows.
+- Request handlers never hold a pooled DB connection while waiting on a job, streaming an upload, or hashing a password. The caller identity is resolved, detached, and its read transaction ended before the route body runs (`core.db.release_connection`). Size the pool for concurrent *active* queries, not for concurrent waiting requests.
 - Schema migrations run once per deploy (`alembic upgrade head`). They do not run on API start (`RUN_MIGRATIONS_ON_STARTUP` is rejected in production), and the API refuses to start if the schema is not at head.
 
 ## Docker Compose
 
 `docker-compose.yml` defines postgres, redis, minio, a one-shot `migrate`, `backend` (API), `worker`, and `frontend`. Only the frontend port is published; the API, MinIO, and Ollama are reachable only on the compose network.
 
-Before starting, set: `POSTGRES_PASSWORD`, `JWT_SECRET`, `ENCRYPTION_KEY`, `LLM_PROVIDER` (plus its key), `SMTP_HOST`, `ALLOWED_ORIGINS`, `VITE_PUBLIC_SITE_URL`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`.
+Before starting, set: `POSTGRES_PASSWORD`, `JWT_SECRET`, `ENCRYPTION_KEY`, `LLM_PROVIDER` (plus its key), `SMTP_HOST`, `APP_URL`, `ALLOWED_ORIGINS`, `VITE_PUBLIC_SITE_URL`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`.
+
+`APP_URL` is the public `https://` URL of the web app. It is used in email-verification and password-reset links, and Stripe return URLs fall back to it. The API and worker refuse to start in production when it is missing, not `https`, or points at localhost.
 
 Scale the services with `docker compose up -d --scale worker=3`, and set `WEB_CONCURRENCY` to change the number of uvicorn processes per API container.
 
@@ -54,7 +57,13 @@ Scale the services with `docker compose up -d --scale worker=3`, and set `WEB_CO
 ### Probes
 
 - `/live`: the process is up.
-- `/ready`: checks the database, rate limiter (Redis in production), object storage, AI provider configuration, encryption key, and a writable upload spool. In production the response hides dependency error strings; they are logged instead.
+- `/ready`: checks the database, rate limiter (Redis in production), object storage (a live `HeadBucket` with a 2 s timeout, cached for 5 s), AI provider configuration, encryption key, and a writable upload spool. In production the response hides dependency error strings; they are logged instead.
+
+### Dependency failures
+
+- Object storage: `S3_CONNECT_TIMEOUT_SECONDS` (2), `S3_READ_TIMEOUT_SECONDS` (5, per socket read), `S3_MAX_ATTEMPTS` (2). After a connectivity failure, storage calls fail immediately for `S3_CIRCUIT_SECONDS` (10). Requests answer `503 STORAGE_UNAVAILABLE` with `Retry-After` and the request id. In the staging drill the first request on a replica failed in 15 to 20 s; later ones failed immediately (before: up to about 120 s, then a gateway timeout).
+- Database unavailable or pool timeout: `503 DATABASE_UNAVAILABLE`. Stripe connectivity or API errors: `502 BILLING_PROVIDER_*`. AI provider errors: `502 AI_PROVIDER_ERROR`. Stripe calls time out after `STRIPE_TIMEOUT_SECONDS` (20).
+- Every error response carries `request_id` (also in `X-Request-ID`, including unhandled 500s). Exception text is never returned in production, even with `DEBUG=true`.
 
 ## Storage
 
@@ -125,13 +134,14 @@ Recommended targets: RPO 24 h (tighten for paid tiers), RTO 4 h, 14 daily backup
 - Logs: JSON to stdout in production (`LOG_FORMAT=json`), with `request_id`, `user_id`, and `workspace_id` on every line. Every error response carries `request_id`.
 - Metrics: Prometheus, from `/metrics` on the API (bearer `METRICS_TOKEN`) and `WORKER_METRICS_PORT` on workers. Covered: HTTP rate, latency, and in-flight requests; rate-limit rejections; limiter backend errors; jobs enqueued, finished, and duration; LLM calls, latency, and tokens; and chat-persistence failures.
 - Alerts: `ops/prometheus/alerts.yml`. It covers the API being down, 5xx rate, p95 latency, Redis limiter errors, no workers, job failure rate and duration, LLM error rate, and token spikes.
-- Errors: Sentry when `SENTRY_DSN` is set (PII disabled).
+- Errors: Sentry when `SENTRY_DSN` is set (PII disabled). Pin `sentry-sdk==2.71.0` or later. 2.19.2 with FastAPI 0.141 added a wrapper per request to router-included routes, and after about 960 requests per process those routes failed permanently with RecursionError. `test_staging_blockers.py` sends 2,600 routed requests with Sentry enabled.
+- Stripe: `stripe==16.0.0` (the version under test). Since stripe-python 13, `StripeObject` is not a `dict`; webhook payloads and API objects are normalised with `to_dict()` before use. Both API shapes are handled: `current_period_*` on items, and `invoice.parent.subscription_details`.
 
 ## Supported Upload Limits And Memory
 
 - 50 MB per file by default (`MAX_UPLOAD_BYTES`), further limited by the plan.
 - Up to 250,000 rows (`MAX_DATASET_ROWS`), 500 columns (`MAX_DATASET_COLUMNS`) and 20M cells (`MAX_DATASET_CELLS`, rows x columns). The cell cap exists because memory scales with cells: 250k x 500 would need several GB. Limits are checked from the Parquet metadata before a dataset is loaded.
-- CSV (encoding and delimiter detection; identifier columns with leading zeros stay text), XLSX, and XLS. Parsing runs in a worker subprocess with a timeout.
+- CSV (encoding and delimiter detection), XLSX, and XLS. A column stays text if any value in it has a meaningful leading zero (`02134`, `0042`), so ZIP codes, account numbers and IDs are never converted to numbers. The whole column is scanned, not a sample. Plain `0` and decimals such as `0.5` do not count. Excel cells that are stored as numbers with a display format such as `00000` arrive as numbers; store them as text in the workbook. Parsing runs in a worker subprocess with a timeout.
 
 Memory path (measured locally on a 250k x 20 CSV, 42.5 MB on disk, 208 MB as a DataFrame):
 
@@ -149,5 +159,14 @@ Sizing rule: allow about 2x the largest in-memory dataset per concurrently runni
 
 ## Known Limitations
 
-- The compose stack, images, and cloud services (S3/R2, managed Postgres and Redis, Sentry, Prometheus/Alertmanager) have not been run as a deployed system. The CI container job builds the images, but no full-stack load test has been performed.
+- Staging validation ran the stack natively on a single 2 vCPU / 7 GB host: nginx (TLS), 2 API processes, 2 workers, Postgres 16, Redis, an S3 emulator (moto), and stub LLM, SMTP and Sentry endpoints. The Docker images, managed cloud services, a real Stripe test account, and a real LLM were not part of it.
+- Load test results on that host, with a realistic per-user mix (files, preview, billing, sessions, chat, CSV export) and 1 to 3 s think time:
+
+  | Users | Requests/s | Errors (excl. intended 429) | p50 | p95 | p99 |
+  |---|---|---|---|---|---|
+  | 100 | 36.5 | 0 | 0.3 s | 1.8 s | 2.7 s |
+  | 250 | 36.3 | 0 | 1.9 s | 15.2 s | 19.1 s |
+  | 500 | 33.8 | 0 | 8.7 s | 25.2 s | 28.8 s |
+
+  Before the fixes, 500 users produced 36% errors from pool exhaustion. Now there are no errors, no stalls, and no pool timeouts. Throughput is flat at about 35 requests/s because the single 2 vCPU host is CPU-saturated (about 90%). Above about 100 concurrent users per 2 vCPUs, latency grows linearly, so capacity has to come from more API replicas and cores, not from a larger DB pool.
 - Datasets are still processed in memory per job or request (pandas). The row, column and cell caps bound them, and the sizing rule above applies. True out-of-core processing would need a DuckDB-native pipeline, which is not implemented.

@@ -23,7 +23,7 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.db import get_db
+from core.db import get_db, release_connection
 from core.auth import decode_access_token
 from core.models import User, GuestSession, WorkspaceMember
 from core.usage import (
@@ -233,8 +233,12 @@ def get_caller(
                             WorkspaceMember.user_id == user.user_id
                         ).first()
                         workspace_id = membership.workspace_id if membership else None
-                    return CallerContext(user=user, workspace_id=workspace_id,
-                                         role=membership.role if membership else None)
+                    role = membership.role if membership else None
+                    # Detach the identity rows and end the read transaction now: the
+                    # caller context must never pin a pooled DB connection while the
+                    # route streams an upload, waits on a job or does CPU work.
+                    release_connection(db, user, membership)
+                    return CallerContext(user=user, workspace_id=workspace_id, role=role)
             # A bearer token was supplied but is invalid/expired: never silently
             # downgrade to guest/anonymous — the client must refresh.
             raise HTTPException(
@@ -252,7 +256,9 @@ def get_caller(
             GuestSession.converted_to_user_id == None,
         ).first()
         if guest:
+            release_connection(db, guest)
             return CallerContext(guest=guest)
 
     # 3. Anonymous (no token) — legacy support
+    release_connection(db)
     return CallerContext()

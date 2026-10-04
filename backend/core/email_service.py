@@ -29,7 +29,16 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@datapilot.ai")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "DataPilot")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
-APP_URL = os.getenv("APP_URL", "http://localhost:5173")
+def app_url() -> str:
+    """Public base URL of the web app, read at call time (never a stale import-time value).
+
+    Production startup refuses to boot without a valid https APP_URL
+    (scripts/validate_env.py), so the localhost default only applies in development.
+    """
+    return (os.getenv("APP_URL") or "http://localhost:5173").strip().rstrip("/")
+
+
+APP_URL = app_url()  # backwards-compatible module attribute; links are built with app_url()
 EMAIL_DEV_MODE = not bool(SMTP_HOST)  # True when no SMTP server is configured
 
 
@@ -111,7 +120,7 @@ def _send_email(to_email: str, subject: str, html_body: str, text_body: str) -> 
 def send_verification_email(to_email: str, full_name: Optional[str], raw_token: str) -> bool:
     """Send an email address verification link."""
     name = full_name or to_email.split("@")[0]
-    verify_url = f"{APP_URL}/verify-email?token={raw_token}"
+    verify_url = f"{app_url()}/verify-email?token={raw_token}"
 
     subject = "Verify your DataPilot email address"
 
@@ -155,7 +164,7 @@ If you did not create an account, you can safely ignore this email.
 def send_password_reset_email(to_email: str, full_name: Optional[str], raw_token: str) -> bool:
     """Send a password reset link."""
     name = full_name or to_email.split("@")[0]
-    reset_url = f"{APP_URL}/reset-password?token={raw_token}"
+    reset_url = f"{app_url()}/reset-password?token={raw_token}"
 
     subject = "Reset your DataPilot password"
 

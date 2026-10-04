@@ -58,14 +58,36 @@ def get_stripe_settings() -> StripeSettings:
         publishable_key=os.getenv("STRIPE_PUBLISHABLE_KEY", ""),
         webhook_secret=os.getenv("STRIPE_WEBHOOK_SECRET", ""),
         environment=os.getenv("STRIPE_ENVIRONMENT", "test").lower(),
-        frontend_url=os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/"),
+        frontend_url=(os.getenv("FRONTEND_URL") or os.getenv("APP_URL") or "http://localhost:5173").rstrip("/"),
     )
+
+
+_HTTP_CLIENT_CONFIGURED = False
+
+
+def _configure_http_client() -> None:
+    """Bound Stripe API calls (SDK default is an 80 s timeout) so a Stripe outage
+    cannot pin request workers; failures surface as a 502 (see main.py)."""
+    global _HTTP_CLIENT_CONFIGURED
+    if _HTTP_CLIENT_CONFIGURED:
+        return
+    try:
+        timeout = float(os.getenv("STRIPE_TIMEOUT_SECONDS", "20"))
+    except ValueError:
+        timeout = 20.0
+    try:
+        stripe.default_http_client = stripe.RequestsClient(timeout=timeout)
+        stripe.max_network_retries = int(os.getenv("STRIPE_MAX_NETWORK_RETRIES", "2"))
+    except Exception as exc:  # pragma: no cover - defensive (SDK without RequestsClient)
+        logger.warning("Could not configure the Stripe HTTP client timeout: %s", exc)
+    _HTTP_CLIENT_CONFIGURED = True
 
 
 def configure_stripe() -> StripeSettings:
     settings = get_stripe_settings()
     if settings.secret_key:
         stripe.api_key = settings.secret_key
+        _configure_http_client()
     return settings
 
 
@@ -158,22 +180,67 @@ def plan_mapping_report(db: Session) -> list[dict[str, Any]]:
     return report
 
 
+def _plain(obj: Any) -> Any:
+    """Convert Stripe SDK objects into plain (recursive) dicts.
+
+    Since stripe-python 13, ``StripeObject`` is no longer a ``dict`` subclass:
+    ``dict(obj)`` raises and ``obj.get`` does not exist.  Every webhook payload
+    and API response is normalised here once so the rest of the module only
+    ever deals with plain dicts/lists, whatever SDK version produced them.
+    """
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    to_dict = getattr(obj, "to_dict", None)
+    if callable(to_dict) and not isinstance(obj, dict):
+        try:
+            return to_dict(recursive=True)
+        except TypeError:  # very old SDKs: to_dict() without arguments
+            return _plain(to_dict())
+    if isinstance(obj, dict):
+        return {k: _plain(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_plain(v) for v in obj]
+    return obj
+
+
 def _get(obj: Any, key: str, default: Any = None) -> Any:
     if obj is None:
         return default
     if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+        value = obj.get(key, default)
+    else:
+        value = getattr(obj, key, default)
+    return default if value is None and default is not None else value
 
 
 def _metadata(obj: Any) -> dict[str, Any]:
-    raw = _get(obj, "metadata", {}) or {}
-    if isinstance(raw, dict):
-        return raw
-    try:
-        return dict(raw)
-    except Exception:
-        return {}
+    raw = _plain(_get(obj, "metadata", {}) or {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def _first_item(subscription: Any) -> Any:
+    items = _get(subscription, "items")
+    data = _get(items, "data", []) if items else []
+    return data[0] if data else None
+
+
+def _subscription_period(subscription: Any, key: str) -> Any:
+    """``current_period_*`` moved from the subscription to its items (API 2025-03-31+)."""
+    value = _get(subscription, key)
+    if value in (None, ""):
+        value = _get(_first_item(subscription), key)
+    return value
+
+
+def _invoice_subscription_id(invoice: Any) -> str | None:
+    """``invoice.subscription`` moved to ``invoice.parent.subscription_details`` (API 2025-03-31+)."""
+    sub = _get(invoice, "subscription")
+    if not sub:
+        details = _get(_get(invoice, "parent"), "subscription_details")
+        sub = _get(details, "subscription")
+    if isinstance(sub, dict):
+        sub = sub.get("id")
+    return sub or None
 
 
 def _timestamp(value: Any) -> datetime.datetime | None:
@@ -388,17 +455,17 @@ def _plan_from_subscription_object(subscription: Any) -> str | None:
     meta_plan = _metadata(subscription).get("plan_id")
     if meta_plan:
         return meta_plan
-    items = _get(subscription, "items")
-    data = _get(items, "data", []) if items else []
-    if data:
-        price = _get(data[0], "price")
-        price_id = _get(price, "id")
+    item = _first_item(subscription)
+    if item:
+        price = _get(item, "price")
+        price_id = price if isinstance(price, str) else _get(price, "id")
         if price_id:
             return plan_for_stripe_price(price_id)
     return None
 
 
 def process_subscription_object(subscription: Any, db: Session, reason: str, event_created: int | None = None) -> dict[str, Any]:
+    subscription = _plain(subscription)
     stripe_subscription_id = _get(subscription, "id")
     if stripe_subscription_id and event_created is not None:
         existing = db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_subscription_id).first()
@@ -408,15 +475,21 @@ def process_subscription_object(subscription: Any, db: Session, reason: str, eve
             logger.info("Skipping stale Stripe event for %s", stripe_subscription_id)
             return {"status": "skipped", "reason": "stale_event"}
     customer_id = _get(subscription, "customer")
+    if isinstance(customer_id, dict):  # expanded customer object
+        customer_id = customer_id.get("id")
     metadata = _metadata(subscription)
     workspace_id = metadata.get("workspace_id") or _workspace_from_subscription(stripe_subscription_id, db) or _workspace_from_customer(customer_id, db)
     plan_id = _plan_from_subscription_object(subscription)
     if not workspace_id or not plan_id or not stripe_subscription_id:
         logger.warning("Stripe subscription event skipped: workspace/plan/subscription missing")
         return {"status": "skipped", "reason": "missing_mapping"}
+    if db.query(Plan.plan_id).filter(Plan.plan_id == plan_id).first() is None:
+        # Never let an unmapped price / stale metadata 500 the webhook (Stripe would retry forever).
+        logger.error("Stripe subscription %s references unknown plan %r; skipped", stripe_subscription_id, plan_id)
+        return {"status": "skipped", "reason": "unknown_plan"}
 
-    current_start = _timestamp(_get(subscription, "current_period_start"))
-    current_end = _timestamp(_get(subscription, "current_period_end"))
+    current_start = _timestamp(_subscription_period(subscription, "current_period_start"))
+    current_end = _timestamp(_subscription_period(subscription, "current_period_end"))
     stripe_status = _get(subscription, "status", "active")
     cancel_at_period_end = bool(_get(subscription, "cancel_at_period_end", False))
     shadow = _upsert_shadow_subscription(
@@ -452,11 +525,16 @@ def process_subscription_object(subscription: Any, db: Session, reason: str, eve
 
 
 def process_checkout_completed(session: Any, db: Session) -> dict[str, Any]:
+    session = _plain(session)
     metadata = _metadata(session)
     workspace_id = metadata.get("workspace_id") or _get(session, "client_reference_id")
     plan_id = metadata.get("plan_id")
     stripe_subscription_id = _get(session, "subscription")
+    if isinstance(stripe_subscription_id, dict):  # expanded object
+        stripe_subscription_id = stripe_subscription_id.get("id")
     customer_id = _get(session, "customer")
+    if isinstance(customer_id, dict):
+        customer_id = customer_id.get("id")
     if customer_id and workspace_id and not _workspace_customer(workspace_id, db):
         db.add(BillingCustomer(
             id=str(uuid.uuid4()),
@@ -466,7 +544,7 @@ def process_checkout_completed(session: Any, db: Session) -> dict[str, Any]:
         db.flush()
     if not workspace_id or not plan_id or not stripe_subscription_id:
         return {"status": "skipped", "reason": "missing_checkout_mapping"}
-    subscription = stripe.Subscription.retrieve(stripe_subscription_id)
+    subscription = _plain(stripe.Subscription.retrieve(stripe_subscription_id))
     # A freshly retrieved subscription is the current truth: stamp it with "now".
     result = process_subscription_object(subscription, db, "checkout.session.completed",
                                          event_created=int(datetime.datetime.utcnow().timestamp()))
@@ -487,7 +565,8 @@ def process_checkout_completed(session: Any, db: Session) -> dict[str, Any]:
 
 
 def process_invoice_object(invoice: Any, db: Session, payment_status: str, reason: str) -> dict[str, Any]:
-    stripe_subscription_id = _get(invoice, "subscription")
+    invoice = _plain(invoice)
+    stripe_subscription_id = _invoice_subscription_id(invoice)
     customer_id = _get(invoice, "customer")
     workspace_id = _workspace_from_subscription(stripe_subscription_id, db) or _workspace_from_customer(customer_id, db)
     if not workspace_id:
@@ -497,6 +576,7 @@ def process_invoice_object(invoice: Any, db: Session, payment_status: str, reaso
 
 
 def handle_webhook_event(event: Any, db: Session) -> dict[str, Any]:
+    event = _plain(event)
     event_id = _get(event, "id")
     event_type = _get(event, "type")
     if not event_id or not event_type:
@@ -506,8 +586,16 @@ def handle_webhook_event(event: Any, db: Session) -> dict[str, Any]:
     if existing and existing.processed:
         return {"status": "ok", "detail": "Already processed", "event_id": event_id}
     if not existing:
+        from sqlalchemy.exc import IntegrityError
+
         db.add(WebhookEvent(id=str(uuid.uuid4()), stripe_event_id=event_id, processed=False))
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # A concurrent delivery of the same event claimed it first.  Answer non-2xx so
+            # Stripe retries; the retry sees ``processed`` and returns "Already processed".
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Stripe event is already being processed")
 
     data_object = _get(_get(event, "data"), "object")
     logger.info("Processing Stripe webhook event %s [%s]", event_type, event_id)

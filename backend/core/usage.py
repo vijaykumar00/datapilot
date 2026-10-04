@@ -132,7 +132,12 @@ def consume_guest(guest: GuestSession, action: str, db: Session, amount: int = 1
         current = getattr(guest, column, 0) or 0
         raise _limit_error("GUEST_LIMIT_EXCEEDED", action, current, limit,
                            f"Guest limit reached for {action}. Sign up for free to continue.")
-    db.expire(guest)
+    if guest in db:
+        db.expire(guest)
+    else:
+        # Detached identity snapshot (see get_caller): keep the in-memory counter
+        # consistent without re-attaching it to the session.
+        setattr(guest, column, (getattr(guest, column, 0) or 0) + amount)
 
 
 def release_guest(guest_session_id: str, action: str, db: Session, amount: int = 1) -> None:

@@ -30,6 +30,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import AsyncGenerator, Callable
 
+# Strong references to in-flight metering writes (fire-and-forget executor futures).
+_PENDING_USAGE: set = set()
+
 logger = logging.getLogger("datapilot.llm_client")
 
 PROVIDERS = ("gemini", "openai", "claude", "ollama")
@@ -208,10 +211,27 @@ class BaseLLMProvider(ABC):
         except Exception:
             pass
         if self._usage_cb and tokens:
+            cb, name, n = self._usage_cb, self.name, int(tokens)
+
+            def _run() -> None:
+                try:
+                    cb(name, n)
+                except Exception as exc:  # metering must never break the request
+                    logger.warning("LLM usage callback failed: %s", exc)
+
             try:
-                self._usage_cb(self.name, int(tokens))
-            except Exception as exc:  # metering must never break the request
-                logger.warning("LLM usage callback failed: %s", exc)
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is None:
+                _run()
+            else:
+                # The metering callback writes to the database.  Never run it on the
+                # event loop: under pool pressure it would block the whole process for
+                # up to DB_POOL_TIMEOUT_SECONDS (observed in the 250-user staging run).
+                fut = loop.run_in_executor(None, _run)
+                _PENDING_USAGE.add(fut)
+                fut.add_done_callback(_PENDING_USAGE.discard)
 
     async def _with_retries(self, fn):
         attempts = _int_env("LLM_MAX_RETRIES", 3)

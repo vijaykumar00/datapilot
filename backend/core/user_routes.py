@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from core.db import get_db
+from core.db import get_db, release_connection
 from core.models import User, UserSettings, UserAPIKey, Workspace, WorkspaceMember, AuditLog
 from core.rbac import get_current_user
 from core.encryption import encrypt_value, decrypt_value, mask_key
@@ -108,11 +108,20 @@ def change_password(
     db: Session = Depends(get_db),
 ):
     """Change user password. Requires current password verification."""
-    if not verify_password(payload.current_password, user.password_hash):
+    user_id = user.user_id
+    stored_hash = user.password_hash
+    # Both hash operations are CPU-bound (~0.2 s each): end the read transaction so
+    # the pooled connection is returned while they run, then reload the row.
+    release_connection(db)
+    if not verify_password(payload.current_password, stored_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect.")
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
-    user.password_hash = hash_password(payload.new_password)
+    new_hash = hash_password(payload.new_password)
+    user = db.get(User, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="User account not found or deactivated.")
+    user.password_hash = new_hash
     user.updated_at = datetime.datetime.utcnow()
     # Sign out every other session (refresh tokens); the current access token expires within minutes.
     from core.auth_routes import revoke_all_refresh_tokens
