@@ -1,18 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import ChatWindow from './components/ChatWindow'
-import DataPreview from './components/DataPreview'
 import FileUploader from './components/FileUploader'
 import ProviderSelector from './components/ProviderSelector'
 import StepIndicator from './components/StepIndicator'
 import SessionManager from './components/SessionManager'
 import CommandPalette from './components/CommandPalette'
-import SavedAnalyses from './components/SavedAnalyses'
-import SavedReports from './components/SavedReports'
-import QueryHistory from './components/QueryHistory'
-import DatasetManager from './components/DatasetManager'
 import { useDataPilot } from './hooks/useDataPilot'
-import ReactMarkdown from 'react-markdown'
 import AuthModal from './components/AuthModal'
 import GuestBanner from './components/GuestBanner'
 import ToastContainer from './components/ToastContainer'
@@ -20,27 +13,51 @@ import UserMenu from './components/UserMenu'
 import { useAuth } from './contexts/AuthContext'
 import OnboardingAssistant from './components/OnboardingAssistant'
 
-import OnboardingFlow from './components/OnboardingFlow'
-import BillingPortal from './components/BillingPortal'
 import { API_BASE, apiUrl } from './lib/apiConfig'
-import { PrivacyPolicy, TermsOfService, CookiePolicy, AcceptableUsePolicy } from './components/LegalPages'
-import DashboardHome from './components/DashboardHome'
-import SettingsLayout, { ProfileSettings, WorkspaceSettings, TeamMembersSettings, ProvidersKeysSettings, SecuritySessionsSettings } from './components/SettingsLayout'
 import ErrorBoundary from './components/ErrorBoundary'
 import SEO from './components/marketing/SEO'
 
 // Modular Marketing Pages
-import HomePage from './pages/marketing/HomePage'
-import FeaturesPage from './pages/marketing/FeaturesPage'
-import UseCasesPage from './pages/marketing/UseCasesPage'
-import SecurityPage from './pages/marketing/SecurityPage'
-import PricingPage from './pages/marketing/PricingPage'
-import AboutPage from './pages/marketing/AboutPage'
-import ContactPage from './pages/marketing/ContactPage'
-import DocsPage from './pages/marketing/DocsPage'
-import NotFoundPage from './pages/marketing/NotFoundPage'
 
 const ChartRenderer = lazy(() => import('./components/ChartRenderer'))
+
+// ── Route-level code splitting ───────────────────────────────────────────────
+// Marketing visitors never download the workspace (chat, markdown, spreadsheet,
+// settings, billing); workspace users never download the marketing pages.
+const named = (loader, name) => lazy(() => loader().then(m => ({ default: m[name] })))
+const ChatWindow = lazy(() => import('./components/ChatWindow'))
+const DataPreview = lazy(() => import('./components/DataPreview'))
+const SavedAnalyses = lazy(() => import('./components/SavedAnalyses'))
+const SavedReports = lazy(() => import('./components/SavedReports'))
+const QueryHistory = lazy(() => import('./components/QueryHistory'))
+const DatasetManager = lazy(() => import('./components/DatasetManager'))
+const OnboardingFlow = lazy(() => import('./components/OnboardingFlow'))
+const BillingPortal = lazy(() => import('./components/BillingPortal'))
+const DashboardHome = lazy(() => import('./components/DashboardHome'))
+const HomePage = lazy(() => import('./pages/marketing/HomePage'))
+const FeaturesPage = lazy(() => import('./pages/marketing/FeaturesPage'))
+const UseCasesPage = lazy(() => import('./pages/marketing/UseCasesPage'))
+const SecurityPage = lazy(() => import('./pages/marketing/SecurityPage'))
+const PricingPage = lazy(() => import('./pages/marketing/PricingPage'))
+const AboutPage = lazy(() => import('./pages/marketing/AboutPage'))
+const ContactPage = lazy(() => import('./pages/marketing/ContactPage'))
+const DocsPage = lazy(() => import('./pages/marketing/DocsPage'))
+const NotFoundPage = lazy(() => import('./pages/marketing/NotFoundPage'))
+const ReactMarkdown = lazy(() => import('react-markdown'))
+const PrivacyPolicy = named(() => import('./components/LegalPages'), 'PrivacyPolicy')
+const TermsOfService = named(() => import('./components/LegalPages'), 'TermsOfService')
+const CookiePolicy = named(() => import('./components/LegalPages'), 'CookiePolicy')
+const AcceptableUsePolicy = named(() => import('./components/LegalPages'), 'AcceptableUsePolicy')
+const SettingsLayout = lazy(() => import('./components/SettingsLayout'))
+const ProfileSettings = named(() => import('./components/SettingsLayout'), 'ProfileSettings')
+const WorkspaceSettings = named(() => import('./components/SettingsLayout'), 'WorkspaceSettings')
+const TeamMembersSettings = named(() => import('./components/SettingsLayout'), 'TeamMembersSettings')
+const ProvidersKeysSettings = named(() => import('./components/SettingsLayout'), 'ProvidersKeysSettings')
+const SecuritySessionsSettings = named(() => import('./components/SettingsLayout'), 'SecuritySessionsSettings')
+
+function ViewFallback() {
+  return <div className="p-6 text-xs text-slate-500" role="status">Loading…</div>
+}
 
 
 
@@ -886,6 +903,7 @@ function ReportView() {
                       1. Executive Overview & Narrative Details
                     </div>
                     <div className="prose prose-sm text-slate-700 max-w-none text-[11px] leading-relaxed font-sans space-y-3">
+                      <Suspense fallback={<p className="text-[10px] text-slate-400">{reportData.narrative || ''}</p>}>
                       <ReactMarkdown
                         components={{
                           h1: ({node, ...props}) => <h1 className="text-[11px] font-bold text-slate-800 border-b pb-1 mt-3" style={{ borderColor: theme.primary + '1a', color: theme.primary }} {...props} />,
@@ -901,6 +919,7 @@ function ReportView() {
                       >
                         {reportData.narrative || ''}
                       </ReactMarkdown>
+                      </Suspense>
                     </div>
                   </div>
 
@@ -1911,7 +1930,9 @@ function AppLayout() {
         />
         {/* App body render via React Router Outlet */}
         <div className="flex-1 overflow-hidden">
-          <Outlet />
+          <Suspense fallback={<ViewFallback />}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 
@@ -1959,6 +1980,7 @@ function SpreadsheetWrapper() {
       
       {/* Render spreadsheet view or chat prompt */}
       <div className="flex-1 overflow-hidden">
+        <Suspense fallback={<ViewFallback />}>
         {activeTab === 'preview' ? (
           files.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center gap-4 bg-[#030712]">
@@ -1972,6 +1994,7 @@ function SpreadsheetWrapper() {
         ) : (
           <ChatWindow />
         )}
+        </Suspense>
       </div>
     </div>
   )
@@ -1982,6 +2005,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        <Suspense fallback={<ViewFallback />}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/demo" element={<GuestModeTrigger message="Loading demo workspace..." />} />
@@ -2039,6 +2063,7 @@ export default function App() {
           {/* Public fallback */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </ErrorBoundary>
   )

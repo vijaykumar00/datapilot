@@ -16,7 +16,7 @@ Fixes:
 from __future__ import annotations
 
 import csv
-import io
+import gc
 import json
 import logging
 import multiprocessing as mp
@@ -26,9 +26,41 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger("datapilot.parsing")
+
+# CSV text is held as Arrow-backed strings while parsing (~5x smaller than Python
+# str objects); columns are materialised as plain Python objects one at a time
+# for type inference, and remaining text columns are only converted back to the
+# classic object dtype at the very end (or never, on the Parquet path).
+CSV_READ_CHUNK_ROWS = 50_000
+_ARROW_TEXT = "string[pyarrow]"
+
+
+def _is_arrow_text(series: pd.Series) -> bool:
+    return isinstance(series.dtype, pd.StringDtype)
+
+
+def _release_column_temporaries() -> None:
+    """Free the previous column's temporaries now.
+
+    pandas' ``.str`` accessor forms a reference cycle with its Series, so the
+    per-column string copies made during inference are only reclaimed by the
+    cyclic GC.  String objects do not trigger collections, so without this the
+    temporaries of *every* column pile up (measured: ~1 column-worth of strings
+    per column, i.e. the parser peak grew with the column count).  A young-
+    generation collection costs a few milliseconds.
+    """
+    gc.collect(1)
+
+
+def _as_object(series: pd.Series) -> pd.Series:
+    """Materialise one column exactly as ``read_csv(dtype=str)`` would: str values, NaN for missing."""
+    if not _is_arrow_text(series):
+        return series
+    return pd.Series(series.to_numpy(dtype=object, na_value=np.nan), index=series.index, name=series.name)
 
 SNIFF_BYTES = 64 * 1024
 CANDIDATE_DELIMITERS = [",", ";", "\t", "|"]
@@ -123,53 +155,67 @@ def coerce_numeric_text(df: pd.DataFrame, threshold: float = 0.97) -> list[dict[
     """Convert object columns of formatted numbers to floats in-place. Returns a change log."""
     changes: list[dict[str, Any]] = []
     for col in df.columns:
-        series = df[col]
-        if series.dtype != object:
-            continue
-        non_null = series.dropna()
-        if non_null.empty:
-            continue
-        as_str = non_null.astype(str)
-        if not all(isinstance(v, str) for v in non_null.head(500)):
-            continue
-        match_ratio = as_str.str.match(_NUMERIC_RE).mean()
-        if match_ratio < threshold or _looks_identifier(as_str):
-            continue
-        decimal_comma = _decimal_comma_votes(as_str.head(1000))
-        parsed = series.map(lambda v: _parse_number(str(v), decimal_comma) if pd.notna(v) else None)
-        ok_ratio = parsed.notna().sum() / max(len(non_null), 1)
-        if ok_ratio < threshold:
-            continue
-        df[col] = pd.to_numeric(parsed, errors="coerce")
-        changes.append(
-            {
-                "column": str(col),
-                "converted_to": "number",
-                "percent": bool(as_str.str.contains("%").mean() > 0.5),
-                "decimal_comma": bool(decimal_comma),
-                "unparsed_values": int(len(non_null) - parsed.notna().sum()),
-            }
-        )
+        try:
+            change = _coerce_numeric_column(df, col, threshold)
+        finally:
+            _release_column_temporaries()
+        if change:
+            changes.append(change)
     return changes
+
+
+def _coerce_numeric_column(df: pd.DataFrame, col, threshold: float) -> dict[str, Any] | None:
+    series = _as_object(df[col])
+    if series.dtype != object:
+        return None
+    non_null = series.dropna()
+    if non_null.empty:
+        return None
+    as_str = non_null.astype(str)
+    if not all(isinstance(v, str) for v in non_null.head(500)):
+        return None
+    match_ratio = as_str.str.match(_NUMERIC_RE).mean()
+    if match_ratio < threshold or _looks_identifier(as_str):
+        return None
+    decimal_comma = _decimal_comma_votes(as_str.head(1000))
+    parsed = series.map(lambda v: _parse_number(str(v), decimal_comma) if pd.notna(v) else None)
+    ok_ratio = parsed.notna().sum() / max(len(non_null), 1)
+    if ok_ratio < threshold:
+        return None
+    df[col] = pd.to_numeric(parsed, errors="coerce")
+    return {
+        "column": str(col),
+        "converted_to": "number",
+        "percent": bool(as_str.str.contains("%").mean() > 0.5),
+        "decimal_comma": bool(decimal_comma),
+        "unparsed_values": int(len(non_null) - parsed.notna().sum()),
+    }
 
 
 def infer_text_column_types(df: pd.DataFrame) -> None:
     """Type CSV columns read as text, preserving identifier-like values (leading zeros)."""
     for col in df.columns:
-        series = df[col]
-        non_null = series.dropna()
-        if non_null.empty:
-            continue
-        stripped = non_null.str.strip()
-        if _looks_identifier(stripped):
-            continue
-        lowered = stripped.str.lower()
-        if lowered.isin({"true", "false"}).all():
-            df[col] = series.map(lambda v: None if pd.isna(v) else str(v).strip().lower() == "true")
-            continue
-        numeric = pd.to_numeric(stripped, errors="coerce")
-        if numeric.notna().all():
-            df[col] = pd.to_numeric(series.str.strip(), errors="coerce")
+        try:
+            _infer_text_column(df, col)
+        finally:
+            _release_column_temporaries()
+
+
+def _infer_text_column(df: pd.DataFrame, col) -> None:
+    series = _as_object(df[col])
+    non_null = series.dropna()
+    if non_null.empty:
+        return
+    stripped = non_null.str.strip()
+    if _looks_identifier(stripped):
+        return
+    lowered = stripped.str.lower()
+    if lowered.isin({"true", "false"}).all():
+        df[col] = series.map(lambda v: None if pd.isna(v) else str(v).strip().lower() == "true")
+        return
+    numeric = pd.to_numeric(stripped, errors="coerce")
+    if numeric.notna().all():
+        df[col] = pd.to_numeric(series.str.strip(), errors="coerce")
 
 
 def _normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -206,8 +252,33 @@ def _detect_excel_header(raw: pd.DataFrame) -> int:
     return best_row
 
 
-def parse_file(path: str | Path, ext: str, sheet: str | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Parse a CSV/XLS/XLSX file into a DataFrame plus parse metadata."""
+def _read_csv_text(path: Path, delimiter: str, encoding: str) -> pd.DataFrame:
+    """Same parser and options as ``read_csv(dtype=str)``, but chunked into Arrow strings."""
+    chunks = []
+    reader = pd.read_csv(path, sep=delimiter, encoding=encoding, dtype=str, on_bad_lines="error",
+                         chunksize=CSV_READ_CHUNK_ROWS)
+    with reader:
+        for chunk in reader:
+            chunks.append(chunk.astype(_ARROW_TEXT))
+    if not chunks:  # header-only file
+        return pd.read_csv(path, sep=delimiter, encoding=encoding, dtype=str, on_bad_lines="error").astype(_ARROW_TEXT)
+    return pd.concat(chunks, ignore_index=True) if len(chunks) > 1 else chunks[0]
+
+
+def _text_to_object(df: pd.DataFrame) -> None:
+    for col in df.columns:
+        if _is_arrow_text(df[col]):
+            df[col] = _as_object(df[col])
+
+
+def parse_file(path: str | Path, ext: str, sheet: str | None = None,
+               keep_arrow_text: bool = False) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Parse a CSV/XLS/XLSX file into a DataFrame plus parse metadata.
+
+    Text columns come back as classic object dtype unless *keep_arrow_text* is
+    set (the Parquet path), where they stay Arrow-backed to save memory — the
+    Parquet file and anything read from it are identical either way.
+    """
     path = Path(path)
     ext = ext.lower()
     meta: dict[str, Any] = {}
@@ -219,10 +290,10 @@ def parse_file(path: str | Path, ext: str, sheet: str | None = None) -> tuple[pd
         encoding, lossy = detect_encoding(sample)
         delimiter = detect_delimiter(sample.decode(encoding, errors="replace"))
         try:
-            df = pd.read_csv(path, sep=delimiter, encoding=encoding, dtype=str, on_bad_lines="error")
+            df = _read_csv_text(path, delimiter, encoding)
         except UnicodeDecodeError:
             encoding, lossy = "latin-1", True
-            df = pd.read_csv(path, sep=delimiter, encoding=encoding, dtype=str, on_bad_lines="error")
+            df = _read_csv_text(path, delimiter, encoding)
         except pd.errors.ParserError as exc:
             raise ParseError(f"CSV is malformed (inconsistent number of columns): {exc}") from exc
         meta.update({"encoding": encoding, "encoding_guessed": lossy, "delimiter": delimiter})
@@ -264,12 +335,19 @@ def parse_file(path: str | Path, ext: str, sheet: str | None = None) -> tuple[pd
 
     df = _normalise_columns(df)
     meta["numeric_conversions"] = coerce_numeric_text(df)
+    if not keep_arrow_text:
+        _text_to_object(df)
     return df, meta
 
 
 def normalise_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    """Make mixed-type object columns Parquet-safe without losing nulls."""
-    out = df.copy()
+    """Make mixed-type object columns Parquet-safe without losing nulls.
+
+    Returns a *shallow* copy: only the columns that need rewriting get new
+    arrays, so the caller's frame is never mutated and untouched columns are not
+    duplicated in memory.
+    """
+    out = df.copy(deep=False)
     out.columns = [str(c) for c in out.columns]
     for col in out.columns:
         series = out[col]
@@ -285,12 +363,48 @@ def normalise_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# ── Parquet I/O (canonical on-disk form of every dataset version) ────────────
+
+def write_parquet(df: pd.DataFrame, path) -> None:
+    """Write the canonical Parquet form of *df*.
+
+    Arrow-backed text columns are written zero-copy, but recorded in the pandas
+    metadata as plain object columns, so every reader gets exactly the same
+    frame as for classic object text columns.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    out = normalise_for_parquet(df)
+    table = pa.Table.from_pandas(out, preserve_index=False)
+    arrow_text = {str(c) for c in out.columns if _is_arrow_text(out[c])}
+    if arrow_text and table.schema.metadata and b"pandas" in table.schema.metadata:
+        pandas_meta = json.loads(table.schema.metadata[b"pandas"])
+        for column in pandas_meta.get("columns", []):
+            if column.get("name") in arrow_text:
+                column["numpy_type"] = "object"
+                column["metadata"] = None
+        table = table.replace_schema_metadata({**table.schema.metadata, b"pandas": json.dumps(pandas_meta).encode()})
+    pq.write_table(table, path)
+
+
+def read_parquet(source) -> pd.DataFrame:
+    """Read a dataset version.
+
+    Plain ``pd.read_parquet`` (consolidated blocks) measured best end-to-end:
+    Arrow ``split_blocks``/``self_destruct`` lowered the load peak slightly but made
+    the next row filter consolidate the whole frame (higher overall peak).
+    """
+    return pd.read_parquet(source)
+
+
 # ── Killable subprocess execution ────────────────────────────────────────────
 
 def _child(path: str, ext: str, sheet: str | None, out_path: str, meta_path: str) -> None:  # pragma: no cover - runs in child
     try:
-        df, meta = parse_file(path, ext, sheet)
-        normalise_for_parquet(df).to_parquet(out_path, index=False)
+        df, meta = parse_file(path, ext, sheet, keep_arrow_text=True)
+        write_parquet(df, out_path)
+        del df
         Path(meta_path).write_text(json.dumps({"ok": True, "meta": meta}, default=str))
     except Exception as exc:  # report the error to the parent
         Path(meta_path).write_text(json.dumps({"ok": False, "error": str(exc), "type": type(exc).__name__}))
@@ -300,13 +414,33 @@ def _subprocess_enabled() -> bool:
     return os.getenv("PARSE_IN_SUBPROCESS", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def parse_to_parquet(path: str | Path, ext: str, sheet: str | None, timeout_seconds: int,
+                     out_path: str | Path) -> dict[str, Any]:
+    """Parse *path* and write the canonical Parquet form to *out_path*; return parse metadata.
+
+    The parsed frame never has to live in the caller's process: the caller reads
+    the Parquet file back (canonical types) and can upload the very same file as
+    the dataset version, instead of re-serialising it in memory.
+    """
+    if not _subprocess_enabled():
+        df, meta = parse_file(path, ext, sheet, keep_arrow_text=True)
+        write_parquet(df, out_path)
+        return meta
+    return _run_parse_child(path, ext, sheet, timeout_seconds, str(out_path))
+
+
 def parse_file_bounded(path: str | Path, ext: str, sheet: str | None, timeout_seconds: int) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Parse in a child process that is terminated if it exceeds *timeout_seconds*."""
     if not _subprocess_enabled():
         return parse_file(path, ext, sheet)
-
     with tempfile.TemporaryDirectory(prefix="dp_parse_") as tmp:
         out_path = os.path.join(tmp, "out.parquet")
+        meta = _run_parse_child(path, ext, sheet, timeout_seconds, out_path)
+        return read_parquet(out_path), meta
+
+
+def _run_parse_child(path: str | Path, ext: str, sheet: str | None, timeout_seconds: int, out_path: str) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="dp_parse_meta_") as tmp:
         meta_path = os.path.join(tmp, "meta.json")
         ctx = mp.get_context("spawn")
         proc = ctx.Process(target=_child, args=(str(path), ext, sheet, out_path, meta_path), daemon=True)
@@ -325,4 +459,4 @@ def parse_file_bounded(path: str | Path, ext: str, sheet: str | None, timeout_se
             if result.get("type") == "ParseError":
                 raise ParseError(result.get("error", "Could not parse file."))
             raise ValueError(result.get("error", "Could not parse file."))
-        return pd.read_parquet(out_path), result["meta"]
+        return result["meta"]

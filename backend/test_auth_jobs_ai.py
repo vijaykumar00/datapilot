@@ -64,9 +64,16 @@ def test_refresh_cookie_rotation_workspace_preservation_and_reuse_detection():
     # Free plan allows one owned workspace: creation is blocked by the plan limit.
     assert second_ws.status_code == 429
 
-    refreshed = client.post("/auth/refresh", json={"workspace_id": signup["workspace_id"]})  # cookie-based
+    # Cookie-based refresh must carry the double-submit CSRF token.
+    assert client.post("/auth/refresh", json={"workspace_id": signup["workspace_id"]}).status_code == 403
+    csrf = client.cookies["dp_csrf"]
+    refreshed = client.post("/auth/refresh", json={"workspace_id": signup["workspace_id"]},
+                            headers={"X-CSRF-Token": csrf})
     assert refreshed.status_code == 200, refreshed.text
     assert refreshed.json()["workspace_id"] == signup["workspace_id"]
+    # Cookie-based refresh never exposes tokens to JavaScript; the CSRF token is stable across refreshes.
+    assert refreshed.json()["access_token"] is None and refreshed.json()["refresh_token"] is None
+    assert client.cookies["dp_csrf"] == csrf
 
     # An immediate replay (two tabs refreshing at once) is a benign race: 409, no revocation.
     client.cookies.clear()

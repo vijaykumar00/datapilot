@@ -1,30 +1,35 @@
 /**
- * authSession.js — shared access-token handling for every API call.
+ * authSession.js — browser session handling shared by every API call.
  *
- * - The refresh token lives ONLY in the HttpOnly `dp_refresh` cookie set by the
- *   API; JavaScript never stores or reads it.
- * - The short-lived access token is kept in localStorage so API helpers outside
- *   React (zustand store, billing client) can attach it.
- * - `authedFetch` retries a request once after a silent cookie refresh when the
- *   API answers 401, so an expired access token never surfaces as an error.
- * - Refreshes are de-duplicated inside a tab (shared promise) and across tabs
- *   (Web Locks), because refresh tokens rotate and a parallel refresh would look
- *   like token reuse.
+ * - Both tokens live ONLY in HttpOnly, SameSite=Strict cookies set by the API
+ *   (`dp_access`, 15 min; `dp_refresh`, 7 days).  JavaScript never sees them, so
+ *   an injected script cannot exfiltrate a session.
+ * - Unsafe requests echo the readable `dp_csrf` cookie in `X-CSRF-Token`
+ *   (double-submit CSRF protection; a cross-site page can do neither).
+ * - Only non-secret profile data (`dp_user`, `dp_workspace_id`) is kept in
+ *   localStorage so the UI knows a session exists.
+ * - `authedFetch` refreshes once through the cookie and retries when the API
+ *   answers 401.  Refreshes are de-duplicated inside a tab (shared promise) and
+ *   across tabs (Web Locks + a session epoch), because refresh tokens rotate.
  */
 import { apiUrl } from './apiConfig.js'
 
 export const AUTH_KEYS = {
-  ACCESS_TOKEN: 'dp_access_token',
+  LEGACY_ACCESS_TOKEN: 'dp_access_token',
   LEGACY_REFRESH_TOKEN: 'dp_refresh_token',
   USER: 'dp_user',
   WORKSPACE_ID: 'dp_workspace_id',
+  SESSION_EPOCH: 'dp_session_epoch',
   GUEST_TOKEN: 'dp_guest_token',
   GUEST_SESSION_ID: 'dp_guest_session_id',
 }
 
 export const AUTH_REFRESHED_EVENT = 'dp-auth-refreshed'
 export const AUTH_EXPIRED_EVENT = 'dp-auth-expired'
+export const CSRF_COOKIE = 'dp_csrf'
+export const SESSION_MODE_HEADERS = { 'X-Session-Mode': 'cookie' }
 
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 const hasWindow = () => typeof window !== 'undefined'
 
 function safeGet(storage, key) {
@@ -38,8 +43,31 @@ function safeSet(storage, key, value) {
   } catch { /* storage unavailable (private mode) */ }
 }
 
-export function getAccessToken() {
-  return hasWindow() ? safeGet(window.localStorage, AUTH_KEYS.ACCESS_TOKEN) : null
+/** Remove bearer tokens persisted by older builds (sessions now live in HttpOnly cookies). */
+export function takeLegacyTokens() {
+  if (!hasWindow()) return { refresh: null }
+  const refresh = safeGet(window.sessionStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN)
+    || safeGet(window.localStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN)
+  safeSet(window.sessionStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN, null)
+  safeSet(window.localStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN, null)
+  safeSet(window.localStorage, AUTH_KEYS.LEGACY_ACCESS_TOKEN, null)
+  return { refresh }
+}
+
+export function getCsrfToken() {
+  if (!hasWindow() || typeof document === 'undefined') return null
+  const match = (document.cookie || '').match(/(?:^|;\s*)dp_csrf=([^;]+)/)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+export function getStoredUser() {
+  if (!hasWindow()) return null
+  try { return JSON.parse(safeGet(window.localStorage, AUTH_KEYS.USER) || 'null') } catch { return null }
+}
+
+/** True while this browser believes it has a signed-in session (cookies decide for real). */
+export function hasSession() {
+  return !!getStoredUser()
 }
 
 export function getWorkspaceId() {
@@ -50,43 +78,55 @@ export function getGuestToken() {
   return hasWindow() ? safeGet(window.sessionStorage, AUTH_KEYS.GUEST_TOKEN) : null
 }
 
-/** Remove refresh tokens persisted by older builds (they now live in an HttpOnly cookie). */
-export function takeLegacyRefreshToken() {
-  if (!hasWindow()) return null
-  const token = safeGet(window.sessionStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN)
-    || safeGet(window.localStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN)
-  safeSet(window.sessionStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN, null)
-  safeSet(window.localStorage, AUTH_KEYS.LEGACY_REFRESH_TOKEN, null)
-  return token
+function sessionEpoch() {
+  return hasWindow() ? safeGet(window.localStorage, AUTH_KEYS.SESSION_EPOCH) : null
 }
 
+/** Persist the non-secret profile from an auth response; tokens are never stored. */
 export function storeSession(data) {
-  if (!hasWindow()) return
+  if (!hasWindow()) return null
   const user = {
     user_id: data.user_id,
     email: data.email,
     full_name: data.full_name || null,
     phone_number: data.phone_number || null,
   }
-  safeSet(window.localStorage, AUTH_KEYS.ACCESS_TOKEN, data.access_token)
   safeSet(window.localStorage, AUTH_KEYS.USER, JSON.stringify(user))
   if (data.workspace_id) safeSet(window.localStorage, AUTH_KEYS.WORKSPACE_ID, data.workspace_id)
-  takeLegacyRefreshToken()
+  safeSet(window.localStorage, AUTH_KEYS.SESSION_EPOCH, String(Date.now()))
+  takeLegacyTokens()
   return user
 }
 
 export function clearSession() {
   if (!hasWindow()) return
-  safeSet(window.localStorage, AUTH_KEYS.ACCESS_TOKEN, null)
   safeSet(window.localStorage, AUTH_KEYS.USER, null)
   safeSet(window.localStorage, AUTH_KEYS.WORKSPACE_ID, null)
-  takeLegacyRefreshToken()
+  safeSet(window.localStorage, AUTH_KEYS.SESSION_EPOCH, null)
+  takeLegacyTokens()
+}
+
+/** Headers for a credentialed request: CSRF for unsafe methods, workspace / guest context. */
+export function sessionHeaders(method = 'GET', extra = {}) {
+  const headers = { ...extra }
+  if (!SAFE_METHODS.has(String(method).toUpperCase())) {
+    const csrf = getCsrfToken()
+    if (csrf) headers['X-CSRF-Token'] = csrf
+  }
+  if (hasSession()) {
+    const workspaceId = getWorkspaceId()
+    if (workspaceId) headers['X-Workspace-ID'] = workspaceId
+  } else {
+    const guestToken = getGuestToken()
+    if (guestToken) headers['X-Guest-Token'] = guestToken
+  }
+  return headers
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 async function requestRefresh() {
-  const legacy = takeLegacyRefreshToken()
+  const { refresh: legacy } = takeLegacyTokens()
   const body = { workspace_id: getWorkspaceId() }
   if (legacy) body.refresh_token = legacy
 
@@ -96,7 +136,7 @@ async function requestRefresh() {
       resp = await fetch(apiUrl('/auth/refresh'), {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...sessionHeaders('POST', SESSION_MODE_HEADERS) },
         body: JSON.stringify(body),
       })
     } catch {
@@ -122,32 +162,34 @@ async function requestRefresh() {
 let inflight = null
 
 /**
- * Obtain a fresh access token from the refresh cookie.
- * Resolves to the token, or null when the session is gone (an
- * AUTH_EXPIRED_EVENT is dispatched) or the API is temporarily unreachable.
+ * Refresh the session cookies.  Resolves true on success; false when the
+ * session is gone (an AUTH_EXPIRED_EVENT is dispatched) or the API is
+ * temporarily unreachable.
  */
-export function refreshAccessToken() {
+export function refreshSession() {
   if (inflight) return inflight
-  const startedWith = getAccessToken()
+  const startedEpoch = sessionEpoch()
 
   const run = async () => {
     // Another tab may have refreshed while this one waited for the lock.
-    const current = getAccessToken()
-    if (current && current !== startedWith) return current
+    const current = sessionEpoch()
+    if (current && current !== startedEpoch) return true
 
     const result = await requestRefresh()
     if (result.ok) {
       const user = storeSession(result.data)
       if (hasWindow()) {
-        window.dispatchEvent(new CustomEvent(AUTH_REFRESHED_EVENT, { detail: { ...result.data, user } }))
+        window.dispatchEvent(new CustomEvent(AUTH_REFRESHED_EVENT, {
+          detail: { user, workspace_id: result.data.workspace_id },
+        }))
       }
-      return result.data.access_token
+      return true
     }
     if (!result.transient) {
       clearSession()
       if (hasWindow()) window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
     }
-    return null
+    return false
   }
 
   inflight = (async () => {
@@ -163,27 +205,21 @@ export function refreshAccessToken() {
   return inflight
 }
 
-function buildHeaders(extra = {}) {
-  const headers = { ...extra }
-  const token = getAccessToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const guestToken = getGuestToken()
-  if (guestToken && !token) headers['X-Guest-Token'] = guestToken
-  const workspaceId = getWorkspaceId()
-  if (workspaceId && token) headers['X-Workspace-ID'] = workspaceId
-  return headers
-}
-
-/** fetch() against the API with auth headers and one transparent refresh-and-retry on 401. */
+/** fetch() against the API with the session cookies, CSRF header and one refresh-and-retry on 401. */
 export async function authedFetch(path, options = {}) {
   const { headers: extraHeaders, ...rest } = options
-  const first = buildHeaders(extraHeaders)
-  const resp = await fetch(apiUrl(path), { credentials: 'include', ...rest, headers: first })
-  if (resp.status !== 401 || !first.Authorization) return resp
+  const method = rest.method || 'GET'
+  const send = () => fetch(apiUrl(path), {
+    credentials: 'include',
+    ...rest,
+    headers: sessionHeaders(method, extraHeaders),
+  })
+  const resp = await send()
+  if (resp.status !== 401 || !hasSession()) return resp
 
-  const token = await refreshAccessToken()
-  if (!token) return resp
-  return fetch(apiUrl(path), { credentials: 'include', ...rest, headers: buildHeaders(extraHeaders) })
+  const refreshed = await refreshSession()
+  if (!refreshed) return resp
+  return send()
 }
 
 /** Extract a human-readable message from any API error response (JSON or not). */

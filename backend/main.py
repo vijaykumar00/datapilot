@@ -16,9 +16,11 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import hmac
 import logging
 import os
 import re
+import shutil
 import tempfile
 import time
 import uuid
@@ -31,10 +33,11 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, 
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.background import BackgroundTask
 
 from core.observability import (
     CHAT_PERSIST_FAILURES,
@@ -174,6 +177,58 @@ async def _send_json(send, status_code: int, payload: dict) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+class CookieSessionMiddleware:
+    """Browser sessions: authenticate with the HttpOnly ``dp_access`` cookie.
+
+    When a request carries no ``Authorization`` header but has the access cookie,
+    the cookie's JWT is presented to the app as ``Authorization: Bearer …`` so all
+    existing auth dependencies, tenant scoping and rate limiting apply unchanged.
+    Unsafe methods authenticated this way must pass the double-submit CSRF check
+    (``X-CSRF-Token`` header == ``dp_csrf`` cookie).  Explicit bearer headers
+    (API clients) are used as-is and need no CSRF token.
+    """
+
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+    # Credential-establishing endpoints do not use the access cookie (refresh and
+    # logout handle their own cookie / CSRF rules).
+    EXEMPT_PATHS = ("/auth/login", "/auth/signup", "/auth/oauth/", "/auth/otp/", "/auth/refresh",
+                    "/auth/forgot-password", "/auth/reset-password", "/auth/verify-email", "/guest/session")
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path = scope.get("path", "")
+        if path == "/auth/logout" or path.startswith(self.EXEMPT_PATHS):
+            return await self.app(scope, receive, send)
+        headers = scope.get("headers") or []
+        if any(k == b"authorization" for k, _ in headers):
+            return await self.app(scope, receive, send)
+        raw_cookie = b"; ".join(v for k, v in headers if k == b"cookie").decode("latin-1")
+        if not raw_cookie:
+            return await self.app(scope, receive, send)
+        from starlette.requests import cookie_parser
+        from core.auth_routes import ACCESS_COOKIE, CSRF_COOKIE, CSRF_HEADER
+
+        cookies = cookie_parser(raw_cookie)
+        access = cookies.get(ACCESS_COOKIE)
+        if not access:
+            return await self.app(scope, receive, send)
+        if scope.get("method", "GET").upper() not in self.SAFE_METHODS:
+            sent = next((v.decode("latin-1") for k, v in headers if k == CSRF_HEADER.encode()), "")
+            expected = cookies.get(CSRF_COOKIE) or ""
+            if not expected or not hmac.compare_digest(sent, expected):
+                return await _send_json(send, 403, {"success": False, "error": "CSRF token missing or invalid.",
+                                                    "detail": {"message": "CSRF token missing or invalid.",
+                                                               "code": "CSRF_FAILED"},
+                                                    "code": "CSRF_FAILED"})
+        scope = dict(scope)
+        scope["headers"] = list(headers) + [(b"authorization", f"Bearer {access}".encode("latin-1"))]
+        return await self.app(scope, receive, send)
+
+
 class BodySizeLimitMiddleware:
     """Enforce request size on the actual streamed body (Content-Length can lie or be absent)."""
 
@@ -270,12 +325,14 @@ async def request_context_middleware(request: Request, call_next):
 
 
 app.add_middleware(BodySizeLimitMiddleware)
+app.add_middleware(CookieSessionMiddleware)  # inside CORS, outside rate limiting / auth
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Guest-Token", "X-Workspace-ID", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Guest-Token", "X-Workspace-ID", "X-Request-ID",
+                   "X-CSRF-Token", "X-Session-Mode"],
     expose_headers=["X-Request-ID", "Content-Disposition"],
 )
 
@@ -465,9 +522,18 @@ def _job_file_response(job: dict, workspace_id: str) -> Response:
     if not key:
         raise HTTPException(404, "Export file not found or expired")
     result = job.get("result") or {}
-    data = get_storage_provider().get_object(key)
-    return _bytes_download_response(data, result.get("media_type", "application/octet-stream"),
-                                    result.get("filename", "download"))
+    # Stream from a temp copy instead of holding the whole export in API memory.
+    tmp_dir = tempfile.mkdtemp(prefix="dp_download_")
+    local = os.path.join(tmp_dir, "result")
+    try:
+        get_storage_provider().download_object(key, Path(local))
+    except FileNotFoundError:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(404, "Export file not found or expired")
+    filename = result.get("filename", "download")
+    return FileResponse(local, media_type=result.get("media_type", "application/octet-stream"),
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                        background=BackgroundTask(shutil.rmtree, tmp_dir, ignore_errors=True))
 
 
 def _job_outcome(job: dict, *, download: bool, workspace_id: str):

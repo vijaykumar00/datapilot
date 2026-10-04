@@ -6,19 +6,35 @@ function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
-test('refresh tokens are never persisted in JS-readable storage', () => {
-  const authContext = read('../src/contexts/AuthContext.jsx')
-  const session = read('../src/lib/authSession.js')
+const SOURCES = [
+  '../src/contexts/AuthContext.jsx',
+  '../src/lib/authSession.js',
+  '../src/lib/billingClient.js',
+  '../src/hooks/useDataPilot.js',
+]
 
-  for (const source of [authContext, session]) {
-    assert.doesNotMatch(source, /(localStorage|sessionStorage)\.setItem\([^)]*REFRESH/)
-    assert.doesNotMatch(source, /storeRefreshToken/)
+test('no access or refresh token is ever written to JS-readable storage or sent as a bearer header', () => {
+  for (const path of SOURCES) {
+    const source = read(path)
+    assert.doesNotMatch(source, /(localStorage|sessionStorage)\.setItem\([^)]*(ACCESS|REFRESH|access_token|refresh_token)/i, path)
+    assert.doesNotMatch(source, /Authorization['"]?\]?\s*[:=]\s*`Bearer/, path)
+    assert.doesNotMatch(source, /data\.access_token|data\.refresh_token/, path)
   }
+  const session = read('../src/lib/authSession.js')
   // Tokens left behind by older builds are removed.
-  assert.match(session, /takeLegacyRefreshToken/)
-  assert.match(session, /LEGACY_REFRESH_TOKEN/)
-  // Refresh and logout use the HttpOnly cookie.
-  assert.match(session, /\/auth\/refresh[\s\S]*credentials: 'include'/)
+  assert.match(session, /takeLegacyTokens/)
+  // Unsafe requests carry the double-submit CSRF token; credentials are always included.
+  assert.match(session, /X-CSRF-Token/)
+  assert.match(session, /credentials: 'include'/)
+})
+
+test('credential-issuing calls ask for cookie-only sessions', () => {
+  const authContext = read('../src/contexts/AuthContext.jsx')
+  for (const endpoint of ["apiUrl('/auth/login')", 'apiUrl(`/auth/oauth/${normalizedProvider}/callback`)', "apiUrl('/auth/otp/verify')", "apiUrl('/guest/convert')"]) {
+    const at = authContext.indexOf(endpoint)
+    assert.ok(at > 0, endpoint)
+    assert.match(authContext.slice(at, at + 400), /SESSION_MODE_HEADERS/, endpoint)
+  }
   assert.match(authContext, /\/auth\/logout[\s\S]*credentials: 'include'/)
 })
 
@@ -31,13 +47,4 @@ test('social and OTP auth flows are still wired', () => {
   assert.match(authContext, /\/auth\/oauth\/\$\{normalizedProvider\}\/start/)
   assert.match(authContext, /\/auth\/otp\/request/)
   assert.match(authContext, /\/auth\/otp\/verify/)
-})
-
-test('expired access tokens are refreshed once and requests retried', () => {
-  const session = read('../src/lib/authSession.js')
-  assert.match(session, /resp\.status !== 401/)
-  assert.match(session, /refreshAccessToken\(\)/)
-  // Cross-tab de-duplication: rotated refresh tokens must not be replayed in parallel.
-  assert.match(session, /navigator\?\.locks\?\.request/)
-  assert.match(session, /resp\.status === 409/)
 })

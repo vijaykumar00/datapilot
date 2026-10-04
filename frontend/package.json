@@ -13,7 +13,8 @@
     "prebuild": "npm run generate:sitemap",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test:bundle-size": "node scripts/check-bundle-size.mjs"
   },
   "dependencies": {
     "plotly.js-cartesian-dist-min": "^2.35.3",

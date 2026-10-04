@@ -292,3 +292,32 @@ def test_row_limit_errors_are_not_reported_as_file_size_errors():
     assert "250000" in err["message"] and "50 MB" not in err["message"]
     size_err = diagnose_upload_error(ValueError("File too large (12.0MB). Max for your plan: 5MB"), "big.csv", b"x" * 10)
     assert size_err["code"] == "FILE_TOO_LARGE" and "5MB" in size_err["message"]
+
+
+def test_csv_export_writes_whole_numbers_without_trailing_point_zero():
+    import numpy as np
+    import pandas as pd
+    from core.job_handlers import _df_to_bytes
+
+    df = pd.DataFrame({"zip": ["02134", "10001", "00501"], "revenue": [100.5, 200.0, np.nan],
+                       "units": [1, 2, 3], "tiny": [1.5e-7, -0.25, 3.0]})
+    text = _df_to_bytes(df, "csv").decode()
+    assert text.splitlines() == [
+        "zip,revenue,units,tiny",
+        "02134,100.5,1,1.5e-07",
+        "10001,200,2,-0.25",
+        "00501,,3,3",
+    ]
+    assert df["revenue"].dtype == np.float64  # the source frame is not mutated
+    # Round-trip: values re-parse to the same numbers.
+    back = pd.read_csv(__import__("io").StringIO(text), dtype={"zip": str})
+    assert back["revenue"].tolist()[:2] == [100.5, 200.0] and back["zip"].tolist()[0] == "02134"
+
+    # End to end through the export API (full dataset job).
+    client = TestClient(main.app)
+    owner = _make_user()
+    up = client.post("/upload", headers=owner["headers"],
+                     files={"file": ("m.csv", io.BytesIO(b"region,revenue\nN,100.5\nS,200\n"), "text/csv")}).json()
+    resp = client.get(f"/export/file/{up['file_id']}?format=csv", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    assert resp.text.splitlines() == ["region,revenue", "N,100.5", "S,200"]

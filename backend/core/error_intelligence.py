@@ -89,7 +89,7 @@ def diagnose_upload_error(exc: Exception, filename: str, raw_bytes: bytes | None
         )
 
     # ── Too many rows / columns (limits are on the parsed dataset, not the file size) ──
-    if "too many rows" in msg or "too many columns" in msg:
+    if "too many rows" in msg or "too many columns" in msg or "maximum supported cells" in msg:
         return _make_error(
             code="DATASET_TOO_LARGE",
             title="Dataset exceeds row/column limit",

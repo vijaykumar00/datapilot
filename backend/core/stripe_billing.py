@@ -192,7 +192,7 @@ def _workspace_customer(workspace_id: str, db: Session) -> BillingCustomer | Non
 
 
 def ensure_stripe_customer(caller: Any, workspace_id: str, db: Session) -> BillingCustomer:
-    settings = require_stripe()
+    require_stripe()  # 503 when billing is not configured
     record = _workspace_customer(workspace_id, db)
     if record:
         return record

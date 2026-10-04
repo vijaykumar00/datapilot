@@ -43,7 +43,6 @@ class CleanAgent(BaseAgent):
         def _work():
             df = record.df.copy()
             issues: list[dict[str, Any]] = []
-            fixes: list[dict[str, Any]] = []
 
             # --- 1. Duplicate rows ---
             dup_count = int(df.duplicated().sum())

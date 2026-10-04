@@ -17,7 +17,11 @@ def execute_transform(df: pd.DataFrame, action: Dict[str, Any]) -> pd.DataFrame:
     if not op:
         raise ValueError("No transformation action specified")
 
-    df = df.copy()
+    # Shallow copy: every operation below either returns a new frame or replaces
+    # whole columns (``df[col] = ...``); none writes into existing arrays.  The
+    # caller's frame — often the cached dataset version — is therefore never
+    # modified, without paying for a full deep copy of the dataset per step.
+    df = df.copy(deep=False)
     logger.info("Executing declarative transform: %s", op)
 
     if op == "remove_duplicates":

@@ -1,5 +1,5 @@
 import { apiUrl } from './apiConfig'
-import { refreshAccessToken } from './authSession'
+import { hasSession, refreshSession, sessionHeaders } from './authSession.js'
 
 export class BillingApiError extends Error {
   constructor(message, status, payload = null) {
@@ -21,21 +21,21 @@ async function readJson(response) {
 }
 
 async function request(path, { method = 'GET', headers = {}, body, signal } = {}) {
-  const send = (extraHeaders) => fetch(apiUrl(path), {
+  // Session cookies authenticate; sessionHeaders() adds the CSRF token for unsafe methods.
+  const send = () => fetch(apiUrl(path), {
     method,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...extraHeaders,
+      ...sessionHeaders(method, headers),
     },
     body: body ? JSON.stringify(body) : undefined,
     signal,
   })
-  let response = await send(headers)
-  if (response.status === 401 && headers.Authorization) {
-    // Access token expired: refresh through the HttpOnly cookie and retry once.
-    const token = await refreshAccessToken()
-    if (token) response = await send({ ...headers, Authorization: `Bearer ${token}` })
+  let response = await send()
+  if (response.status === 401 && hasSession()) {
+    // Access cookie expired: refresh through the HttpOnly refresh cookie and retry once.
+    if (await refreshSession()) response = await send()
   }
   const payload = await readJson(response)
   if (!response.ok) {

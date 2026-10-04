@@ -240,7 +240,7 @@ def _decrypt_v0(ciphertext: str) -> str:
         return plaintext_bytes.decode("utf-8")
     except FernetInvalidToken:
         raise ValueError("Decryption failed: invalid legacy ciphertext or wrong key.")
-    except Exception as exc:
+    except Exception:
         # Do not expose exc details in case they contain key material
         raise ValueError("Decryption failed: legacy format error.") from None
 

@@ -52,7 +52,7 @@ from core.error_intelligence import (
 )
 from core.insights import build_insights, clean_header_to_label, heuristic_semantic_map, infer_semantic_type
 from core.models import DatasetRegistry, DatasetVersion
-from core.parsing import ParseError, normalise_for_parquet, parse_file_bounded
+from core.parsing import ParseError, parse_to_parquet, read_parquet, write_parquet
 from core.storage import dataset_prefix, get_storage_provider
 from core.transform_engine import execute_transform
 
@@ -103,6 +103,12 @@ def _max_dataset_rows() -> int:
 
 def _max_dataset_columns() -> int:
     return _int_env("MAX_DATASET_COLUMNS", 500)
+
+
+def _max_dataset_cells() -> int:
+    # rows x columns cap: memory scales with cells, so 250k rows and 500 columns
+    # must not both be maxed out at once (125M cells would need several GB).
+    return _int_env("MAX_DATASET_CELLS", 20_000_000)
 
 
 def _max_excel_sheets() -> int:
@@ -239,10 +245,16 @@ def _column_summary(df: pd.DataFrame) -> list[dict]:
     return [{"name": str(c), "dtype": str(df[c].dtype)} for c in df.columns]
 
 
-def _to_parquet_bytes(df: pd.DataFrame) -> bytes:
-    buf = io.BytesIO()
-    normalise_for_parquet(df).to_parquet(buf, index=False)
-    return buf.getvalue()
+def _check_bounds(rows: int, columns: int) -> None:
+    if rows > _max_dataset_rows():
+        raise ValueError(f"Dataset has too many rows. Maximum supported rows: {_max_dataset_rows()}")
+    if columns > _max_dataset_columns():
+        raise ValueError(f"Dataset has too many columns. Maximum supported columns: {_max_dataset_columns()}")
+    if rows * columns > _max_dataset_cells():
+        raise ValueError(
+            f"Dataset has too many rows for its number of columns ({rows:,} x {columns:,}). "
+            f"Maximum supported cells (rows x columns): {_max_dataset_cells():,}"
+        )
 
 
 class FileManager:
@@ -279,10 +291,15 @@ class FileManager:
             raise ValueError("Excel workbook expands beyond the supported decompressed size limit.")
 
     def _validate_dataframe_bounds(self, df: pd.DataFrame) -> None:
-        if len(df) > _max_dataset_rows():
-            raise ValueError(f"Dataset has too many rows. Maximum supported rows: {_max_dataset_rows()}")
-        if len(df.columns) > _max_dataset_columns():
-            raise ValueError(f"Dataset has too many columns. Maximum supported columns: {_max_dataset_columns()}")
+        _check_bounds(len(df), len(df.columns))
+
+    @staticmethod
+    def _validate_parquet_bounds(path: Path) -> None:
+        """Check limits from Parquet metadata *before* loading the frame into memory."""
+        import pyarrow.parquet as pq
+
+        meta = pq.ParquetFile(path).metadata
+        _check_bounds(meta.num_rows, meta.num_columns)
 
     # ── Upload (API side: fast, no parsing) ────────────────────────────────────
     def stage_upload(
@@ -356,15 +373,21 @@ class FileManager:
         storage = get_storage_provider()
         with tempfile.TemporaryDirectory(prefix="dp_ingest_") as tmp:
             local = Path(tmp) / f"original{ext}"
+            parquet_path = Path(tmp) / "version.parquet"
             storage.download_object(row["original_key"], local)
-            raw_head = local.read_bytes()[:65536]
+            with open(local, "rb") as fh:
+                raw_head = fh.read(65536)
             try:
-                df, parse_meta = parse_file_bounded(local, ext, None, _parse_timeout_seconds())
+                # The parser (a killable child process) writes the canonical Parquet file;
+                # this process only reads it back, and later uploads the same file as v1.
+                parse_meta = parse_to_parquet(local, ext, None, _parse_timeout_seconds(), parquet_path)
                 if parse_meta.get("sheet_names") and len(parse_meta["sheet_names"]) > _max_excel_sheets():
                     raise ValueError(
                         f"Excel workbook has too many sheets. Maximum supported sheets: {_max_excel_sheets()}"
                     )
-                self._validate_dataframe_bounds(df)
+                local.unlink(missing_ok=True)  # free disk before loading the frame
+                self._validate_parquet_bounds(parquet_path)
+                df = read_parquet(parquet_path)
                 if df.empty and len(df.columns) == 0:
                     raise ValueError("File is empty")
             except Exception as exc:
@@ -374,24 +397,24 @@ class FileManager:
                 self._mark_failed(dataset_id, message)
                 raise ValueError(message) from exc
 
-        df = pd.read_parquet(io.BytesIO(_to_parquet_bytes(df)))  # canonical, Parquet-normalised types
-        metadata = self._profile(df, row["filename"], parse_meta, previous_semantic=None)
-        if semantic_refiner is not None:
-            try:
-                metadata["semantic_map"] = semantic_refiner(df, table_name_for(dataset_id)) or metadata["semantic_map"]
-            except Exception as exc:
-                logger.warning("Semantic refinement skipped for %s: %s", dataset_id, exc)
+            metadata = self._profile(df, row["filename"], parse_meta, previous_semantic=None)
+            if semantic_refiner is not None:
+                try:
+                    metadata["semantic_map"] = semantic_refiner(df, table_name_for(dataset_id)) or metadata["semantic_map"]
+                except Exception as exc:
+                    logger.warning("Semantic refinement skipped for %s: %s", dataset_id, exc)
 
-        self._write_version(
-            dataset_id,
-            df,
-            metadata,
-            expected_version=None,
-            description="Initial upload",
-            action=None,
-            user_id=row["user_id"],
-            status="ready",
-        )
+            self._write_version(
+                dataset_id,
+                df,
+                metadata,
+                expected_version=None,
+                description="Initial upload",
+                action=None,
+                user_id=row["user_id"],
+                status="ready",
+                parquet_path=parquet_path,
+            )
         return self._summary(dataset_id, row["filename"], df, metadata)
 
     def _profile(self, df: pd.DataFrame, filename: str, parse_meta: dict, previous_semantic: dict | None) -> dict:
@@ -510,18 +533,32 @@ class FileManager:
         action: Any,
         user_id: str | None,
         status: str | None = None,
+        parquet_path: Path | None = None,
     ) -> int:
-        """Persist *df* as the next version, atomically advancing current_version."""
+        """Persist *df* as the next version, atomically advancing current_version.
+
+        *parquet_path*, when given, is an already-written canonical Parquet file of
+        *df* (e.g. from the parser) that is uploaded as-is.  Otherwise *df* is
+        written to a temporary file and streamed to storage — never serialised to
+        an in-memory byte string.
+        """
         row = self._load_row(dataset_id)
         if row is None:
             raise LookupError(dataset_id)
         if row["current_version"] != expected_version:
             raise ConcurrentModificationError("Dataset was modified by another request. Reload and try again.")
         new_version = (expected_version or 0) + 1
-        payload = _to_parquet_bytes(df)
         key = self._version_key(row["storage_workspace_id"], dataset_id, new_version)
         storage = get_storage_provider()
-        storage.put_object(key, payload)
+        if parquet_path is not None:
+            size_bytes = os.path.getsize(parquet_path)
+            storage.put_object_file(key, Path(parquet_path))
+        else:
+            with tempfile.TemporaryDirectory(prefix="dp_version_") as tmp:
+                path = Path(tmp) / "version.parquet"
+                write_parquet(df, path)
+                size_bytes = os.path.getsize(path)
+                storage.put_object_file(key, path)
 
         clean_meta = jsonsafe.to_jsonable(metadata)
         now = _now_iso()
@@ -560,7 +597,7 @@ class FileManager:
                 metadata_json=jsonsafe.dumps(clean_meta),
                 row_count=int(len(df)),
                 column_count=int(len(df.columns)),
-                size_bytes=len(payload),
+                size_bytes=size_bytes,
                 created_by=user_id,
                 created_at=dt.datetime.utcnow(),
             ))
@@ -568,6 +605,10 @@ class FileManager:
         finally:
             db.close()
 
+        # Keep only the current version cached: older versions are needed only for
+        # undo, which re-reads them from storage.  Holding them would double the
+        # resident memory of every edited dataset.
+        self.cache.invalidate(dataset_id)
         self.cache.put((dataset_id, new_version), df)
         self._prune_versions(dataset_id, new_version)
         return new_version
@@ -626,8 +667,10 @@ class FileManager:
         cached = self.cache.get((row["dataset_id"], version))
         if cached is not None:
             return cached, meta
-        data = get_storage_provider().get_object(vrow.storage_key)
-        df = pd.read_parquet(io.BytesIO(data))
+        with tempfile.TemporaryDirectory(prefix="dp_load_") as tmp:
+            path = Path(tmp) / "version.parquet"
+            get_storage_provider().download_object(vrow.storage_key, path)
+            df = read_parquet(path)
         self.cache.put((row["dataset_id"], version), df)
         return df, meta
 
@@ -923,10 +966,11 @@ class FileManager:
         ext = Path(record.filename).suffix.lower() or ".xlsx"
         with tempfile.TemporaryDirectory(prefix="dp_sheet_") as tmp:
             local = Path(tmp) / f"original{ext}"
+            parquet_path = Path(tmp) / "version.parquet"
             get_storage_provider().download_object(record.path, local)
-            df, parse_meta = parse_file_bounded(local, ext, sheet_name, _parse_timeout_seconds())
-        self._validate_dataframe_bounds(df)
-        df = pd.read_parquet(io.BytesIO(_to_parquet_bytes(df)))
+            parse_meta = parse_to_parquet(local, ext, sheet_name, _parse_timeout_seconds(), parquet_path)
+            self._validate_parquet_bounds(parquet_path)
+            df = read_parquet(parquet_path)
         updated = self._commit(
             record, df, f"Switched to sheet '{sheet_name}'", {"action": "switch_sheet", "sheet": sheet_name},
             {"active_sheet": sheet_name, "numeric_conversions": parse_meta.get("numeric_conversions", []),

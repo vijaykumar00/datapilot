@@ -38,7 +38,6 @@ def _build_chart_explain(
     ctype = chart_info.get("chart_type", "bar")
     x_col = chart_info.get("x_column")
     y_col = chart_info.get("y_column")
-    title = chart_info.get("title", "Chart")
     reasoning = chart_info.get("reasoning")
 
     # 1. Chart type rationale

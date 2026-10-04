@@ -172,6 +172,7 @@ def get_guest_session_info(
 def convert_guest_to_user(
     payload: ConvertGuestRequest,
     response: Response,
+    request: Request,
     x_guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     db: Session = Depends(get_db),
 ):
@@ -276,8 +277,9 @@ def convert_guest_to_user(
     db.commit()
 
     access_token = create_access_token(user_id, payload.email, ws_id)
-    from core.auth_routes import set_refresh_cookie
-    set_refresh_cookie(response, raw_refresh)
+    from core.auth_routes import _browser_session, set_session_cookies
+    set_session_cookies(response, access_token, raw_refresh, request=request)
+    cookie_session = _browser_session(request)
 
     # Send email verification link
     sent = send_verification_email(
@@ -293,8 +295,9 @@ def convert_guest_to_user(
     return {
         "success": True,
         "message": "Account created successfully! Your guest data has been transferred.",
-        "access_token": access_token,
-        "refresh_token": raw_refresh,
+        # Browser sessions get the tokens only as HttpOnly cookies.
+        "access_token": None if cookie_session else access_token,
+        "refresh_token": None if cookie_session else raw_refresh,
         "token_type": "bearer",
         "user_id": user_id,
         "email": payload.email,

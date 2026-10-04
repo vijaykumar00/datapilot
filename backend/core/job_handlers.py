@@ -63,11 +63,15 @@ def _release_quota(payload: dict) -> None:
         db.close()
 
 
-def _store_result_file(job_id: str, workspace_id: str, filename: str, payload: bytes) -> str:
+def _store_result_file(job_id: str, workspace_id: str, filename: str, payload: bytes | None = None,
+                       path: str | None = None) -> str:
     from core.storage import get_storage_provider
 
     key = f"workspace/{workspace_id}/jobs/{job_id}/{filename}"
-    get_storage_provider().put_object(key, payload)
+    if path is not None:
+        get_storage_provider().put_object_file(key, Path(path))
+    else:
+        get_storage_provider().put_object(key, payload)
     return key
 
 
@@ -260,13 +264,64 @@ def report_export(payload: dict, ctx: jobs.JobContext) -> dict:
 
 # ── Data exports (full results, not just what the browser holds) ─────────────
 
+_TRAILING_POINT_ZERO = r"(?<=\d)\.0$"
+
+
+def _csv_ready(df: pd.DataFrame) -> pd.DataFrame:
+    """Render float columns without a spurious ``.0`` on whole numbers.
+
+    A column that mixes 100.5 and 200 is float64, and pandas would write the
+    second value as ``200.0`` although the source said ``200``.  Values keep
+    Python's shortest round-trip repr otherwise (so no precision is lost), and
+    missing values stay empty.  Only float columns are re-rendered; the frame is
+    shallow-copied so other columns are not duplicated in memory.
+    """
+    out = None
+    for name in df.columns:
+        col = df[name]
+        if not pd.api.types.is_float_dtype(col.dtype):
+            continue
+        text = col.astype(str).str.replace(_TRAILING_POINT_ZERO, "", regex=True)
+        text = text.where(col.notna(), None)
+        if out is None:
+            out = df.copy(deep=False)
+        out[name] = text
+    return df if out is None else out
+
+
+CSV_CHUNK_ROWS = 50_000
+
+
+def write_csv(df: pd.DataFrame, handle) -> None:
+    """Write *df* as CSV in row chunks so only one chunk is ever rendered as text."""
+    if len(df) == 0:
+        df.to_csv(handle, index=False)
+        return
+    for start in range(0, len(df), CSV_CHUNK_ROWS):
+        chunk = df.iloc[start:start + CSV_CHUNK_ROWS]
+        _csv_ready(chunk).to_csv(handle, index=False, header=(start == 0))
+
+
+def write_df_file(df: pd.DataFrame, fmt: str, path: str) -> None:
+    if fmt == "csv":
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            write_csv(df, fh)
+        return
+    with open(path, "wb") as fh:
+        fh.write(_df_to_bytes(df, fmt))
+
+
 def _df_to_bytes(df: pd.DataFrame, fmt: str) -> bytes:
     if fmt == "csv":
-        return df.to_csv(index=False).encode("utf-8")
+        buf = io.StringIO()
+        write_csv(df, buf)
+        return buf.getvalue().encode("utf-8")
     buffer = io.BytesIO()
-    safe = df.copy()
-    for col in safe.columns:
-        if pd.api.types.is_datetime64tz_dtype(safe[col].dtype):
+    tz_cols = [c for c in df.columns if isinstance(df[c].dtype, pd.DatetimeTZDtype)]
+    safe = df
+    if tz_cols:  # Excel cannot store tz-aware datetimes; copy only when needed
+        safe = df.copy(deep=False)
+        for col in tz_cols:
             safe[col] = safe[col].dt.tz_localize(None)
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         safe.to_excel(writer, sheet_name="data", index=False)
@@ -303,10 +358,15 @@ def data_export(payload: dict, ctx: jobs.JobContext) -> dict:
     max_xlsx_rows = 1_048_575
     if fmt == "xlsx" and len(df) > max_xlsx_rows:
         raise jobs.PermanentJobError("Result exceeds Excel's row limit; export as CSV instead.")
-    data = _df_to_bytes(df, fmt)
-    key = _store_result_file(ctx.job_id, ctx.workspace_id or "anon", payload["filename"], data)
+    # Stream the export to a temp file and upload it, instead of building the whole
+    # file as a string plus a byte copy in memory.
+    with tempfile.TemporaryDirectory(prefix="dp_export_") as tmp:
+        out_path = os.path.join(tmp, "export")
+        write_df_file(df, fmt, out_path)
+        size = os.path.getsize(out_path)
+        key = _store_result_file(ctx.job_id, ctx.workspace_id or "anon", payload["filename"], path=out_path)
     return {"filename": payload["filename"], "media_type": payload["media_type"], "rows": int(len(df)),
-            "size": len(data), "_result_key": key}
+            "size": size, "_result_key": key}
 
 
 # ── Heavy chat agents (forecast / report) ─────────────────────────────────────

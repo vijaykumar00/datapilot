@@ -19,6 +19,7 @@ globalThis.window = {
   navigator: {},
   dispatchEvent: (e) => events.push(e.type),
 }
+globalThis.document = { cookie: '' }
 globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail } }
 
 const session = await import('../src/lib/authSession.js')
@@ -27,73 +28,129 @@ function jsonResponse(status, body) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
+function signedIn() {
+  window.localStorage.setItem('dp_user', JSON.stringify({ user_id: 'u', email: 'a@b.c' }))
+  window.localStorage.setItem('dp_workspace_id', 'ws-1')
+  document.cookie = 'dp_csrf=csrf-123; other=1'
+}
+
 beforeEach(() => {
   window.localStorage.clear()
   window.sessionStorage.clear()
+  document.cookie = ''
   events.length = 0
 })
 
-test('401 triggers one cookie refresh and the request is retried with the new token', async () => {
-  window.localStorage.setItem('dp_access_token', 'old')
-  window.localStorage.setItem('dp_workspace_id', 'ws-1')
+test('requests use cookies only: no Authorization header, CSRF only on unsafe methods', async () => {
+  signedIn()
   const calls = []
+  globalThis.fetch = async (url, opts) => { calls.push({ url, opts }); return jsonResponse(200, {}) }
+  await session.authedFetch('/files')
+  await session.authedFetch('/files/1', { method: 'DELETE' })
+  for (const { opts } of calls) {
+    assert.equal(opts.credentials, 'include')
+    assert.equal(opts.headers.Authorization, undefined)
+    assert.equal(opts.headers['X-Workspace-ID'], 'ws-1')
+  }
+  assert.equal(calls[0].opts.headers['X-CSRF-Token'], undefined)
+  assert.equal(calls[1].opts.headers['X-CSRF-Token'], 'csrf-123')
+})
+
+test('401 triggers one cookie refresh (with CSRF + session mode) and the request is retried', async () => {
+  signedIn()
+  const calls = []
+  let refreshed = false
   globalThis.fetch = async (url, opts) => {
-    calls.push({ url, auth: opts.headers?.Authorization, credentials: opts.credentials, body: opts.body })
+    calls.push({ url, opts })
     if (url.endsWith('/auth/refresh')) {
-      return jsonResponse(200, { access_token: 'new', refresh_token: 'ignored', user_id: 'u', email: 'a@b.c', workspace_id: 'ws-1' })
+      refreshed = true
+      return jsonResponse(200, { access_token: null, refresh_token: null, user_id: 'u', email: 'a@b.c', workspace_id: 'ws-1' })
     }
-    return opts.headers.Authorization === 'Bearer new' ? jsonResponse(200, { ok: true }) : jsonResponse(401, { error: 'expired' })
+    return refreshed ? jsonResponse(200, { ok: true }) : jsonResponse(401, { error: 'expired' })
   }
   const resp = await session.authedFetch('/files')
   assert.equal(resp.status, 200)
   assert.deepEqual(calls.map(c => c.url), ['/api/files', '/api/auth/refresh', '/api/files'])
-  assert.equal(calls[1].credentials, 'include')
-  assert.equal(JSON.parse(calls[1].body).workspace_id, 'ws-1')
-  assert.equal(window.localStorage.getItem('dp_access_token'), 'new')
-  // The refresh token from the body is never persisted.
-  assert.equal(window.localStorage.getItem('dp_refresh_token'), null)
-  assert.equal(window.sessionStorage.getItem('dp_refresh_token'), null)
+  const refresh = calls[1].opts
+  assert.equal(refresh.credentials, 'include')
+  assert.equal(refresh.headers['X-CSRF-Token'], 'csrf-123')
+  assert.equal(refresh.headers['X-Session-Mode'], 'cookie')
+  assert.equal(JSON.parse(refresh.body).workspace_id, 'ws-1')
+  // No token of any kind is persisted in JS-readable storage.
+  for (const key of ['dp_access_token', 'dp_refresh_token']) {
+    assert.equal(window.localStorage.getItem(key), null)
+    assert.equal(window.sessionStorage.getItem(key), null)
+  }
   assert.ok(events.includes(session.AUTH_REFRESHED_EVENT))
 })
 
 test('concurrent 401s share a single refresh', async () => {
-  window.localStorage.setItem('dp_access_token', 'old')
+  signedIn()
   let refreshes = 0
-  globalThis.fetch = async (url, opts) => {
+  let fresh = false
+  globalThis.fetch = async (url) => {
     if (url.endsWith('/auth/refresh')) {
       refreshes += 1
       await new Promise(r => setTimeout(r, 10))
-      return jsonResponse(200, { access_token: 'new', user_id: 'u', email: 'e', workspace_id: 'w' })
+      fresh = true
+      return jsonResponse(200, { user_id: 'u', email: 'e', workspace_id: 'ws-1' })
     }
-    return opts.headers.Authorization === 'Bearer new' ? jsonResponse(200, {}) : jsonResponse(401, {})
+    return fresh ? jsonResponse(200, {}) : jsonResponse(401, {})
   }
   const results = await Promise.all([session.authedFetch('/a'), session.authedFetch('/b'), session.authedFetch('/c')])
   assert.deepEqual(results.map(r => r.status), [200, 200, 200])
   assert.equal(refreshes, 1)
 })
 
-test('a dead session clears credentials and signals expiry; network errors do not log out', async () => {
-  window.localStorage.setItem('dp_access_token', 'old')
+test('a refresh done by another tab while waiting is reused, not repeated', async () => {
+  signedIn()
+  window.localStorage.setItem('dp_session_epoch', '1')
+  let refreshes = 0
+  // Simulate the Web Lock being held by another tab that refreshes meanwhile.
+  window.navigator.locks = {
+    request: async (_name, fn) => { window.localStorage.setItem('dp_session_epoch', '2'); return fn() },
+  }
+  globalThis.fetch = async () => { refreshes += 1; return jsonResponse(200, {}) }
+  assert.equal(await session.refreshSession(), true)
+  assert.equal(refreshes, 0)
+  delete window.navigator.locks
+})
+
+test('a dead session clears profile and signals expiry; network errors do not log out', async () => {
+  signedIn()
   globalThis.fetch = async () => { throw new TypeError('offline') }
-  assert.equal(await session.refreshAccessToken(), null)
-  assert.equal(window.localStorage.getItem('dp_access_token'), 'old')
+  assert.equal(await session.refreshSession(), false)
+  assert.ok(window.localStorage.getItem('dp_user'))
 
   globalThis.fetch = async () => jsonResponse(401, { error: 'Invalid or expired refresh token' })
-  assert.equal(await session.refreshAccessToken(), null)
-  assert.equal(window.localStorage.getItem('dp_access_token'), null)
+  assert.equal(await session.refreshSession(), false)
+  assert.equal(window.localStorage.getItem('dp_user'), null)
   assert.ok(events.includes(session.AUTH_EXPIRED_EVENT))
 })
 
-test('legacy stored refresh tokens are sent once and then deleted', async () => {
+test('guests send their guest token and are never refreshed', async () => {
+  window.sessionStorage.setItem('dp_guest_token', 'g-1')
+  const calls = []
+  globalThis.fetch = async (url, opts) => { calls.push({ url, opts }); return jsonResponse(401, {}) }
+  const resp = await session.authedFetch('/files')
+  assert.equal(resp.status, 401)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].opts.headers['X-Guest-Token'], 'g-1')
+})
+
+test('legacy stored tokens are migrated once through the refresh body and then deleted', async () => {
+  signedIn()
+  window.localStorage.setItem('dp_access_token', 'legacy-access')
   window.sessionStorage.setItem('dp_refresh_token', 'legacy')
   let sent
   globalThis.fetch = async (url, opts) => {
     sent = JSON.parse(opts.body)
-    return jsonResponse(200, { access_token: 't', user_id: 'u', email: 'e', workspace_id: 'w' })
+    return jsonResponse(200, { user_id: 'u', email: 'e', workspace_id: 'w' })
   }
-  assert.equal(await session.refreshAccessToken(), 't')
+  assert.equal(await session.refreshSession(), true)
   assert.equal(sent.refresh_token, 'legacy')
   assert.equal(window.sessionStorage.getItem('dp_refresh_token'), null)
+  assert.equal(window.localStorage.getItem('dp_access_token'), null)
 })
 
 test('readApiError handles structured, string and non-JSON errors', async () => {

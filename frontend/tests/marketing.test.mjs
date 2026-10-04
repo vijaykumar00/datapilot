@@ -312,3 +312,17 @@ test('Sprint 3.5 browser verification records design consistency and 1280px resp
   assert.match(browser, /focusVisibleRule/)
   assert.match(browser, /reducedMotionRule/)
 })
+
+test('routes are code-split: marketing and workspace views are lazy-loaded', () => {
+  const app = read('../src/App.jsx')
+  for (const name of ['HomePage', 'PricingPage', 'NotFoundPage', 'ChatWindow', 'DataPreview', 'BillingPortal',
+    'SettingsLayout', 'DashboardHome', 'SavedReports', 'DatasetManager']) {
+    assert.doesNotMatch(app, new RegExp(`^import ${name} from`, 'm'), name)
+    assert.match(app, new RegExp(`const ${name} = lazy\\(`), name)
+  }
+  assert.doesNotMatch(app, /^import ReactMarkdown from/m)
+  assert.doesNotMatch(app, /^import .* from '\.\/components\/LegalPages'/m)
+  // Every lazy view renders inside a Suspense boundary.
+  assert.match(app, /<Suspense fallback={<ViewFallback \/>}>\s*<Routes>/)
+  assert.match(app, /<Suspense fallback={<ViewFallback \/>}>\s*<Outlet \/>/)
+})

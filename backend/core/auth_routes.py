@@ -35,7 +35,8 @@ from core.auth import (
     create_access_token,
     decode_access_token,
     JWT_SECRET,
-    REFRESH_TOKEN_EXPIRE_DAYS
+    REFRESH_TOKEN_EXPIRE_DAYS,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 from core.email_service import send_verification_email, send_password_reset_email
 
@@ -59,8 +60,11 @@ class LoginRequest(BaseModel):
     workspace_id: Optional[str] = None
 
 class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
+    # Browser sessions (X-Session-Mode: cookie, or a cookie-based refresh) receive the
+    # tokens ONLY as HttpOnly cookies; these fields are then null.  API clients that
+    # send credentials in the body keep receiving them here.
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user_id: str
     email: str
@@ -198,9 +202,17 @@ def _token_response_for_user(
 
 
 REFRESH_COOKIE = "dp_refresh"
+ACCESS_COOKIE = "dp_access"
+CSRF_COOKIE = "dp_csrf"
+CSRF_HEADER = "x-csrf-token"
+SESSION_MODE_HEADER = "x-session-mode"
 
 
 REFRESH_REUSE_GRACE_SECONDS = int(os.getenv("REFRESH_REUSE_GRACE_SECONDS", "20"))
+
+
+def _cookie_secure() -> bool:
+    return _is_production() or os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
 
 
 def set_refresh_cookie(response: Response, raw_refresh_token: str) -> None:
@@ -210,18 +222,67 @@ def set_refresh_cookie(response: Response, raw_refresh_token: str) -> None:
         raw_refresh_token,
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         httponly=True,
-        secure=_is_production() or os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"},
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
+
+
+def set_session_cookies(response: Response, access_token: str, raw_refresh_token: str,
+                        request: Request | None = None, rotate_csrf: bool = True) -> None:
+    """Browser session = HttpOnly access + refresh cookies plus a readable CSRF cookie.
+
+    The CSRF cookie implements double-submit protection: unsafe requests that
+    authenticate with the cookie must echo its value in ``X-CSRF-Token`` (a
+    cross-site page can neither read the cookie nor set that header).
+    """
+    set_refresh_cookie(response, raw_refresh_token)
+    response.set_cookie(
+        ACCESS_COOKIE,
+        access_token,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
+    existing = request.cookies.get(CSRF_COOKIE) if request is not None else None
+    csrf = existing if (existing and not rotate_csrf and re.fullmatch(r"[A-Za-z0-9_-]{32,128}", existing)) \
+        else secrets.token_urlsafe(32)
+    response.set_cookie(
+        CSRF_COOKIE,
+        csrf,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        httponly=False,  # must be readable by the SPA to echo it in X-CSRF-Token
+        secure=_cookie_secure(),
         samesite="strict",
         path="/",
     )
 
 
 def clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(REFRESH_COOKIE, path="/")
+    """Clear every session cookie (refresh, access and CSRF)."""
+    for name in (REFRESH_COOKIE, ACCESS_COOKIE, CSRF_COOKIE):
+        response.delete_cookie(name, path="/")
 
 
-def _issue(response: Response, token: "TokenResponse") -> "TokenResponse":
-    set_refresh_cookie(response, token.refresh_token)
+def csrf_valid(request: Request) -> bool:
+    cookie = request.cookies.get(CSRF_COOKIE) or ""
+    header = request.headers.get(CSRF_HEADER) or ""
+    return bool(cookie) and hmac.compare_digest(cookie, header)
+
+
+def _browser_session(request: Request | None) -> bool:
+    return request is not None and (request.headers.get(SESSION_MODE_HEADER) or "").lower() == "cookie"
+
+
+def _issue(response: Response, token: "TokenResponse", request: Request | None = None,
+           cookie_only: bool = False, rotate_csrf: bool = True) -> "TokenResponse":
+    set_session_cookies(response, token.access_token, token.refresh_token, request=request, rotate_csrf=rotate_csrf)
+    if cookie_only or _browser_session(request):
+        # Keep tokens out of JavaScript entirely: an XSS payload cannot exfiltrate them.
+        token.access_token = None
+        token.refresh_token = None
     return token
 
 
@@ -575,7 +636,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     }
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, response: Response, request: Request, db: Session = Depends(get_db)):
     # 1. Query user
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
@@ -627,7 +688,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
             db.add(membership)
             db.commit()
 
-    return _issue(response, _token_response_for_user(
+    return _issue(response, request=request, token=_token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
@@ -675,7 +736,8 @@ def oauth_start(provider: str, payload: OAuthStartRequest):
 
 
 @router.post("/oauth/{provider}/callback", response_model=TokenResponse)
-def oauth_callback(provider: str, payload: OAuthCallbackRequest, response: Response, db: Session = Depends(get_db)):
+def oauth_callback(provider: str, payload: OAuthCallbackRequest, response: Response, request: Request,
+                   db: Session = Depends(get_db)):
     provider = provider.lower()
     cfg = _require_oauth_config(provider)
     redirect_uri = _validate_redirect_uri(payload.redirect_uri)
@@ -717,7 +779,7 @@ def oauth_callback(provider: str, payload: OAuthCallbackRequest, response: Respo
 
     user = _social_user_from_profile(provider, profile, db)
     membership = _first_or_create_workspace(user, db)
-    return _issue(response, _token_response_for_user(
+    return _issue(response, request=request, token=_token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
@@ -758,7 +820,8 @@ def request_phone_otp(payload: PhoneOtpRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/otp/verify", response_model=TokenResponse)
-def verify_phone_otp(payload: PhoneOtpVerifyRequest, response: Response, db: Session = Depends(get_db)):
+def verify_phone_otp(payload: PhoneOtpVerifyRequest, response: Response, request: Request,
+                     db: Session = Depends(get_db)):
     if not _phone_otp_enabled():
         raise HTTPException(status_code=503, detail="Phone OTP sign-in is not enabled.")
 
@@ -784,7 +847,7 @@ def verify_phone_otp(payload: PhoneOtpVerifyRequest, response: Response, db: Ses
     challenge.consumed = True
     user = _phone_user(phone_number, db)
     membership = _first_or_create_workspace(user, db, payload.workspace_name or "Phone Workspace")
-    return _issue(response, _token_response_for_user(
+    return _issue(response, request=request, token=_token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
@@ -795,13 +858,20 @@ def verify_phone_otp(payload: PhoneOtpVerifyRequest, response: Response, db: Ses
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(
     response: Response,
+    request: Request,
     payload: RefreshRequest | None = None,
     dp_refresh: str | None = Cookie(None),
     db: Session = Depends(get_db),
 ):
-    raw = (payload.refresh_token if payload else None) or dp_refresh
+    body_token = payload.refresh_token if payload else None
+    raw = body_token or dp_refresh
     if not raw:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
+    from_cookie = not body_token
+    if from_cookie and not csrf_valid(request):
+        # Cookie-authenticated request: require the double-submit CSRF token.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail={"message": "CSRF token missing or invalid.", "code": "CSRF_FAILED"})
     hashed = hash_token(raw)
     token_entry = db.query(RefreshToken).filter(RefreshToken.token_hash == hashed).first()
 
@@ -846,7 +916,7 @@ def refresh(
         membership = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.user_id).first()
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
-    return _issue(response, _token_response_for_user(
+    return _issue(response, request=request, cookie_only=from_cookie, rotate_csrf=False, token=_token_response_for_user(
         user=user,
         workspace_id=membership.workspace_id,
         db=db,
