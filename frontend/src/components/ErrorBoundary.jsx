@@ -1,4 +1,5 @@
 import React from 'react'
+import { AlertTriangle, Home, RotateCw } from 'lucide-react'
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -17,27 +18,29 @@ export default class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
+      // This boundary may sit outside the router, so navigation uses plain URLs.
       return (
-        <div className="min-h-screen bg-[#030712] flex items-center justify-center p-6 text-slate-300 select-none">
-          <div className="max-w-md w-full glass-panel p-8 rounded-2xl border border-rose-500/20 bg-slate-900/10 text-center shadow-xl">
-            <div className="text-4xl mb-4 select-none animate-pulse">⚠️</div>
-            <h2 className="text-base font-bold text-white tracking-tight">Application Interface Crashed</h2>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              An unexpected client-side error occurred inside the rendering layout loop. Your datasets and session state are preserved on the backend.
+        <div className="flex min-h-screen w-full items-center justify-center bg-bg px-4 py-10 text-fg">
+          <div role="alert" className="card w-full max-w-md p-6 text-center sm:p-8">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-muted text-warning">
+              <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <h1 className="mt-4 text-xl font-semibold text-fg">Something went wrong on this page</h1>
+            <p className="mt-2 text-base leading-relaxed text-muted">
+              The page stopped working because of an unexpected problem. Your files and saved work are safe.
+              Reload the page to try again, or go back to the home screen.
             </p>
-            
-            {this.state.error && (
-              <div className="bg-[#0d1222] border border-white/5 p-3 rounded-xl mt-5 text-left font-mono text-[10px] text-rose-300 max-h-32 overflow-y-auto custom-scrollbar">
-                {this.state.error.toString()}
-              </div>
-            )}
-            
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-6 w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-500/10 transition-all border border-brand-500/25"
-            >
-              Force Reload Workspace
-            </button>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <button type="button" onClick={() => window.location.reload()} className="btn-primary">
+                <RotateCw className="h-4 w-4" aria-hidden="true" />
+                Reload page
+              </button>
+              <a href="/" className="btn-secondary">
+                <Home className="h-4 w-4" aria-hidden="true" />
+                Go to home
+              </a>
+            </div>
+            <p className="mt-5 text-sm text-subtle">If this keeps happening, contact support and tell us what you were doing.</p>
           </div>
         </div>
       )

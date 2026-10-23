@@ -1,115 +1,72 @@
 /**
- * GuestBanner.jsx — Sticky top banner for guest users showing usage limits
- * and upgrade prompts. Disappears when user is authenticated.
+ * GuestBanner.jsx — slim notice for guest workspaces with usage on demand.
  */
-import { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useState } from 'react'
+import { ChevronDown, X } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { cx } from './ui'
 
-function UsageBar({ label, current, limit, color = '#6366f1' }) {
-  const pct = limit > 0 ? Math.min(100, (current / limit) * 100) : 0;
-  const isWarning = pct >= 70;
-  const isDanger = pct >= 90;
-  const barColor = isDanger ? '#ef4444' : isWarning ? '#f59e0b' : color;
-
+function UsageBar({ label, current, limit }) {
+  const pct = limit > 0 ? Math.min(100, (current / limit) * 100) : 0
+  const tone = pct >= 90 ? 'bg-danger' : pct >= 70 ? 'bg-warning' : 'bg-primary'
   return (
-    <div className="guest-usage-item">
-      <div className="guest-usage-label">
-        <span>{label}</span>
-        <span style={{ color: isDanger ? '#ef4444' : 'var(--text-secondary)' }}>
-          {current}/{limit}
-        </span>
+    <div>
+      <div className="flex items-baseline justify-between text-sm">
+        <span className="text-muted">{label}</span>
+        <span className="tabular font-medium text-fg">{current} of {limit}</span>
       </div>
-      <div className="guest-usage-track">
-        <div
-          className="guest-usage-bar"
-          style={{ width: `${pct}%`, backgroundColor: barColor, transition: 'width 0.4s ease' }}
-        />
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-ink/10" role="progressbar" aria-label={`${label} used`} aria-valuenow={current} aria-valuemin={0} aria-valuemax={limit}>
+        <div className={cx('h-full rounded-full transition-[width] duration-base', tone)} style={{ width: `${pct}%` }} />
       </div>
     </div>
-  );
+  )
 }
 
 function GuestBanner({ onSignUp, onLogin }) {
-  const { isGuest, isAuthenticated, guestUsage, guestLimits } = useAuth();
-  const [expanded, setExpanded] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const { isGuest, isAuthenticated, guestUsage, guestLimits } = useAuth()
+  const [expanded, setExpanded] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
 
-  if (!isGuest || isAuthenticated || dismissed) return null;
+  if (!isGuest || isAuthenticated || dismissed) return null
 
-  // Check if any limit is near/exceeded
   const usageItems = [
     { label: 'Uploads', key: 'upload_count' },
     { label: 'Questions', key: 'query_count' },
     { label: 'Reports', key: 'report_count' },
     { label: 'Exports', key: 'export_count' },
-  ];
-
-  const anyNearLimit = usageItems.some(({ key }) => {
-    const limit = guestLimits?.[key] ?? 0;
-    const curr = guestUsage?.[key] ?? 0;
-    return limit > 0 && curr / limit >= 0.6;
-  });
+  ]
+  const nearLimit = usageItems.some(({ key }) => {
+    const limit = guestLimits?.[key] ?? 0
+    return limit > 0 && (guestUsage?.[key] ?? 0) / limit >= 0.6
+  })
 
   return (
-    <div className={`guest-banner ${anyNearLimit ? 'guest-banner-warning' : ''}`}>
-      <div className="guest-banner-main">
-        <div className="guest-banner-left">
-          <span className="guest-badge">GUEST MODE</span>
-          <span className="guest-banner-msg">
-            {anyNearLimit
-              ? '⚠️ You\'re approaching your guest limits. Sign up to continue.'
-              : '👋 Trying DataPilot as a guest — limited access.'}
-          </span>
-        </div>
-        <div className="guest-banner-actions">
-          <button
-            className="guest-usage-toggle"
-            onClick={() => setExpanded(v => !v)}
-            aria-label="Toggle usage details"
-          >
-            {expanded ? '▲ Hide Usage' : '▼ View Usage'}
+    <div className={cx('flex-shrink-0 border-b px-3 py-2 sm:px-4', nearLimit ? 'border-warning/30 bg-warning-soft' : 'border-line bg-primary-soft/60')}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <p className="min-w-0 flex-1 text-sm text-fg">
+          <span className="font-semibold">Guest workspace.</span>{' '}
+          {nearLimit ? "You're close to the guest limits — create a free account to keep going." : 'Guest files and chats are temporary. Create a free account to keep them.'}
+        </p>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className="btn-ghost btn-sm" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
+            Usage <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
           </button>
-          <button className="guest-login-btn" onClick={onLogin}>
-            Sign In
-          </button>
-          <button className="guest-signup-btn" onClick={onSignUp}>
-            ✨ Sign Up Free
-          </button>
-          <button className="guest-dismiss-btn" onClick={() => setDismissed(true)} aria-label="Dismiss banner">
-            ✕
+          <button type="button" className="btn-secondary btn-sm" onClick={onLogin}>Sign in</button>
+          <button type="button" className="btn-primary btn-sm" onClick={onSignUp}>Create free account</button>
+          <button type="button" className="btn-ghost btn-sm btn-icon" onClick={() => setDismissed(true)} aria-label="Hide guest notice">
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </div>
-
       {expanded && (
-        <div className="guest-banner-usage">
-          <div className="guest-usage-grid">
-            {usageItems.map(({ label, key }) => (
-              <UsageBar
-                key={key}
-                label={label}
-                current={guestUsage?.[key] ?? 0}
-                limit={guestLimits?.[key] ?? 0}
-              />
-            ))}
-          </div>
-          <div className="guest-upgrade-card">
-            <strong>🚀 Sign up free</strong>
-            <ul>
-              <li>✓ 20 file uploads/month</li>
-              <li>✓ 200 AI questions/month</li>
-              <li>✓ Unlimited saved reports</li>
-              <li>✓ Persistent chat history</li>
-              <li>✓ Team workspaces</li>
-            </ul>
-            <button className="guest-signup-btn-large" onClick={onSignUp}>
-              Create Free Account →
-            </button>
-          </div>
+        <div className="mt-3 grid gap-4 pb-1 sm:grid-cols-2 lg:grid-cols-4">
+          {usageItems.map(({ label, key }) => (
+            <UsageBar key={key} label={label} current={guestUsage?.[key] ?? 0} limit={guestLimits?.[key] ?? 0} />
+          ))}
         </div>
       )}
     </div>
-  );
+  )
 }
 
-export default GuestBanner;
+export default GuestBanner

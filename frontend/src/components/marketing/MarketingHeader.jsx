@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { Menu, X } from 'lucide-react'
+import { ThemeToggle } from '../shell/ThemeToggle'
 import { marketingNavItems } from '../../data/marketing'
 import BrandLogo from './BrandLogo'
 import MobileNavigation from './MobileNavigation'
@@ -13,7 +15,7 @@ export default function MarketingHeader() {
       <div className="marketing-header-inner">
         <BrandLogo />
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary navigation">
           {marketingNavItems.map((item) => (
             <NavLink
               key={item.path}
@@ -26,25 +28,26 @@ export default function MarketingHeader() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-2 lg:flex">
+          <ThemeToggle />
           <Link to="/login" className="btn-ghost">
-            Sign In
+            Sign in
           </Link>
           <Link to="/try-free" className="btn-primary">
-            Try Free
+            Try free
           </Link>
         </div>
 
         <button
           ref={menuButtonRef}
           type="button"
-          className="icon-button md:hidden"
-          aria-label="Open navigation"
+          className="btn-ghost btn-icon h-11 w-11 lg:hidden"
+          aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
           aria-expanded={mobileOpen}
           aria-controls="mobile-navigation"
           onClick={() => setMobileOpen((value) => !value)}
         >
-          <span aria-hidden="true">{mobileOpen ? 'x' : 'menu'}</span>
+          {mobileOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
         </button>
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
+import { Check, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useDataPilot } from '../hooks/useDataPilot'
 
@@ -31,7 +32,7 @@ function readState() {
 }
 
 function writeState(next) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* storage blocked */ }
 }
 
 function detectUseCase(files) {
@@ -46,133 +47,99 @@ function detectUseCase(files) {
   return localStorage.getItem('dp_usecase_preference') || 'operations'
 }
 
-export default function OnboardingAssistant() {
-  const location = useLocation()
+/**
+ * Getting-started checklist shown on the workspace home page (no longer a
+ * floating panel that covers the chat composer).  Hidden once dismissed.
+ */
+export function GettingStarted() {
   const { isGuest, isAuthenticated } = useAuth()
-  const { files, messages, reports, historyMessages, setChatPromptInput } = useDataPilot()
+  const { files, datasetsList, messages, reports, historyMessages, setChatPromptInput } = useDataPilot()
   const [state, setState] = useState(readState)
-  const [expanded, setExpanded] = useState(false)
 
   const useCase = detectUseCase(files)
   const prompts = STARTER_PROMPTS[useCase] || STARTER_PROMPTS.operations
-  const hasUpload = files.length > 0
-  const hasAnswer = messages.some((message) => message.role === 'assistant' && message.type !== 'loading' && message.type !== 'status') || historyMessages.length > 0
-  const hasChart = messages.some((message) => message.chart_data)
-  const hasReport = reports.length > 0 || messages.some((message) => ['report', 'summary'].includes(message.type))
+  const hasUpload = files.length > 0 || (datasetsList || []).length > 0
+  const hasAnswer = messages.some((m) => m.role !== 'user' && !['loading', 'status', 'error'].includes(m.type)) || historyMessages.length > 0
+  const hasChart = messages.some((m) => m.chart_data)
+  const hasReport = reports.length > 0 || messages.some((m) => ['report', 'summary'].includes(m.type))
   const hasSaved = reports.length > 0
-  const converted = isAuthenticated && localStorage.getItem('dp_guest_converted_success') === 'true'
+  const converted = isAuthenticated && (() => { try { return localStorage.getItem('dp_guest_converted_success') === 'true' } catch { return false } })()
 
   const steps = useMemo(() => [
-    { id: 'upload', label: 'Upload spreadsheet', complete: hasUpload, to: '/app/datasets', tip: 'Upload your first spreadsheet.' },
-    { id: 'ask', label: 'Ask first question', complete: hasAnswer, to: '/app/analyze', tip: `Try asking: ${prompts[0]}` },
-    { id: 'chart', label: 'Generate chart', complete: hasChart, to: '/app/analyze', tip: 'Ask for a chart or trend visualization.' },
-    { id: 'report', label: 'Generate report', complete: hasReport, to: '/app/report', tip: 'Generate your first executive report.' },
-    { id: 'save', label: 'Save report', complete: hasSaved, to: '/app/reports', tip: 'Save or export the result for later review.' },
+    { id: 'upload', label: 'Upload a spreadsheet', complete: hasUpload, to: '/app/datasets', tip: 'CSV or Excel, up to 50 MB.' },
+    { id: 'ask', label: 'Ask your first question', complete: hasAnswer, to: '/app/analyze', tip: `For example: “${prompts[0]}”` },
+    { id: 'chart', label: 'Make a chart', complete: hasChart, to: '/app/analyze', tip: 'Ask for a trend or a comparison.' },
+    { id: 'report', label: 'Generate a report', complete: hasReport, to: '/app/reports?view=builder', tip: 'Turn results into a shareable brief.' },
+    { id: 'save', label: 'Save a report', complete: hasSaved, to: '/app/saved?view=reports', tip: 'Keep it for later or export it.' },
   ], [hasUpload, hasAnswer, hasChart, hasReport, hasSaved, prompts])
 
-  const completeCount = steps.filter((step) => step.complete).length
-  const complete = completeCount === steps.length
-  const nextStep = steps.find((step) => !step.complete) || steps[steps.length - 1]
-  const progress = Math.round((completeCount / steps.length) * 100)
+  const done = steps.filter((s) => s.complete).length
+  const complete = done === steps.length
 
   useEffect(() => {
-    if (!complete || state.completedCelebrated) return
-    const next = { ...state, completedCelebrated: true }
-    setState(next)
-    writeState(next)
-    setExpanded(true)
+    if (complete && !state.completedCelebrated) {
+      const next = { ...state, completedCelebrated: true }
+      setState(next)
+      writeState(next)
+    }
   }, [complete, state])
 
-  useEffect(() => {
-    if (state.dismissed || state.skipped) return
-    setExpanded(false)
-  }, [location.pathname])
+  if (state.dismissed || (complete && state.completedCelebrated && !converted)) return null
 
-  if (state.dismissed) return null
-
-  const persist = (patch) => {
-    const next = { ...state, ...patch }
+  const dismiss = () => {
+    const next = { ...state, dismissed: true }
     setState(next)
     writeState(next)
-  }
-
-  const applyPrompt = (prompt) => {
-    setChatPromptInput(prompt)
   }
 
   return (
-    <aside className={`onboarding-assistant ${expanded ? 'is-expanded' : ''}`} aria-label="Guided onboarding">
-      <button
-        type="button"
-        className="onboarding-assistant-toggle"
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-      >
-        <span>{complete ? 'Onboarding complete' : state.skipped ? 'Onboarding paused' : nextStep.tip}</span>
-        <strong>{progress}%</strong>
-      </button>
-
-      {expanded && (
-        <div className="onboarding-panel">
-          <div className="onboarding-panel-header">
-            <div>
-              <span>{isGuest ? 'Guest activation' : 'Workspace activation'}</span>
-              <h2>{complete ? 'You did it. DataPilot is ready.' : 'Your first successful analysis'}</h2>
-            </div>
-            <button type="button" onClick={() => persist({ dismissed: true })} aria-label="Dismiss onboarding">
-              Close
-            </button>
-          </div>
-
-          {converted && (
-            <div className="onboarding-success" role="status">
-              Guest converted to account. Your work is preserved and the workspace is open.
-            </div>
-          )}
-
-          {complete && (
-            <div className="onboarding-celebration" role="status">
-              Success: you uploaded data, asked a question, generated insight, and reached a saved report workflow.
-            </div>
-          )}
-
-          <div className="onboarding-progress-track" aria-label={`Onboarding ${progress}% complete`}>
-            <i style={{ width: `${progress}%` }} />
-          </div>
-
-          <div className="onboarding-step-list">
-            {steps.map((step, index) => (
-              <Link key={step.id} to={step.to} className={step.complete ? 'is-complete' : step.id === nextStep.id ? 'is-next' : ''}>
-                <span>{step.complete ? 'Done' : index + 1}</span>
-                <div>
-                  <strong>{step.label}</strong>
-                  <small>{step.complete ? 'Completed' : step.tip}</small>
-                </div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="onboarding-prompt-box">
-            <strong>Smart starter prompts for {useCase}</strong>
-            <div>
-              {prompts.map((prompt) => (
-                <Link key={prompt} to="/app/analyze" state={{ suggestedPrompt: prompt }} onClick={() => applyPrompt(prompt)}>
-                  {prompt}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          <div className="onboarding-panel-actions">
-            {state.skipped ? (
-              <button type="button" onClick={() => persist({ skipped: false, dismissed: false })}>Resume onboarding</button>
-            ) : (
-              <button type="button" onClick={() => persist({ skipped: true })}>Skip onboarding</button>
-            )}
-            <button type="button" onClick={() => setExpanded(false)}>Resume later</button>
-          </div>
+    <section className="card" aria-labelledby="getting-started-title">
+      <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+        <div>
+          <h2 id="getting-started-title" className="text-md font-semibold text-fg">
+            {isGuest ? 'Try DataPilot in five steps' : 'Getting started'}
+          </h2>
+          <p className="mt-0.5 text-sm text-muted">{done} of {steps.length} done</p>
         </div>
+        <button type="button" className="btn-ghost btn-sm btn-icon" onClick={dismiss} aria-label="Hide getting started">
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+      {converted && (
+        <p className="border-b border-line bg-success-soft px-4 py-2 text-sm text-fg sm:px-5" role="status">
+          Your guest work was moved into your new account.
+        </p>
       )}
-    </aside>
+      <div className="h-1 bg-ink/[0.06]" aria-hidden="true">
+        <div className="h-full bg-primary transition-[width] duration-base" style={{ width: `${(done / steps.length) * 100}%` }} />
+      </div>
+      <ol className="divide-y divide-line">
+        {steps.map((step, i) => (
+          <li key={step.id}>
+            <Link
+              to={step.to}
+              state={step.id === 'ask' ? { suggestedPrompt: prompts[0] } : undefined}
+              onClick={() => { if (step.id === 'ask') setChatPromptInput(prompts[0]) }}
+              className="flex items-center gap-3 px-4 py-2.5 hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus sm:px-5"
+            >
+              <span className={step.complete
+                ? 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-success text-on-primary'
+                : 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-line-strong text-xs font-medium text-muted'}>
+                {step.complete ? <Check className="h-3.5 w-3.5" aria-label="Done" /> : i + 1}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className={step.complete ? 'block text-base text-muted line-through decoration-line-strong' : 'block text-base font-medium text-fg'}>{step.label}</span>
+                {!step.complete && <span className="block truncate text-sm text-muted">{step.tip}</span>}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
+}
+
+/** Kept for compatibility: the floating assistant is retired in favour of GettingStarted. */
+export default function OnboardingAssistant() {
+  return null
 }

@@ -23,15 +23,6 @@ const profitRows = [
   ['Monitor Arm', '$9,730', '24%'],
 ]
 
-const problems = [
-  ['Hours creating reports', 'Upload one workbook and generate report-ready summaries in a guided flow.'],
-  ['Messy Excel files', 'Surface missing values, inconsistent dates, and outliers before they distort results.'],
-  ['Manual formulas', 'Ask questions in plain English instead of rebuilding nested spreadsheet formulas.'],
-  ['Pivot table fatigue', 'Turn common business questions into clear answers and charts without manual reshaping.'],
-  ['Copy-paste reporting', 'Export a structured executive summary after the analysis is complete.'],
-  ['Broken lookups', 'Use multi-sheet context and explainable SQL instead of fragile VLOOKUP chains.'],
-]
-
 const timeline = [
   ['Upload', 'Bring in CSV or Excel files and let DataPilot profile the workbook.'],
   ['Ask', 'Type the question you would normally translate into formulas or pivot tables.'],
@@ -48,51 +39,27 @@ const outcomes = [
   ['Multi-Sheet Analysis', 'Analyze related sheets without manually merging every tab first.'],
 ]
 
-const industries = [
-  ['Sales', 'Weekly pipeline spreadsheets', 'Which products drove the highest profit?', 'Ranked products with chart and summary.'],
-  ['Finance', 'Budget variance workbooks', 'Where did actuals exceed forecast?', 'Variance table with drivers called out.'],
-  ['Accounting', 'Messy transaction exports', 'Which entries need review?', 'Potential duplicates and missing fields.'],
-  ['Operations', 'Fulfillment and SLA logs', 'Where are delays increasing?', 'Delay trend and affected process steps.'],
-  ['Healthcare', 'Scheduling and capacity sheets', 'Which clinics are overbooked?', 'Capacity view with outlier days.'],
-  ['Retail', 'Store sales extracts', 'Which categories are slowing down?', 'Category trend and inventory context.'],
-  ['Construction', 'Project cost trackers', 'Which jobs are over budget?', 'Overrun list with percentage variance.'],
-  ['Manufacturing', 'Production quality logs', 'Which defects are trending?', 'Defect trend chart and source rows.'],
-  ['Education', 'Enrollment spreadsheets', 'Which programs changed fastest?', 'Enrollment movement summary.'],
-  ['HR', 'Headcount and hiring trackers', 'Where is time-to-hire longest?', 'Role-level bottleneck analysis.'],
-  ['Marketing', 'Campaign exports', 'Which channels convert best?', 'Channel comparison with ROI context.'],
-]
-
-const comparisonRows = [
-  ['Input method', 'Complex formulas', 'Natural language'],
-  ['Cleaning', 'Manual cleanup', 'Automatic issue detection'],
-  ['Time spent', 'Hours of workbook work', 'Minutes to a shareable answer'],
-  ['Verification', 'Hard to trace', 'Explainable SQL and reasoning'],
-  ['Output', 'Screenshots and copy paste', 'Charts, summaries, and exports'],
-]
-
 const trustItems = [
-  ['Workspace isolation', 'Analysis runs inside the user or guest workspace context already implemented in the app.'],
-  ['Encrypted API keys', 'Provider keys are stored using the application encryption path already present in settings.'],
-  ['Explainable SQL', 'Answers can expose the query logic so users can verify the calculation path.'],
-  ['Guest data expiration', 'Guest mode is designed for temporary evaluation workflows.'],
-  ['User-controlled providers', 'Users can configure supported provider keys, including local Ollama workflows.'],
+  ['Private workspaces', 'Your files, chats and reports are only visible to people in your workspace.'],
+  ['Numbers you can check', 'Every answer shows the query that produced it, so you can verify it before sharing.'],
+  ['Computed, not guessed', 'The AI writes the query; the numbers come from running it on your actual data.'],
+  ['Temporary guest data', 'Files uploaded without an account are removed automatically after the trial period.'],
 ]
 
 const pricing = [
-  ['Free', 'Start Free', 'Try DataPilot in guest mode without creating an account.', '/try-free'],
-  ['Pro', 'View Plans', 'Upgrade through server-generated Stripe Checkout when ready.', '/pricing'],
-  ['Team', 'View Plans', 'Collaborative workspace limits and billing management live in the plan catalog.', '/pricing'],
-  ['Enterprise', 'Contact Sales', 'Custom deployment conversations can begin through contact.', '/contact'],
+  ['Free', 'Start free', 'Try DataPilot in guest mode without creating an account.', '/try-free'],
+  ['Pro', 'View plans', 'Higher limits for people who analyse spreadsheets every week.', '/pricing'],
+  ['Team', 'View plans', 'Shared workspace, more members and higher limits for teams.', '/pricing'],
+  ['Enterprise', 'Contact sales', 'Custom limits, deployment and support for larger organisations.', '/contact'],
 ]
 
 const faqs = [
-  ['What files are supported?', 'DataPilot is built around CSV and Excel workbook analysis.'],
-  ['Can it handle multiple sheets?', 'Yes. Multi-sheet workflows are part of the product direction and current workspace experience.'],
+  ['What files are supported?', 'CSV, XLSX and XLS files up to 50 MB.'],
+  ['Can it handle multiple sheets?', 'Yes. Pick the sheet you want to analyse from any Excel workbook.'],
   ['How accurate are the answers?', 'AI-assisted answers should be verified. DataPilot helps by showing charts, summaries, and explainable SQL.'],
-  ['Can I use Ollama?', 'Yes. The application includes a local Ollama provider option.'],
-  ['Can I use my own API key?', 'Yes. Users can configure supported provider keys in the workspace settings.'],
-  ['Is my data private?', 'Data is handled inside workspace boundaries. Avoid uploading data you are not permitted to process.'],
-  ['Can I export reports?', 'The product includes report/export workflows, represented in this homepage demo.'],
+  ['Do I need to know SQL or formulas?', 'No. Ask in plain English. The SQL is shown only so you can check the answer if you want to.'],
+  ['Is my data private?', 'Your data stays inside your workspace. Only upload data you are allowed to process.'],
+  ['Can I export reports?', 'Yes. Results export to CSV and Excel, and reports to PDF, Word, PowerPoint or Excel.'],
 ]
 
 function ProductPreview({ compact = false }) {
@@ -204,52 +171,26 @@ export default function HomePage() {
       <section className="premium-hero">
         <div className="premium-hero-copy">
           <Badge>AI spreadsheet analytics</Badge>
-          <h1>Stop Fighting Spreadsheets. Start Talking To Your Data.</h1>
+          <h1>Stop fighting spreadsheets. Start talking to your data.</h1>
           <p>
-            Upload Excel or CSV files. Ask questions in plain English. Generate charts, forecast trends,
-            clean messy data, and create executive reports within seconds.
+            Upload an Excel or CSV file and ask questions in plain English. Get the answer as a number,
+            table or chart, with the calculation shown so you can trust it.
           </p>
           <div className="marketing-hero-actions">
-            <Button to="/try-free">Try Free</Button>
-            <Button href="#product-demo" variant="secondary">Watch Demo</Button>
+            <Button to="/try-free">Try it free</Button>
+            <Button href="#how-it-works" variant="secondary">How it works</Button>
           </div>
           <div className="hero-proof" aria-label="Product capability summary">
             <span>CSV and Excel</span>
             <span>Explainable SQL</span>
-            <span>User-controlled providers</span>
+            <span>No formulas needed</span>
           </div>
         </div>
         <ProductPreview compact />
       </section>
 
-      <SectionContainer className="home-band" as="section">
-        <div id="product-demo" className="scroll-anchor" />
-        <HomeSectionHeader
-          eyebrow="Interactive product experience"
-          title="From upload to executive summary in one visible flow"
-          description="A realistic sample walkthrough of the DataPilot workspace, using sample sales data and product capabilities already represented in the app."
-        />
-        <ProductPreview />
-      </SectionContainer>
-
-      <SectionContainer>
-        <HomeSectionHeader
-          eyebrow="Business problems"
-          title="The spreadsheet work that slows teams down"
-          description="DataPilot is designed for the repetitive reporting work that usually lives in fragile workbook rituals."
-        />
-        <div className="problem-grid">
-          {problems.map(([problem, solution]) => (
-            <Card key={problem} className="problem-card">
-              <span className="card-icon">!</span>
-              <h3>{problem}</h3>
-              <p>{solution}</p>
-            </Card>
-          ))}
-        </div>
-      </SectionContainer>
-
       <SectionContainer className="home-band">
+        <div id="how-it-works" className="scroll-anchor" />
         <HomeSectionHeader eyebrow="How it works" title="Upload. Ask. Understand. Share." />
         <div className="timeline-grid">
           {timeline.map(([title, description], index) => (
@@ -265,8 +206,7 @@ export default function HomePage() {
       <SectionContainer>
         <HomeSectionHeader
           eyebrow="Feature outcomes"
-          title="Built around the result, not the menu item"
-          description="Each capability is framed around what analysts and operators need to finish."
+          title="What you can do with DataPilot"
         />
         <div className="outcome-grid">
           {outcomes.map(([title, description]) => (
@@ -278,65 +218,10 @@ export default function HomePage() {
         </div>
       </SectionContainer>
 
-      <SectionContainer className="home-band">
-        <HomeSectionHeader eyebrow="Before and after" title="Replace workbook busywork with a focused answer loop" />
-        <div className="before-after">
-          <Card className="workflow-card old-workflow">
-            <h3>Old workflow</h3>
-            {['Excel', 'Cleaning', 'Pivot Tables', 'Charts', 'Formatting', 'Presentation', 'Hours'].map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </Card>
-          <Card className="workflow-card new-workflow">
-            <h3>DataPilot workflow</h3>
-            {['Upload', 'Ask', 'Review SQL', 'Download', 'Minutes'].map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </Card>
-        </div>
-      </SectionContainer>
-
-      <SectionContainer>
-        <HomeSectionHeader
-          eyebrow="Industry use cases"
-          title="Premium spreadsheet workflows across teams"
-          description="Each card shows a common workbook problem, an example question, and the expected analysis output."
-        />
-        <div className="industry-grid">
-          {industries.map(([industry, problem, question, result]) => (
-            <Card key={industry} className="industry-card">
-              <h3>{industry}</h3>
-              <p><strong>Problem:</strong> {problem}</p>
-              <p><strong>Ask:</strong> "{question}"</p>
-              <p><strong>Result:</strong> {result}</p>
-            </Card>
-          ))}
-        </div>
-      </SectionContainer>
-
-      <SectionContainer className="home-band">
-        <HomeSectionHeader eyebrow="Why DataPilot" title="A clearer path than manual spreadsheet analysis" />
-        <div className="comparison-table" role="table" aria-label="Manual Excel compared with DataPilot">
-          <div role="row" className="comparison-head">
-            <span role="columnheader">Workflow</span>
-            <span role="columnheader">Manual Excel</span>
-            <span role="columnheader">DataPilot</span>
-          </div>
-          {comparisonRows.map(([label, manual, datapilot]) => (
-            <div role="row" key={label}>
-              <span role="cell">{label}</span>
-              <span role="cell">{manual}</span>
-              <span role="cell">{datapilot}</span>
-            </div>
-          ))}
-        </div>
-      </SectionContainer>
-
       <SectionContainer>
         <HomeSectionHeader
           eyebrow="Trust and security"
-          title="Trust signals grounded in implemented product behavior"
-          description="No unsupported compliance claims, no fake certifications, and no customer-name theatre."
+          title="Built so you can rely on the answer"
         />
         <div className="trust-grid">
           {trustItems.map(([title, description]) => (
@@ -351,8 +236,8 @@ export default function HomePage() {
       <SectionContainer className="home-band">
         <HomeSectionHeader
           eyebrow="Pricing preview"
-          title="Start free, upgrade through secure billing"
-          description="Paid plans now use backend subscription data and server-generated Stripe Checkout or Customer Portal redirects."
+          title="Start free, upgrade when you need more"
+          description="Payments are handled securely by Stripe. Cancel any time."
         />
         <div className="pricing-preview-grid">
           {pricing.map(([plan, action, description, to], index) => (
@@ -378,7 +263,7 @@ export default function HomePage() {
       </SectionContainer>
 
       <CTASection
-        title="Ready To Stop Spending Hours Inside Excel?"
+        title="Ready to stop spending hours inside Excel?"
         description="Start free, upload a workbook, and see how fast a spreadsheet can become a clear answer."
       />
     </MarketingLayout>

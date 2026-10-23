@@ -5,7 +5,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const BUDGET_KB = Number(process.env.ENTRY_CHUNK_BUDGET_KB || 450)
+const BUDGET_KB = Number(process.env.ENTRY_CHUNK_BUDGET_KB || 260)
 const dist = fileURLToPath(new URL('../dist', import.meta.url))
 const html = readFileSync(join(dist, 'index.html'), 'utf8')
 const entries = [...html.matchAll(/<script[^>]+src="\/?(assets\/[^"]+\.js)"/g)].map(m => m[1])

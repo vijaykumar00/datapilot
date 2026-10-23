@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
+import { Check, MessageSquarePlus, Pencil, Pin, PinOff, Search, Trash2, X } from 'lucide-react'
 import { useDataPilot } from '../hooks/useDataPilot'
+import { cx } from './ui'
 
-export default function SessionManager() {
+/**
+ * Conversation list: new chat, search, pinned and date groups, rename/pin/delete.
+ * Rows are buttons (keyboard reachable); actions are always visible on touch.
+ */
+export default function SessionManager({ onSelect }) {
   const {
     sessions,
     sessionId,
@@ -30,6 +36,7 @@ export default function SessionManager() {
 
   const handleCreate = async () => {
     await createSession()
+    onSelect?.()
   }
 
   const handleStartRename = (e, s) => {
@@ -58,7 +65,7 @@ export default function SessionManager() {
 
   const handleDelete = async (e, id) => {
     e.stopPropagation()
-    if (confirm('Are you sure you want to delete this chat session?')) {
+    if (window.confirm('Delete this conversation? This cannot be undone.')) {
       await deleteSession(id)
     }
   }
@@ -128,185 +135,116 @@ export default function SessionManager() {
   const groups = groupSessionsByDate(sessions)
 
   const sections = [
-    { key: 'pinned', title: '📌 Pinned' },
+    { key: 'pinned', title: 'Pinned' },
     { key: 'today', title: 'Today' },
     { key: 'yesterday', title: 'Yesterday' },
-    { key: 'last7Days', title: 'Previous 7 Days' },
+    { key: 'last7Days', title: 'Previous 7 days' },
     { key: 'older', title: 'Older' },
   ]
 
   const hasAnySessions = sessions.length > 0
+  const iconBtn = 'flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-ink/[0.08] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
 
   return (
-    <div className="flex flex-col gap-2 border-t border-white/5 pt-4 mt-4">
-      {/* Header */}
-      <div className="flex items-center justify-between px-1">
-        <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase">
-          Chat Sessions
-        </span>
-        <button
-          onClick={handleCreate}
-          className="w-5 h-5 rounded-md flex items-center justify-center bg-white/5 hover:bg-brand-500/20 text-slate-400 hover:text-brand-300 transition-all border border-white/5 text-[10px] font-bold"
-          title="New chat session"
-        >
-          ＋
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex flex-shrink-0 flex-col gap-2 p-3">
+        <button type="button" onClick={handleCreate} className="btn-secondary w-full justify-start">
+          <MessageSquarePlus className="h-4 w-4" aria-hidden="true" /> New conversation
         </button>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" aria-hidden="true" />
+          <input
+            type="search"
+            placeholder="Search conversations"
+            aria-label="Search conversations"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input h-9 min-h-0 py-0 pl-8 text-sm"
+          />
+        </div>
       </div>
 
-      {/* Search */}
-      <div className="relative px-1">
-        <input
-          type="text"
-          placeholder="Search sessions..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full text-[11px] px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 text-slate-300 placeholder-slate-600 focus:outline-none focus:border-brand-500/30 transition-all"
-        />
-        {search && (
-          <button
-            onClick={() => setSearch('')}
-            className="absolute right-2 top-1.5 text-slate-600 hover:text-slate-400 text-xs"
-          >
-            ×
-          </button>
-        )}
-      </div>
-
-      {/* Sessions list container with Scroll Listener */}
-      <div
-        onScroll={handleScroll}
-        className="space-y-3 max-h-[340px] overflow-y-auto custom-scrollbar px-1 py-0.5"
-      >
+      <div onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {sessionsLoading && sessions.length === 0 ? (
-          <div className="space-y-1.5 p-1 animate-pulse">
-            <div className="h-7 bg-white/5 rounded-lg w-full" />
-            <div className="h-7 bg-white/5 rounded-lg w-3/4" />
+          <div className="space-y-2 p-1" aria-label="Loading conversations">
+            <div className="skeleton h-8 w-full" />
+            <div className="skeleton h-8 w-4/5" />
+            <div className="skeleton h-8 w-3/5" />
           </div>
         ) : !hasAnySessions ? (
-          <p className="text-[10px] text-slate-600 text-center py-4 italic">
-            {search ? 'No matches found' : 'No chat sessions'}
+          <p className="px-2 py-6 text-center text-sm text-subtle">
+            {search ? 'No conversations match your search.' : 'Your conversations will appear here.'}
           </p>
         ) : (
           <>
             {sections.map((sec) => {
               const items = groups[sec.key]
               if (!items || items.length === 0) return null
-
               return (
-                <div key={sec.key} className="flex flex-col gap-1">
-                  <span className="text-[9px] font-bold tracking-wider text-slate-500 uppercase px-1.5 select-none">
-                    {sec.title}
-                  </span>
-                  
-                  <div className="space-y-1">
+                <div key={sec.key} className="mb-3">
+                  <p className="px-2 pb-1 text-xs font-medium text-subtle">{sec.title}</p>
+                  <ul className="space-y-0.5">
                     {items.map((s) => {
                       const isActive = s.session_id === sessionId
                       const isEditing = s.session_id === editingId
-
                       return (
-                        <div
-                          key={s.session_id}
-                          onClick={() => !isEditing && switchSession(s.session_id)}
-                          className={`group relative flex flex-col gap-0.5 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-200 border ${
-                            isActive
-                              ? 'bg-brand-500/10 border-brand-500/20 text-brand-300'
-                              : 'bg-white/[0.02] hover:bg-white/5 border-transparent text-slate-400'
-                          }`}
-                        >
-                          {/* Session body */}
-                          <div className="flex items-center justify-between gap-1">
-                            {isEditing ? (
+                        <li key={s.session_id} className={cx('group relative flex items-center rounded-md', isActive ? 'bg-primary-soft' : 'hover:bg-ink/[0.05]')}>
+                          {isEditing ? (
+                            <div className="flex w-full items-center gap-1 p-1">
                               <input
                                 type="text"
                                 value={editName}
+                                aria-label="Conversation name"
                                 onChange={(e) => setEditName(e.target.value)}
-                                onClick={(e) => e.stopPropagation()}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') handleSaveRename(e, s.session_id)
                                   if (e.key === 'Escape') handleCancelRename(e)
                                 }}
                                 autoFocus
-                                className="flex-1 bg-[#101524] text-[11px] px-1.5 py-0.5 rounded border border-brand-500/40 text-slate-200 focus:outline-none"
+                                className="input h-8 min-h-0 flex-1 py-0 text-sm"
                               />
-                            ) : (
-                              <span className="text-[11px] font-medium truncate pr-16 select-none">
-                                {s.pinned && '📌 '}
-                                {s.name}
-                              </span>
-                            )}
-
-                            {/* Actions overlay (appears on hover) */}
-                            {!isEditing && (
-                              <div className="absolute right-2 top-2 hidden group-hover:flex items-center gap-1 bg-[#0a0f1e]/80 backdrop-blur-sm pl-1.5 py-0.5 rounded-md">
-                                {/* Pin */}
-                                <button
-                                  onClick={(e) => handlePin(e, s)}
-                                  className={`text-[10px] p-0.5 hover:bg-white/10 rounded transition-colors ${
-                                    s.pinned ? 'text-yellow-500' : 'text-slate-500 hover:text-slate-300'
-                                  }`}
-                                  title={s.pinned ? 'Unpin session' : 'Pin session'}
-                                >
-                                  📌
+                              <button type="button" className={iconBtn} onClick={(e) => handleSaveRename(e, s.session_id)} aria-label="Save name"><Check className="h-4 w-4" aria-hidden="true" /></button>
+                              <button type="button" className={iconBtn} onClick={handleCancelRename} aria-label="Cancel rename"><X className="h-4 w-4" aria-hidden="true" /></button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => { switchSession(s.session_id); onSelect?.() }}
+                                aria-current={isActive ? 'true' : undefined}
+                                className={cx(
+                                  'min-w-0 flex-1 rounded-md px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+                                  isActive ? 'text-primary-text' : 'text-fg',
+                                )}
+                              >
+                                <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                                  {s.pinned && <Pin className="h-3 w-3 flex-shrink-0 text-subtle" aria-label="Pinned" />}
+                                  <span className="truncate">{s.name}</span>
+                                </span>
+                                <span className="block truncate text-xs text-subtle">{formatTime(s.updated_at || s.created_at)}</span>
+                              </button>
+                              <div className="flex flex-shrink-0 items-center pr-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
+                                <button type="button" className={iconBtn} onClick={(e) => handlePin(e, s)} aria-label={s.pinned ? `Unpin ${s.name}` : `Pin ${s.name}`}>
+                                  {s.pinned ? <PinOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Pin className="h-3.5 w-3.5" aria-hidden="true" />}
                                 </button>
-
-                                {/* Rename */}
-                                <button
-                                  onClick={(e) => handleStartRename(e, s)}
-                                  className="text-[10px] p-0.5 hover:bg-white/10 rounded text-slate-500 hover:text-slate-300 transition-colors"
-                                  title="Rename"
-                                >
-                                  ✏️
+                                <button type="button" className={iconBtn} onClick={(e) => handleStartRename(e, s)} aria-label={`Rename ${s.name}`}>
+                                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                                 </button>
-
-                                {/* Delete */}
-                                <button
-                                  onClick={(e) => handleDelete(e, s.session_id)}
-                                  className="text-[10px] p-0.5 hover:bg-red-500/20 rounded text-slate-500 hover:text-red-400 transition-colors"
-                                  title="Delete"
-                                >
-                                  🗑️
+                                <button type="button" className={cx(iconBtn, 'hover:text-danger')} onClick={(e) => handleDelete(e, s.session_id)} aria-label={`Delete ${s.name}`}>
+                                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                                 </button>
                               </div>
-                            )}
-
-                            {/* Inline Save/Cancel for rename */}
-                            {isEditing && (
-                              <div className="flex items-center gap-0.5">
-                                <button
-                                  onClick={(e) => handleSaveRename(e, s.session_id)}
-                                  className="text-[9px] px-1 bg-brand-600 hover:bg-brand-500 text-white rounded"
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  onClick={handleCancelRename}
-                                  className="text-[9px] px-1 bg-white/5 hover:bg-white/10 text-slate-400 rounded"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Subtitle (Timestamp) */}
-                          {!isEditing && (
-                            <span className="text-[9px] text-slate-600">
-                              {formatTime(s.updated_at || s.created_at)}
-                            </span>
+                            </>
                           )}
-                        </div>
+                        </li>
                       )
                     })}
-                  </div>
+                  </ul>
                 </div>
               )
             })}
-            
-            {/* Infinite Scroll loading indicator */}
             {sessionsLoading && sessions.length > 0 && (
-              <div className="flex items-center justify-center py-2 text-[10px] text-slate-500 select-none animate-pulse">
-                Loading more...
-              </div>
+              <p className="py-2 text-center text-xs text-subtle" role="status">Loading more…</p>
             )}
           </>
         )}

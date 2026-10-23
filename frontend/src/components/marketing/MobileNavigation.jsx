@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { X } from 'lucide-react'
 import { marketingNavItems } from '../../data/marketing'
 
 export default function MobileNavigation({ open, onClose, triggerRef }) {
@@ -51,7 +52,7 @@ export default function MobileNavigation({ open, onClose, triggerRef }) {
   if (!open) return null
 
   return (
-    <div className="mobile-nav-shell md:hidden" role="presentation" onMouseDown={onClose}>
+    <div className="mobile-nav-shell lg:hidden" role="presentation" onMouseDown={onClose}>
       <nav
         id="mobile-navigation"
         ref={panelRef}
@@ -62,7 +63,7 @@ export default function MobileNavigation({ open, onClose, triggerRef }) {
         <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-4">
           <span className="text-sm font-semibold text-[var(--text-primary)]">Menu</span>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Close navigation">
-            <span aria-hidden="true">x</span>
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -82,10 +83,10 @@ export default function MobileNavigation({ open, onClose, triggerRef }) {
 
         <div className="mt-5 grid gap-3 border-t border-[var(--border-default)] pt-5">
           <Link to="/login" onClick={onClose} className="btn-ghost justify-center">
-            Sign In
+            Sign in
           </Link>
           <Link to="/try-free" onClick={onClose} className="btn-primary justify-center">
-            Try Free
+            Try free
           </Link>
         </div>
       </nav>

@@ -1411,6 +1411,33 @@ export const useDataPilot = create((set, get) => ({
   },
 
   // ── Dataset Management CRUD ─────────────────────────────────────────────────
+  // After a reload the in-memory file list is empty even though the workspace
+  // still has datasets.  Rebuild it from the dataset registry so Ask AI and the
+  // spreadsheet work immediately; the most recently used dataset is selected.
+  hydrateFiles: async () => {
+    if (get().files.length) return { success: true, restored: 0 }
+    const res = await get().loadDatasets({ archived: 'false' })
+    if (!res.success) return res
+    const datasets = [...(res.datasets || [])].sort((a, b) =>
+      String(b.last_query_date || b.upload_date || '').localeCompare(String(a.last_query_date || a.upload_date || '')))
+    if (!datasets.length || get().files.length) return { success: true, restored: 0 }
+    const restored = datasets.map(d => ({
+      file_id: d.dataset_id,
+      filename: d.display_name || d.filename,
+      row_count: d.row_count,
+      column_count: d.column_count,
+      file_size_kb: d.file_size_bytes ? d.file_size_bytes / 1024 : null,
+      columns: normalizeColumns(d.column_summary || []),
+      metadata: { sheet_names: [], restored: true },
+    }))
+    set(s => ({
+      files: s.files.length ? s.files : restored,
+      activeFileIds: s.activeFileIds.length ? s.activeFileIds : [restored[0].file_id],
+      activeFileId: s.activeFileId ?? restored[0].file_id,
+    }))
+    return { success: true, restored: restored.length }
+  },
+
   loadDatasets: async (filters = {}) => {
     set({ datasetsLoading: true })
     try {

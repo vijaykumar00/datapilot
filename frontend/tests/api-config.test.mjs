@@ -21,7 +21,7 @@ test('frontend API calls are centralized behind same-origin /api by default', ()
 
   // The data hook goes through the shared authed fetch helper, which builds URLs with apiUrl.
   assert.match(dataPilotHook, /authedFetch/)
-  for (const source of [authContext, billingClient, authSession, savedReports, app]) {
+  for (const source of [authContext, billingClient, authSession, savedReports]) {
     assert.match(source, /apiUrl/)
     assert.doesNotMatch(source, /http:\/\/localhost:8001/)
     assert.doesNotMatch(source, /http:\/\/127\.0\.0\.1:8001/)
@@ -30,8 +30,7 @@ test('frontend API calls are centralized behind same-origin /api by default', ()
   }
   assert.doesNotMatch(dataPilotHook, /http:\/\/localhost:8001|http:\/\/127\.0\.0\.1:8001/)
 
-  assert.match(app, /API_BASE/)
-  assert.doesNotMatch(app, /VITE_API_URL \|\| ''/)
+  assert.doesNotMatch(app, /http:\/\/localhost:8001|http:\/\/127\.0\.0\.1:8001|VITE_API_URL \|\| ''/)
 })
 
 test('Docker, Vite, and Nginx wire /api to the backend explicitly', () => {

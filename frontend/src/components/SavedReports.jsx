@@ -1,23 +1,34 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useDataPilot } from '../hooks/useDataPilot'
+import { useState, useEffect, useMemo, useId } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
+import {
+  AlertCircle, ArrowLeft, CalendarClock, FileText, MessageSquare, Pencil, Plus, RefreshCw, Search, Star, Trash2,
+} from 'lucide-react'
+import { useDataPilot } from '../hooks/useDataPilot'
 import { apiUrl } from '../lib/apiConfig'
+import { Badge, Button, EmptyState, ErrorState, IconButton, PageHeader, Skeleton, cx } from './ui'
+import Dialog from './ui/Dialog'
 
 function formatRelativeTime(iso) {
-  if (!iso) return ''
-  try {
-    const diff = Date.now() - new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hrs = Math.floor(mins / 60)
-    if (hrs < 24) return `${hrs}h ago`
-    const days = Math.floor(hrs / 24)
-    if (days < 7) return `${days}d ago`
-    return new Date(iso).toLocaleDateString()
-  } catch {
-    return ''
+  if (!iso) return '—'
+  const d = new Date(iso + (/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? '' : 'Z'))
+  if (Number.isNaN(d.getTime())) return '—'
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days} d ago`
+  return d.toLocaleDateString()
+}
+
+function tagsOf(report) {
+  if (Array.isArray(report?.tags)) return report.tags
+  if (typeof report?.tags === 'string' && report.tags) {
+    try { const v = JSON.parse(report.tags); return Array.isArray(v) ? v : [] } catch { return report.tags.split(',').map(t => t.trim()).filter(Boolean) }
   }
+  return []
 }
 
 const getBackendUrl = (path) => {
@@ -26,7 +37,10 @@ const getBackendUrl = (path) => {
   return apiUrl(path)
 }
 
+const SEVERITY_TONE = { high: 'danger', critical: 'danger', medium: 'warning', warning: 'warning', low: 'success', info: 'info' }
+
 export default function SavedReports() {
+  const navigate = useNavigate()
   const {
     reports,
     reportsLoading,
@@ -43,7 +57,9 @@ export default function SavedReports() {
   const [activeVersionId, setActiveVersionId] = useState(null)
   const [search, setSearch] = useState('')
   const [starredOnly, setStarredOnly] = useState(false)
-  
+  const [loadError, setLoadError] = useState('')
+  const [actionError, setActionError] = useState('')
+
   // Edit forms
   const [isEditing, setIsEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -51,18 +67,33 @@ export default function SavedReports() {
   const [editTags, setEditTags] = useState('')
   const [editScheduled, setEditScheduled] = useState(false)
   const [editCron, setEditCron] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [editTitleError, setEditTitleError] = useState('')
 
   // New version form
   const [newVersionContent, setNewVersionContent] = useState('')
   const [showVersionForm, setShowVersionForm] = useState(false)
   const [versionSaving, setVersionSaving] = useState(false)
+  const [versionError, setVersionError] = useState('')
+
+  const ids = {
+    search: useId(), versionSelect: useId(), title: useId(), titleErr: useId(), tags: useId(), tagsHint: useId(),
+    desc: useId(), scheduled: useId(), cron: useId(), cronHint: useId(), content: useId(), contentHint: useId(),
+  }
+
+  const reload = async () => {
+    setLoadError('')
+    const res = await loadReports()
+    if (res && res.success === false) setLoadError(res.error || 'The server did not respond.')
+  }
 
   useEffect(() => {
-    loadReports()
+    reload()
   }, [])
 
   const selectedReport = useMemo(() => {
-    return reports.find(r => r.report_id === selectedReportId) || null
+    return (reports || []).find(r => r.report_id === selectedReportId) || null
   }, [reports, selectedReportId])
 
   // Automatically load versions when selected report changes
@@ -87,31 +118,47 @@ export default function SavedReports() {
       if (search) {
         const q = search.toLowerCase()
         if (
-          !r.title.toLowerCase().includes(q) &&
-          !r.description.toLowerCase().includes(q) &&
-          !(r.tags || '').toLowerCase().includes(q)
+          !(r.title || '').toLowerCase().includes(q) &&
+          !(r.description || '').toLowerCase().includes(q) &&
+          !tagsOf(r).join(' ').toLowerCase().includes(q)
         ) return false
       }
       return true
     })
   }, [reports, search, starredOnly])
 
+  const total = reports?.length || 0
+
+  const selectReport = (reportId) => {
+    setSelectedReportId(reportId)
+    setActiveVersionId(null)
+  }
+
   const handleStar = async (report) => {
-    await updateReport(report.report_id, { starred: !report.starred })
+    setActionError('')
+    const res = await updateReport(report.report_id, { starred: !report.starred })
+    if (res && res.success === false) setActionError('Could not update the star. Check your connection and try again.')
   }
 
   const handleEditClick = () => {
     if (!selectedReport) return
-    setEditTitle(selectedReport.title)
-    setEditDesc(selectedReport.description)
-    setEditTags(Array.isArray(selectedReport.tags) ? selectedReport.tags.join(', ') : typeof selectedReport.tags === 'string' ? JSON.parse(selectedReport.tags || '[]').join(', ') : '')
+    setEditTitle(selectedReport.title || '')
+    setEditDesc(selectedReport.description || '')
+    setEditTags(tagsOf(selectedReport).join(', '))
     setEditScheduled(Boolean(selectedReport.scheduled))
     setEditCron(selectedReport.schedule_cron || '')
+    setEditError('')
+    setEditTitleError('')
     setIsEditing(true)
   }
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (e) => {
+    e?.preventDefault()
     if (!selectedReport) return
+    if (!editTitle.trim()) {
+      setEditTitleError('Enter a title for this report.')
+      return
+    }
     const tagsArr = editTags.split(',').map(t => t.trim()).filter(Boolean)
     const updates = {
       title: editTitle,
@@ -120,15 +167,28 @@ export default function SavedReports() {
       scheduled: editScheduled,
       schedule_cron: editCron,
     }
+    setEditSaving(true)
+    setEditError('')
     const res = await updateReport(selectedReport.report_id, updates)
+    setEditSaving(false)
     if (res.success) {
       setIsEditing(false)
+    } else {
+      setEditError(res.error ? `Could not save changes: ${res.error}. Try again.` : 'Could not save changes. Try again.')
     }
   }
 
-  const handleCreateVersion = async () => {
+  const openVersionForm = () => {
+    setNewVersionContent(activeVersion.content)
+    setVersionError('')
+    setShowVersionForm(true)
+  }
+
+  const handleCreateVersion = async (e) => {
+    e?.preventDefault()
     if (!selectedReport) return
     setVersionSaving(true)
+    setVersionError('')
     const res = await createReportVersion(selectedReport.report_id, {
       content: newVersionContent,
       chart_data: activeVersion.chart_data,
@@ -140,359 +200,288 @@ export default function SavedReports() {
       setShowVersionForm(false)
       setNewVersionContent('')
       loadReportVersions(selectedReport.report_id)
+    } else {
+      setVersionError(res.error ? `Could not publish this version: ${res.error}. Try again.` : 'Could not publish this version. Try again.')
     }
   }
 
-  const handleDelete = async (reportId) => {
-    if (confirm('Are you sure you want to permanently delete this report and all its versions?')) {
+  const handleDelete = async (report) => {
+    const reportId = report.report_id
+    if (window.confirm(`Delete "${report.title || 'this report'}" and all its versions? This cannot be undone.`)) {
+      setActionError('')
       const res = await deleteReport(reportId)
       if (res.success) {
         if (selectedReportId === reportId) {
           setSelectedReportId(null)
           setActiveVersionId(null)
         }
+      } else {
+        setActionError('Could not delete the report. Try again.')
       }
     }
   }
 
-  return (
-    <div className="h-full grid grid-cols-1 lg:grid-cols-[340px_1fr] overflow-hidden bg-[#030712] animate-fade-in">
-      
-      {/* Left List View */}
-      <div className="border-r border-white/5 flex flex-col min-h-0 bg-[#070b14]/50">
-        <div className="p-4 border-b border-white/5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-slate-200 uppercase tracking-widest flex items-center gap-1.5">
-              📋 Saved Reports
-            </h2>
-            <button
-              onClick={() => loadReports()}
-              className="text-[10px] text-slate-500 hover:text-slate-200 transition-colors bg-white/5 px-2 py-0.5 rounded"
-            >
-              ↻ Refresh
-            </button>
-          </div>
+  const askAction = (
+    <Button variant="primary" icon={MessageSquare} onClick={() => navigate('/app/analyze')}>Ask a question</Button>
+  )
 
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Search reports..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="flex-1 bg-[#050811] border border-white/5 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none placeholder-slate-600"
-            />
-            <button
-              onClick={() => setStarredOnly(!starredOnly)}
-              className={`px-3 py-1.5 rounded-xl border text-xs transition-all ${
-                starredOnly ? 'bg-amber-500/10 border-amber-500/35 text-amber-400' : 'bg-[#050811] border-white/5 text-slate-400'
-              }`}
-            >
-              ⭐
-            </button>
-          </div>
+  const renderList = () => {
+    if (loadError && total === 0) {
+      return (
+        <div className="p-4">
+          <ErrorState title="Could not load reports" description={`${loadError} Check your connection and try again.`} onRetry={reload} />
         </div>
-
-        <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-          {reportsLoading ? (
-            <div className="text-center py-8 text-slate-500 text-xs">Loading reports...</div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-12 text-slate-600 text-xs italic">No reports found</div>
-          ) : (
-            filtered.map(report => {
-              const tagsArr = Array.isArray(report.tags) ? report.tags : JSON.parse(report.tags || '[]')
-              return (
-                <div
-                  key={report.report_id}
-                  onClick={() => {
-                    setSelectedReportId(report.report_id)
-                    setActiveVersionId(null)
-                  }}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer relative group flex flex-col gap-1.5 ${
-                    selectedReportId === report.report_id
-                      ? 'bg-brand-500/10 border-brand-500/30'
-                      : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-xs font-bold text-slate-200 truncate">{report.title}</h3>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleStar(report)
-                        }}
-                        className="text-[10px] text-slate-500 hover:text-amber-400"
-                      >
-                        {report.starred ? '⭐' : '☆'}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDelete(report.report_id)
-                        }}
-                        className="text-[10px] text-slate-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-[10px] text-slate-500 line-clamp-2">{report.description || 'No description'}</p>
-
-                  <div className="flex items-center justify-between text-[9px] text-slate-600">
-                    <div className="flex gap-1">
-                      {tagsArr.map(tag => (
-                        <span key={tag} className="bg-white/5 px-1 py-0.5 rounded text-slate-400">#{tag}</span>
-                      ))}
-                    </div>
-                    <span>{formatRelativeTime(report.created_at)}</span>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </div>
-
-      {/* Right Canvas / Preview Panel */}
-      <div className="flex flex-col min-h-0 bg-[#050811]/30">
-        {selectedReport ? (
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Toolbar Header */}
-            <div className="px-6 py-3 border-b border-white/5 flex items-center justify-between bg-[#0b0f19]/60 backdrop-blur-md">
-              <div className="space-y-0.5">
-                <h2 className="text-sm font-bold text-slate-200">{selectedReport.title}</h2>
-                <p className="text-[10px] text-slate-500">
-                  Version {activeVersion.version || selectedReport.version} · Created {formatRelativeTime(activeVersion.created_at)}
-                </p>
+      )
+    }
+    if (reportsLoading && total === 0) {
+      return (
+        <ul className="divide-y divide-line" aria-busy="true" aria-label="Loading reports">
+          {[0, 1, 2, 3].map(i => (
+            <li key={i} className="space-y-2 px-4 py-4">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-1/3" />
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    if (filtered.length === 0) {
+      return (search || starredOnly) ? (
+        <EmptyState
+          compact
+          icon={Search}
+          title="No matching reports"
+          description="Try a different search, or show all reports."
+          action={<Button size="sm" onClick={() => { setSearch(''); setStarredOnly(false) }}>Clear filters</Button>}
+        />
+      ) : (
+        <EmptyState
+          compact
+          icon={FileText}
+          title="No reports yet"
+          description="Ask a question about your data and turn the answer into a report. Saved reports appear here."
+          action={askAction}
+        />
+      )
+    }
+    return (
+      <ul className="divide-y divide-line">
+        {filtered.map(report => {
+          const tagsArr = tagsOf(report)
+          const selected = selectedReportId === report.report_id
+          const title = report.title || 'Untitled report'
+          return (
+            <li key={report.report_id} className={cx('flex items-start gap-2 px-3 py-3', selected && 'bg-primary-soft')}>
+              <button
+                type="button"
+                onClick={() => selectReport(report.report_id)}
+                aria-current={selected ? 'true' : undefined}
+                className="focus-ring min-w-0 flex-1 rounded px-1 py-0.5 text-left"
+              >
+                <span className={cx('block truncate text-md font-medium', selected ? 'text-primary-text' : 'text-fg')} title={title}>{title}</span>
+                <span className="mt-0.5 line-clamp-2 block break-words text-sm text-muted">{report.description || 'No description'}</span>
+                <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-subtle">
+                  {tagsArr.map(tag => <span key={tag} className="chip">{tag}</span>)}
+                  <span>{formatRelativeTime(report.created_at)}</span>
+                </span>
+              </button>
+              <div className="flex flex-shrink-0 items-center">
+                <IconButton
+                  icon={Star}
+                  size="sm"
+                  label={report.starred ? `Unstar ${title}` : `Star ${title}`}
+                  tooltipSide="left"
+                  aria-pressed={!!report.starred}
+                  className={report.starred ? 'text-warning [&>svg]:fill-current' : undefined}
+                  onClick={() => handleStar(report)}
+                />
+                <IconButton
+                  icon={Trash2}
+                  size="sm"
+                  label={`Delete ${title}`}
+                  tooltipSide="left"
+                  className="hover:text-danger"
+                  onClick={() => handleDelete(report)}
+                />
               </div>
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleEditClick}
-                  className="px-3 py-1.5 bg-white/5 border border-white/5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-white/10"
-                >
-                  ✏️ Edit Details
-                </button>
-                <button
-                  onClick={() => {
-                    setNewVersionContent(activeVersion.content)
-                    setShowVersionForm(true)
-                  }}
-                  className="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 rounded-xl text-xs font-bold text-white shadow-md shadow-brand-600/10"
-                >
-                  ➕ New Version
-                </button>
+  const kpis = activeVersion?.kpis || []
+
+  return (
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:py-8">
+      <PageHeader
+        title="Saved reports"
+        description="Reports you have saved, with every published version. Edit the details, schedule them or publish an updated version."
+        actions={<Button icon={RefreshCw} loading={reportsLoading} onClick={reload}>Refresh</Button>}
+      />
+
+      {actionError && <p className="field-error" role="alert"><AlertCircle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />{actionError}</p>}
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
+        {/* Report list (hidden on small screens while a report is open) */}
+        <section aria-label="Saved reports" className={cx('flex min-w-0 flex-col gap-3', selectedReport && 'hidden lg:flex')}>
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <label htmlFor={ids.search} className="field-label">Search reports</label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" aria-hidden="true" />
+                <input
+                  id={ids.search}
+                  type="search"
+                  className="input pl-9"
+                  placeholder="Title, description or tag"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
               </div>
             </div>
+            <IconButton
+              icon={Star}
+              variant="secondary"
+              label={starredOnly ? 'Show all reports' : 'Show starred reports only'}
+              tooltipSide="left"
+              aria-pressed={starredOnly}
+              className={starredOnly ? 'border-warning/40 bg-warning-soft text-warning [&>svg]:fill-current' : undefined}
+              onClick={() => setStarredOnly(!starredOnly)}
+            />
+          </div>
+          <div className="overflow-hidden rounded-lg border border-line bg-surface">{renderList()}</div>
+          {total > 0 && (
+            <p className="text-sm text-subtle" aria-live="polite">
+              Showing {filtered.length.toLocaleString()} of {total.toLocaleString()} {total === 1 ? 'report' : 'reports'}
+            </p>
+          )}
+        </section>
 
-            {/* Split content layout: Left version list, Right actual report */}
-            <div className="flex-1 flex min-h-0">
-              
-              {/* Report Versions Drawer */}
-              <div className="w-48 border-r border-white/5 overflow-y-auto p-3 space-y-2 bg-[#070b14]/20 custom-scrollbar">
-                <h4 className="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-1">Versions</h4>
-                {reportVersionsLoading ? (
-                  <div className="text-[10px] text-slate-500 p-2">Loading versions...</div>
-                ) : (
-                  reportVersions.map(v => (
-                    <div
-                      key={v.report_id}
-                      onClick={() => setActiveVersionId(v.report_id)}
-                      className={`p-2 rounded-lg border text-[10px] cursor-pointer transition-all ${
-                        activeVersion.report_id === v.report_id
-                          ? 'bg-brand-500/10 border-brand-500/25 text-brand-300 font-bold'
-                          : 'bg-white/[0.01] border-white/5 text-slate-400 hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="flex justify-between">
-                        <span>Ver {v.version}</span>
-                        <span className="text-slate-500">{formatRelativeTime(v.created_at)}</span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+        {/* Report preview */}
+        <section aria-label="Report preview" className={cx('min-w-0', !selectedReport && 'hidden lg:block')}>
+          {selectedReport ? (
+            <div className="flex flex-col gap-4">
+              <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={() => selectReport(null)} className="self-start lg:hidden">
+                All reports
+              </Button>
 
-              {/* Document/Editor workspace */}
-              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                
-                {/* Edit Modal (if active) */}
-                {isEditing && (
-                  <div className="mb-6 p-4 rounded-xl border border-white/5 bg-[#0b0f19] space-y-4">
-                    <h3 className="text-xs font-bold text-slate-200">Edit Details</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-slate-400 uppercase tracking-wider">Title</label>
-                        <input
-                          type="text"
-                          value={editTitle}
-                          onChange={e => setEditTitle(e.target.value)}
-                          className="w-full bg-[#050811] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-slate-400 uppercase tracking-wider">Tags (comma-separated)</label>
-                        <input
-                          type="text"
-                          value={editTags}
-                          onChange={e => setEditTags(e.target.value)}
-                          className="w-full bg-[#050811] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-slate-400 uppercase tracking-wider">Description</label>
-                      <textarea
-                        value={editDesc}
-                        onChange={e => setEditDesc(e.target.value)}
-                        className="w-full bg-[#050811] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 h-16 resize-none"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editScheduled}
-                          onChange={e => setEditScheduled(e.target.checked)}
-                          className="rounded border-white/5 bg-[#050811]"
-                        />
-                        <label className="text-[10px] text-slate-300 font-semibold">Enable Schedule Execution</label>
-                      </div>
-                      {editScheduled && (
-                        <div className="space-y-1">
-                          <label className="text-[9px] text-slate-400 uppercase tracking-wider">Cron Pattern</label>
-                          <input
-                            type="text"
-                            value={editCron}
-                            onChange={e => setEditCron(e.target.value)}
-                            placeholder="e.g. 0 9 * * 1"
-                            className="w-full bg-[#050811] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono"
-                          />
-                        </div>
+              <article className="card overflow-hidden">
+                <header className="flex flex-col gap-3 border-b border-line px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+                  <div className="min-w-0">
+                    <h2 className="break-words text-xl font-semibold text-fg">{selectedReport.title}</h2>
+                    {selectedReport.description && <p className="mt-1 break-words text-base text-muted">{selectedReport.description}</p>}
+                    <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-subtle">
+                      <Badge tone="primary" className="tabular">Version {activeVersion.version || selectedReport.version}</Badge>
+                      <span>Created {formatRelativeTime(activeVersion.created_at).toLowerCase()}</span>
+                      {selectedReport.scheduled && (
+                        <Badge tone="info"><CalendarClock className="h-3 w-3" aria-hidden="true" />Scheduled</Badge>
                       )}
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => setIsEditing(false)}
-                        className="px-3 py-1 bg-white/5 rounded-lg text-xs text-slate-400"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleSaveEdit}
-                        className="px-3 py-1 bg-brand-600 rounded-lg text-xs text-white"
-                      >
-                        Save updates
-                      </button>
-                    </div>
+                    </p>
                   </div>
-                )}
-
-                {/* Create Version Workspace */}
-                {showVersionForm && (
-                  <div className="mb-6 p-4 rounded-xl border border-white/5 bg-[#0b0f19] space-y-3">
-                    <h3 className="text-xs font-bold text-slate-200">Publish New Report Version</h3>
-                    <p className="text-[10px] text-slate-500">Edit the Markdown narrative text directly in this draft box to publish a new official record.</p>
-                    <textarea
-                      value={newVersionContent}
-                      onChange={e => setNewVersionContent(e.target.value)}
-                      className="w-full bg-[#050811] border border-white/5 rounded-lg px-3 py-2 text-xs text-slate-200 h-64 font-mono leading-relaxed"
-                    />
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => setShowVersionForm(false)}
-                        className="px-3 py-1 bg-white/5 rounded-lg text-xs text-slate-400"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleCreateVersion}
-                        disabled={versionSaving}
-                        className="px-3 py-1 bg-brand-600 rounded-lg text-xs text-white"
-                      >
-                        {versionSaving ? 'Publishing...' : 'Publish Version'}
-                      </button>
-                    </div>
+                  <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+                    <Button size="sm" icon={Pencil} onClick={handleEditClick}>Edit details</Button>
+                    <Button size="sm" variant="primary" icon={Plus} onClick={openVersionForm}>New version</Button>
+                    <IconButton icon={Trash2} size="sm" label={`Delete ${selectedReport.title || 'report'}`} className="hover:text-danger" onClick={() => handleDelete(selectedReport)} />
                   </div>
-                )}
+                </header>
 
-                {/* Physical Document Canvas Preview */}
-                <div className="max-w-[210mm] mx-auto bg-white text-slate-800 shadow-2xl p-12 border border-slate-200 rounded-sm flex flex-col justify-between font-sans leading-relaxed min-h-[297mm]">
-                  <div className="space-y-6">
-                    {/* Header */}
-                    <div className="flex justify-between items-center border-b pb-2.5 border-slate-100">
-                      <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                        DATAPILOT SYSTEM DOCUMENT
-                      </span>
-                      <span className="font-mono text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold uppercase">
-                        Ver {activeVersion.version || selectedReport.version}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <h1 className="text-lg font-black text-slate-900 leading-tight">
-                        {selectedReport.title}
-                      </h1>
-                      <p className="text-[10px] text-slate-400 italic">
-                        {selectedReport.description}
-                      </p>
-                    </div>
-
-                    {/* Narrative body */}
-                    <div className="prose prose-sm text-slate-700 max-w-none text-[11px] leading-relaxed font-sans space-y-3">
-                      <ReactMarkdown
-                        components={{
-                          h1: ({node, ...props}) => <h1 className="text-[11px] font-bold text-slate-800 border-b pb-1 mt-3" {...props} />,
-                          h2: ({node, ...props}) => <h2 className="text-[10px] font-bold text-slate-800 mt-2" {...props} />,
-                          h3: ({node, ...props}) => <h3 className="text-[9.5px] font-semibold text-slate-700 mt-1.5" {...props} />,
-                          p: ({node, ...props}) => <p className="mb-1.5 text-[10px] leading-normal" {...props} />,
-                          ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-1.5 space-y-0.5" {...props} />,
-                          ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-1.5 space-y-0.5" {...props} />,
-                          li: ({node, ...props}) => <li className="text-[9.5px]" {...props} />,
-                        }}
-                      >
-                        {activeVersion.content}
-                      </ReactMarkdown>
-                    </div>
-
-                    {/* Embedded charts */}
-                    {activeVersion.metadata?.chart_url && (
-                      <div className="space-y-1.5 border-t pt-4 border-slate-100">
-                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                          Embedded Visual Performance
+                <div className="grid grid-cols-1 md:grid-cols-[176px_minmax(0,1fr)]">
+                  {/* Versions */}
+                  <nav aria-label="Report versions" className="border-b border-line p-4 md:border-b-0 md:border-r">
+                    {reportVersionsLoading ? (
+                      <div className="space-y-2" aria-busy="true" aria-label="Loading versions">
+                        <Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" />
+                      </div>
+                    ) : reportVersions.length === 0 ? (
+                      <p className="text-sm text-muted">No earlier versions.</p>
+                    ) : (
+                      <>
+                        <div className="md:hidden">
+                          <label htmlFor={ids.versionSelect} className="field-label">Version</label>
+                          <select
+                            id={ids.versionSelect}
+                            className="input"
+                            value={activeVersion.report_id}
+                            onChange={e => setActiveVersionId(e.target.value)}
+                          >
+                            {!reportVersions.some(v => v.report_id === selectedReport.report_id) && (
+                              <option value={selectedReport.report_id}>Version {selectedReport.version} (latest)</option>
+                            )}
+                            {reportVersions.map(v => (
+                              <option key={v.report_id} value={v.report_id}>Version {v.version} · {formatRelativeTime(v.created_at)}</option>
+                            ))}
+                          </select>
                         </div>
-                        <div className="p-2 border border-slate-100 rounded-xl bg-slate-50/50 flex flex-col items-center">
+                        <div className="hidden md:block">
+                          <h3 className="mb-2 text-sm font-medium text-muted">Versions</h3>
+                          <ul className="space-y-1">
+                            {reportVersions.map(v => {
+                              const current = activeVersion.report_id === v.report_id
+                              return (
+                                <li key={v.report_id}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveVersionId(v.report_id)}
+                                    aria-current={current ? 'true' : undefined}
+                                    className={cx(
+                                      'focus-ring flex h-9 w-full items-center justify-between gap-2 rounded-md px-2.5 text-sm',
+                                      current ? 'bg-primary-soft font-medium text-primary-text' : 'text-muted hover:bg-surface-muted hover:text-fg',
+                                    )}
+                                  >
+                                    <span className="tabular">Version {v.version}</span>
+                                    <span className="truncate text-xs text-subtle">{formatRelativeTime(v.created_at)}</span>
+                                  </button>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      </>
+                    )}
+                  </nav>
+
+                  {/* Report body */}
+                  <div className="min-w-0 space-y-6 p-4 sm:p-6">
+                    <div className="prose-dp break-words">
+                      <ReactMarkdown>{activeVersion.content || ''}</ReactMarkdown>
+                    </div>
+
+                    {activeVersion.metadata?.chart_url && (
+                      <figure className="space-y-2 border-t border-line pt-5">
+                        <figcaption className="text-sm font-medium text-muted">Chart</figcaption>
+                        <div className="flex justify-center rounded-lg border border-line bg-surface-muted p-3">
                           <img
                             src={getBackendUrl(activeVersion.metadata.chart_url)}
-                            alt="Report Chart"
-                            className="max-h-[200px] object-contain rounded"
+                            alt={`Chart for ${selectedReport.title || 'this report'}`}
+                            className="max-h-[320px] max-w-full rounded object-contain"
                           />
                         </div>
-                      </div>
+                      </figure>
                     )}
 
-                    {/* Tabulated KPIs */}
-                    {activeVersion.kpis && activeVersion.kpis.length > 0 && (
-                      <div className="space-y-1.5 border-t pt-4 border-slate-100">
-                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                          Calculated Indicators
-                        </div>
-                        <div className="overflow-hidden rounded-xl border border-slate-150 shadow-sm bg-white">
-                          <table className="w-full text-left text-[9.5px] border-collapse">
+                    {kpis.length > 0 && (
+                      <div className="space-y-2 border-t border-line pt-5">
+                        <h3 className="text-sm font-medium text-muted">Key metrics</h3>
+                        <div className="overflow-x-auto rounded-lg border border-line">
+                          <table className="data-table">
                             <thead>
-                              <tr className="bg-slate-100 text-slate-700 text-[8.5px] font-bold uppercase font-mono tracking-wider">
-                                <th className="px-3.5 py-1.5">Metric</th>
-                                <th className="px-3.5 py-1.5">Value</th>
-                                <th className="px-3.5 py-1.5 text-right">Severity</th>
+                              <tr>
+                                <th scope="col">Metric</th>
+                                <th scope="col" className="is-number">Value</th>
+                                <th scope="col">Severity</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {activeVersion.kpis.map((kpi, idx) => (
+                            <tbody>
+                              {kpis.map((kpi, idx) => (
                                 <tr key={idx}>
-                                  <td className="px-3.5 py-1.5 font-medium text-slate-800">{kpi.title}</td>
-                                  <td className="px-3.5 py-1.5 font-mono text-slate-700">{kpi.metric}</td>
-                                  <td className="px-3.5 py-1.5 text-right font-mono text-slate-500 uppercase text-[8px]">{kpi.severity}</td>
+                                  <td className="font-sans">{kpi.title}</td>
+                                  <td className="is-number tabular">{kpi.metric}</td>
+                                  <td className="font-sans">
+                                    {kpi.severity ? <Badge tone={SEVERITY_TONE[String(kpi.severity).toLowerCase()] || 'neutral'}>{kpi.severity}</Badge> : '—'}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -501,24 +490,126 @@ export default function SavedReports() {
                       </div>
                     )}
                   </div>
-
-                  <div className="border-t border-slate-100 pt-3 mt-8 flex justify-between items-center text-[8px] font-mono text-slate-400 uppercase tracking-wider">
-                    <span>Generated by DataPilot report engine</span>
-                    <span>Confidential report record</span>
-                  </div>
                 </div>
-
-              </div>
-
+              </article>
             </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-xs italic">
-            Select a report from the list on the left to display its canvas.
-          </div>
-        )}
+          ) : (
+            <div className="card">
+              <EmptyState
+                icon={FileText}
+                title={total > 0 ? 'Select a report' : 'Nothing to preview yet'}
+                description={total > 0 ? 'Choose a report from the list to read it and see its versions.' : 'Saved reports open here.'}
+              />
+            </div>
+          )}
+        </section>
       </div>
 
+      {/* Edit details */}
+      <Dialog
+        open={isEditing && !!selectedReport}
+        onClose={() => setIsEditing(false)}
+        title="Edit report details"
+        footer={(
+          <>
+            <Button onClick={() => setIsEditing(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" form="edit-report-form" loading={editSaving}>Save changes</Button>
+          </>
+        )}
+      >
+        <form id="edit-report-form" onSubmit={handleSaveEdit} className="flex flex-col gap-4" noValidate>
+          <div>
+            <label htmlFor={ids.title} className="field-label">Title</label>
+            <input
+              id={ids.title}
+              data-autofocus
+              type="text"
+              className="input"
+              value={editTitle}
+              onChange={e => { setEditTitle(e.target.value); if (editTitleError) setEditTitleError('') }}
+              aria-invalid={editTitleError ? true : undefined}
+              aria-describedby={editTitleError ? ids.titleErr : undefined}
+            />
+            {editTitleError && (
+              <p id={ids.titleErr} className="field-error" role="alert">
+                <AlertCircle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />{editTitleError}
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor={ids.desc} className="field-label">Description</label>
+            <textarea id={ids.desc} className="input min-h-[88px] resize-y" value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="What this report covers and who it is for" />
+          </div>
+          <div>
+            <label htmlFor={ids.tags} className="field-label">Tags</label>
+            <input id={ids.tags} type="text" className="input" value={editTags} onChange={e => setEditTags(e.target.value)} placeholder="finance, monthly" aria-describedby={ids.tagsHint} />
+            <p id={ids.tagsHint} className="field-hint">Separate tags with commas.</p>
+          </div>
+          <div className="flex items-start gap-2.5">
+            <input
+              id={ids.scheduled}
+              type="checkbox"
+              checked={editScheduled}
+              onChange={e => setEditScheduled(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-line-strong accent-primary"
+            />
+            <label htmlFor={ids.scheduled} className="text-base text-fg">
+              Run this report on a schedule
+            </label>
+          </div>
+          {editScheduled && (
+            <div>
+              <label htmlFor={ids.cron} className="field-label">Schedule (cron pattern)</label>
+              <input
+                id={ids.cron}
+                type="text"
+                className="input font-mono"
+                value={editCron}
+                onChange={e => setEditCron(e.target.value)}
+                placeholder="0 9 * * 1"
+                aria-describedby={ids.cronHint}
+              />
+              <p id={ids.cronHint} className="field-hint">For example, “0 9 * * 1” runs every Monday at 9:00.</p>
+            </div>
+          )}
+          {editError && (
+            <p className="field-error" role="alert"><AlertCircle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />{editError}</p>
+          )}
+        </form>
+      </Dialog>
+
+      {/* New version */}
+      <Dialog
+        open={showVersionForm && !!selectedReport}
+        onClose={() => setShowVersionForm(false)}
+        size="lg"
+        title="Publish a new version"
+        description="Edit the report text below. Earlier versions stay available."
+        footer={(
+          <>
+            <Button onClick={() => setShowVersionForm(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" form="new-report-version-form" loading={versionSaving}>
+              {versionSaving ? 'Publishing…' : 'Publish version'}
+            </Button>
+          </>
+        )}
+      >
+        <form id="new-report-version-form" onSubmit={handleCreateVersion} className="flex flex-col gap-2" noValidate>
+          <label htmlFor={ids.content} className="field-label">Report text</label>
+          <textarea
+            id={ids.content}
+            data-autofocus
+            className="input min-h-[280px] resize-y font-mono text-sm leading-relaxed"
+            value={newVersionContent}
+            onChange={e => setNewVersionContent(e.target.value)}
+            aria-describedby={ids.contentHint}
+          />
+          <p id={ids.contentHint} className="field-hint">Formatting uses Markdown: # for headings, - for bullet points, **bold** for emphasis.</p>
+          {versionError && (
+            <p className="field-error" role="alert"><AlertCircle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />{versionError}</p>
+          )}
+        </form>
+      </Dialog>
     </div>
   )
 }

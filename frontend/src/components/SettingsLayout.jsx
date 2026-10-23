@@ -1,327 +1,490 @@
-import React, { useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useCallback, useEffect, useId, useState } from 'react'
+import { Link, NavLink, Outlet } from 'react-router-dom'
+import { AlertCircle, Building2, CheckCircle2, CreditCard, LogOut, ShieldCheck, Trash2, User, UserPlus, Users } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useDataPilot } from '../hooks/useDataPilot'
+import { authedFetch, readApiError } from '../lib/authSession'
+import { Badge, Button, EmptyState, ErrorState, IconButton, PageHeader, Skeleton, cx } from './ui'
+
+const NAV_ITEMS = [
+  { path: '/app/settings/profile', label: 'Profile', icon: User },
+  { path: '/app/settings/workspace', label: 'Workspace', icon: Building2 },
+  { path: '/app/settings/members', label: 'Team members', icon: Users },
+  { path: '/app/settings/security', label: 'Password and security', icon: ShieldCheck },
+  { path: '/app/settings/billing', label: 'Billing and usage', icon: CreditCard },
+]
 
 export default function SettingsLayout() {
-  const { user } = useAuth()
-  const location = useLocation()
-
-  const navItems = [
-    { path: '/app/settings/profile', label: '👤 Profile Settings' },
-    { path: '/app/settings/workspace', label: '🏢 Workspace details' },
-    { path: '/app/settings/members', label: '👥 Team members' },
-    { path: '/app/settings/providers', label: '🤖 AI Providers & Keys' },
-    { path: '/app/settings/security', label: '🔒 Security & Sessions' },
-    { path: '/app/settings/billing', label: '💳 Billing & Quotas' }
-  ]
-
-  const getLinkClass = (path) => {
-    const base = "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 "
-    const isActive = location.pathname === path
-    return base + (isActive
-      ? 'bg-brand-500/10 text-brand-300 border border-brand-500/20 shadow-sm'
-      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent')
-  }
-
   return (
-    <div className="h-full flex overflow-hidden bg-[#030712]">
-      {/* Settings Navigation Sidebar */}
-      <aside className="w-60 border-r border-white/5 bg-[#050811]/40 flex flex-col flex-shrink-0">
-        <div className="px-5 py-4 border-b border-white/5 select-none">
-          <h2 className="text-xs font-bold text-white uppercase tracking-wider">Settings Settings</h2>
-          <p className="text-[10px] text-slate-500 mt-0.5">Manage your personal and workspace profile</p>
-        </div>
-        <nav className="p-3 space-y-1.5">
-          {navItems.map(item => (
-            <Link key={item.path} to={item.path} className={getLinkClass(item.path)}>
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:py-8">
+      <PageHeader title="Settings" description="Manage your profile, workspace, team and billing." />
 
-      {/* Main Settings Sub-route Container */}
-      <main className="flex-1 overflow-y-auto px-8 py-8 custom-scrollbar">
-        <Outlet />
-      </main>
-    </div>
-  )
-}
-
-// ── Settings Subcomponents ───────────────────────────────────────────────────
-
-export function ProfileSettings() {
-  const { user } = useAuth()
-  const [name, setName] = useState(user?.full_name || '')
-  const [email, setEmail] = useState(user?.email || '')
-  const [saved, setSaved] = useState(false)
-
-  const handleSave = (e) => {
-    e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
-
-  return (
-    <div className="max-w-xl">
-      <h3 className="text-base font-bold text-white mb-1">Profile Configuration</h3>
-      <p className="text-slate-500 text-xs mb-6">Update your account display information.</p>
-
-      <form onSubmit={handleSave} className="space-y-4">
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Full name</label>
-          <input 
-            type="text" 
-            value={name} 
-            onChange={(e) => setName(e.target.value)}
-            className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Email address</label>
-          <input 
-            type="email" 
-            value={email} 
-            readOnly 
-            className="w-full bg-[#0d1222]/50 border border-white/5 rounded-xl px-3 py-2 text-xs text-slate-400 cursor-not-allowed focus:outline-none"
-          />
-        </div>
-
-        <button 
-          type="submit"
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold transition-all border border-brand-500/25 mt-4"
-        >
-          {saved ? 'Saved Successfully ✓' : 'Save Changes'}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-export function WorkspaceSettings() {
-  const { user } = useAuth()
-  const [wsName, setWsName] = useState('My Analytics Workspace')
-  const [wsSlug, setWsSlug] = useState('my-analytics-ws')
-  const [saved, setSaved] = useState(false)
-
-  const handleSave = (e) => {
-    e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
-
-  return (
-    <div className="max-w-xl">
-      <h3 className="text-base font-bold text-white mb-1">Workspace Configuration</h3>
-      <p className="text-slate-500 text-xs mb-6">Manage organization profile settings and URL slug aliases.</p>
-
-      <form onSubmit={handleSave} className="space-y-4">
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Workspace Name</label>
-          <input 
-            type="text" 
-            value={wsName} 
-            onChange={(e) => setWsName(e.target.value)}
-            className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Workspace URL Slug</label>
-          <div className="flex rounded-xl overflow-hidden border border-white/5 bg-[#0d1222]">
-            <span className="bg-white/5 px-3 py-2 text-xs text-slate-500 select-none">datapilot.app/</span>
-            <input 
-              type="text" 
-              value={wsSlug} 
-              onChange={(e) => setWsSlug(e.target.value)}
-              className="flex-1 bg-transparent px-3 py-2 text-xs text-white focus:outline-none"
-            />
-          </div>
-        </div>
-
-        <button 
-          type="submit"
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold transition-all border border-brand-500/25 mt-4"
-        >
-          {saved ? 'Saved Successfully ✓' : 'Save Changes'}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-export function TeamMembersSettings() {
-  const { user } = useAuth()
-  const members = [
-    { email: user?.email || 'admin@example.com', role: 'Owner (You)', status: 'Active' },
-    { email: 'collaborator@example.com', role: 'Member', status: 'Pending Invite' }
-  ]
-
-  return (
-    <div className="max-w-xl">
-      <h3 className="text-base font-bold text-white mb-1">Team Organization</h3>
-      <p className="text-slate-500 text-xs mb-6">Invite coworkers and configure RBAC roles.</p>
-
-      <div className="bg-[#0d1222]/30 border border-white/5 rounded-xl overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-white/5 bg-[#050811]/50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              <th className="p-3">User</th>
-              <th className="p-3">Role</th>
-              <th className="p-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {members.map(member => (
-              <tr key={member.email} className="border-b border-white/[0.03] text-xs text-slate-300">
-                <td className="p-3 font-medium">{member.email}</td>
-                <td className="p-3 text-slate-400">{member.role}</td>
-                <td className="p-3">
-                  <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold ${
-                    member.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' : 'bg-amber-500/10 text-amber-400 border border-amber-500/15'
-                  }`}>
-                    {member.status}
-                  </span>
-                </td>
-              </tr>
+      <div className="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-start lg:gap-8">
+        {/* Mobile/tablet: horizontally scrollable tab row. Desktop: vertical side nav. */}
+        <nav aria-label="Settings sections" className="-mx-4 min-w-0 border-b border-line sm:-mx-6 lg:mx-0 lg:w-56 lg:flex-shrink-0 lg:border-b-0">
+          <ul className="flex gap-1 overflow-x-auto px-4 sm:px-6 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:px-0">
+            {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+              <li key={path} className="flex-shrink-0">
+                <NavLink
+                  to={path}
+                  className={({ isActive }) => cx(
+                    'flex h-10 items-center gap-2 whitespace-nowrap text-base font-medium transition-colors duration-fast focus-ring',
+                    'border-b-2 px-2.5 lg:h-9 lg:rounded-md lg:border-b-0',
+                    isActive
+                      ? 'border-primary text-fg lg:bg-primary-soft lg:text-primary-text'
+                      : 'border-transparent text-muted hover:text-fg lg:hover:bg-surface-muted',
+                  )}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                  {label}
+                </NavLink>
+              </li>
             ))}
-          </tbody>
-        </table>
+          </ul>
+        </nav>
+
+        <div className="min-w-0 flex-1">
+          <Outlet />
+        </div>
       </div>
     </div>
   )
 }
 
-export function ProvidersKeysSettings() {
-  const { provider, switchProvider } = useDataPilot()
-  const [localProvider, setLocalProvider] = useState(provider || 'gemini')
-  const [keys, setKeys] = useState({
-    gemini: '',
-    openai: '',
-    anthropic: ''
+// ── Shared form helpers ──────────────────────────────────────────────────────
+
+function SectionHeading({ title, description }) {
+  return (
+    <div className="mb-5">
+      <h2 className="text-lg font-semibold text-fg">{title}</h2>
+      {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+    </div>
+  )
+}
+
+function FieldError({ id, children }) {
+  if (!children) return null
+  return (
+    <p id={id} className="field-error" role="alert">
+      <AlertCircle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
+  )
+}
+
+function SaveFeedback({ saved, message = 'Changes saved.' }) {
+  return (
+    <p role="status" aria-live="polite" className="flex min-h-[20px] items-center gap-1.5 text-sm text-success">
+      {saved && (
+        <>
+          <CheckCircle2 className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          {message}
+        </>
+      )}
+    </p>
+  )
+}
+
+function FormError({ children }) {
+  if (!children) return null
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger-soft px-3 py-2.5 text-sm text-fg">
+      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-danger" aria-hidden="true" />
+      <span>{children}</span>
+    </div>
+  )
+}
+
+// ── Shared API helper ────────────────────────────────────────────────────────
+
+async function api(path, { method = 'GET', body } = {}) {
+  const resp = await authedFetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   })
+  if (!resp.ok) throw new Error(await readApiError(resp, 'Something went wrong'))
+  return resp.status === 204 ? null : resp.json()
+}
+
+/** Settings that need an account show this to guest users. */
+function GuestNotice({ what }) {
+  return (
+    <section className="card">
+      <EmptyState
+        icon={User}
+        title="Create a free account first"
+        description={`${what} are available once you have an account. Your guest work moves into it.`}
+        action={<Link to="/signup" className="btn-primary">Create free account</Link>}
+      />
+    </section>
+  )
+}
+
+function useSavedFlag() {
   const [saved, setSaved] = useState(false)
+  useEffect(() => {
+    if (!saved) return undefined
+    const t = window.setTimeout(() => setSaved(false), 2500)
+    return () => window.clearTimeout(t)
+  }, [saved])
+  return [saved, setSaved]
+}
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+export function ProfileSettings() {
+  const { user, isAuthenticated, updateUser } = useAuth()
+  const [name, setName] = useState(user?.full_name || '')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
+  const [saved, setSaved] = useSavedFlag()
+  const [nameError, setNameError] = useState('')
+  const [formError, setFormError] = useState('')
+
+  if (!isAuthenticated) return <GuestNotice what="Profile settings" />
 
   const handleSave = async (e) => {
     e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) { setNameError('Enter your full name.'); return }
+    setNameError('')
+    setFormError('')
     setSaving(true)
-    setError(null)
     try {
-      const activeKey = keys[localProvider] || keys[localProvider === 'claude' ? 'anthropic' : localProvider]
-      // Switch provider via the store (which calls the API)
-      await switchProvider(localProvider, activeKey || undefined)
+      await api('/user/profile', { method: 'PUT', body: { full_name: trimmed } })
+      updateUser?.({ full_name: trimmed })
       setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
     } catch (err) {
-      setError('Failed to save configuration. Please try again.')
+      setFormError(`Your name wasn't saved. ${err.message}`)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="max-w-xl">
-      <h3 className="text-base font-bold text-white mb-1">AI API Configurations</h3>
-      <p className="text-slate-500 text-xs mb-6">Manage your LLM provider and API keys. Keys are stored encrypted on the server.</p>
-
-      <form onSubmit={handleSave} className="space-y-4">
+    <section className="card card-pad max-w-xl">
+      <SectionHeading title="Profile" description="How your name appears to your team." />
+      <form onSubmit={handleSave} noValidate className="space-y-4">
+        <FormError>{formError}</FormError>
         <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Primary Provider</label>
-          <select 
-            value={localProvider}
-            onChange={(e) => setLocalProvider(e.target.value)}
-            className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
-          >
-            <option value="gemini">✨ Google Gemini Pro</option>
-            <option value="openai">🤖 OpenAI GPT-4</option>
-            <option value="claude">🎭 Anthropic Claude 3.5</option>
-            <option value="ollama">❄️ Local Ollama Instance</option>
-          </select>
+          <label htmlFor="settings-full-name" className="field-label">Full name</label>
+          <input
+            id="settings-full-name"
+            type="text"
+            autoComplete="name"
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (nameError) setNameError('') }}
+            aria-invalid={nameError ? 'true' : undefined}
+            aria-describedby={nameError ? 'settings-full-name-error' : undefined}
+            className="input"
+          />
+          <FieldError id="settings-full-name-error">{nameError}</FieldError>
         </div>
-
-        <div className="border-t border-white/5 pt-4 mt-4 space-y-4">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">API Keys</h4>
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 block mb-1">Google Gemini API Key</label>
-            <input 
-              type="password" 
-              placeholder="AIza..."
-              value={keys.gemini}
-              onChange={(e) => setKeys({...keys, gemini: e.target.value})}
-              className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 block mb-1">OpenAI API Key</label>
-            <input 
-              type="password" 
-              placeholder="sk-proj-..."
-              value={keys.openai}
-              onChange={(e) => setKeys({...keys, openai: e.target.value})}
-              className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 block mb-1">Anthropic API Key</label>
-            <input 
-              type="password" 
-              placeholder="sk-ant-..."
-              value={keys.anthropic}
-              onChange={(e) => setKeys({...keys, anthropic: e.target.value})}
-              className="w-full bg-[#0d1222] border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500/35"
-            />
-          </div>
+        <div>
+          <label htmlFor="settings-email" className="field-label">Email address</label>
+          <input id="settings-email" type="email" value={user?.email || ''} readOnly aria-describedby="settings-email-hint" className="input cursor-not-allowed bg-surface-muted text-muted" />
+          <p id="settings-email-hint" className="field-hint">Your sign-in email can't be changed here.</p>
         </div>
-
-        {error && <p className="text-[10px] text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">{error}</p>}
-
-        <button 
-          type="submit"
-          disabled={saving}
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all border border-brand-500/25 mt-4"
-        >
-          {saving ? 'Saving...' : saved ? 'Config Saved ✓' : 'Save Configuration'}
-        </button>
+        <div className="flex flex-wrap items-center gap-3 pt-2">
+          <Button type="submit" variant="primary" loading={saving}>Save profile</Button>
+          <SaveFeedback saved={saved} message="Profile saved." />
+        </div>
       </form>
-    </div>
+    </section>
   )
 }
 
-export function SecuritySessionsSettings() {
-  const sessions = [
-    { device: 'Chrome / Windows', ip: '127.0.0.1 (Localhost)', lastActive: 'Just Now', active: true }
-  ]
+// ── Workspace ────────────────────────────────────────────────────────────────
+
+function useWorkspace() {
+  const { workspaceId, isAuthenticated } = useAuth()
+  const [state, setState] = useState({ loading: true, error: '', workspace: null })
+  const load = useCallback(async () => {
+    if (!isAuthenticated || !workspaceId) { setState({ loading: false, error: '', workspace: null }); return }
+    setState((s) => ({ ...s, loading: true, error: '' }))
+    try {
+      const data = await api(`/workspaces/${encodeURIComponent(workspaceId)}`)
+      setState({ loading: false, error: '', workspace: data.workspace })
+    } catch (err) {
+      setState({ loading: false, error: err.message, workspace: null })
+    }
+  }, [workspaceId, isAuthenticated])
+  useEffect(() => { load() }, [load])
+  return { ...state, reload: load, workspaceId, setWorkspace: (workspace) => setState((s) => ({ ...s, workspace })) }
+}
+
+const canManage = (role) => role === 'Owner' || role === 'Admin'
+
+export function WorkspaceSettings() {
+  const { isAuthenticated } = useAuth()
+  const { loading, error, workspace, reload, workspaceId, setWorkspace } = useWorkspace()
+  const [wsName, setWsName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useSavedFlag()
+  const [nameError, setNameError] = useState('')
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => { if (workspace) setWsName(workspace.name || '') }, [workspace])
+
+  if (!isAuthenticated) return <GuestNotice what="Workspace settings" />
+  if (loading) return <section className="card card-pad max-w-xl space-y-3"><Skeleton className="h-5 w-32" /><Skeleton className="h-10 w-full" /></section>
+  if (error) return <ErrorState title="Couldn't load your workspace" description={error} onRetry={reload} />
+  if (!workspace) return null
+
+  const editable = canManage(workspace.your_role)
+
+  const handleSave = async (e) => {
+    e.preventDefault()
+    const trimmed = wsName.trim()
+    if (!trimmed) { setNameError('Enter a workspace name.'); return }
+    setNameError('')
+    setFormError('')
+    setSaving(true)
+    try {
+      const data = await api(`/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PUT', body: { name: trimmed } })
+      setWorkspace(data.workspace || { ...workspace, name: trimmed })
+      setSaved(true)
+    } catch (err) {
+      setFormError(`The workspace name wasn't saved. ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
-    <div className="max-w-xl">
-      <h3 className="text-base font-bold text-white mb-1">Security & Sessions</h3>
-      <p className="text-slate-500 text-xs mb-6">Monitor active login sessions on your account.</p>
+    <section className="card card-pad max-w-xl">
+      <SectionHeading title="Workspace" description="Everyone in this workspace shares its datasets, chats and reports." />
+      <form onSubmit={handleSave} noValidate className="space-y-4">
+        <FormError>{formError}</FormError>
+        <div>
+          <label htmlFor="settings-ws-name" className="field-label">Workspace name</label>
+          <input
+            id="settings-ws-name"
+            type="text"
+            value={wsName}
+            disabled={!editable}
+            onChange={(e) => { setWsName(e.target.value); if (nameError) setNameError('') }}
+            aria-invalid={nameError ? 'true' : undefined}
+            aria-describedby={cx(nameError && 'settings-ws-name-error', !editable && 'settings-ws-name-hint')}
+            className="input"
+          />
+          {!editable && <p id="settings-ws-name-hint" className="field-hint">Only owners and admins can rename the workspace.</p>}
+          <FieldError id="settings-ws-name-error">{nameError}</FieldError>
+        </div>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-base">
+          <dt className="text-muted">Your role</dt><dd className="text-fg">{workspace.your_role}</dd>
+          <dt className="text-muted">Plan</dt><dd className="capitalize text-fg">{workspace.plan_tier || 'free'}</dd>
+        </dl>
+        {editable && (
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Button type="submit" variant="primary" loading={saving}>Save workspace</Button>
+            <SaveFeedback saved={saved} message="Workspace saved." />
+          </div>
+        )}
+      </form>
+    </section>
+  )
+}
 
-      <div className="bg-[#0d1222]/30 border border-white/5 rounded-xl overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-white/5 bg-[#050811]/50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              <th className="p-3">Device</th>
-              <th className="p-3">IP Location</th>
-              <th className="p-3">Last Active</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((session, idx) => (
-              <tr key={idx} className="border-b border-white/[0.03] text-xs text-slate-300">
-                <td className="p-3 font-medium">
-                  {session.device}
-                  {session.active && <span className="ml-2 text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.2 rounded font-bold border border-emerald-500/15">Active</span>}
-                </td>
-                <td className="p-3 text-slate-400 font-mono">{session.ip}</td>
-                <td className="p-3 text-slate-500">{session.lastActive}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+// ── Team members ─────────────────────────────────────────────────────────────
+
+const ROLE_HELP = {
+  Admin: 'Can invite people and change settings',
+  Member: 'Can upload data, ask questions and build reports',
+  Viewer: 'Can view datasets, chats and reports',
+}
+
+export function TeamMembersSettings() {
+  const { user, isAuthenticated } = useAuth()
+  const { workspace, workspaceId, loading: wsLoading } = useWorkspace()
+  const [members, setMembers] = useState(null)
+  const [loadError, setLoadError] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('Member')
+  const [inviting, setInviting] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busyId, setBusyId] = useState(null)
+  const ids = { email: useId(), role: useId() }
+
+  const load = useCallback(async () => {
+    if (!isAuthenticated || !workspaceId) return
+    setLoadError('')
+    try {
+      const data = await api(`/workspaces/${encodeURIComponent(workspaceId)}/members`)
+      setMembers(data.members || [])
+    } catch (err) {
+      setLoadError(err.message)
+    }
+  }, [isAuthenticated, workspaceId])
+  useEffect(() => { load() }, [load])
+
+  if (!isAuthenticated) return <GuestNotice what="Team members" />
+
+  const manage = canManage(workspace?.your_role)
+
+  const invite = async (e) => {
+    e.preventDefault()
+    const value = email.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) { setInviteError('Enter a valid email address, like name@company.com.'); return }
+    setInviteError('')
+    setNotice('')
+    setInviting(true)
+    try {
+      await api(`/workspaces/${encodeURIComponent(workspaceId)}/members`, { method: 'POST', body: { email: value, role } })
+      setEmail('')
+      setNotice(`${value} was added as ${role}.`)
+      load()
+    } catch (err) {
+      setInviteError(err.message)
+    } finally {
+      setInviting(false)
+    }
+  }
+
+  const remove = async (m) => {
+    if (!window.confirm(`Remove ${m.email} from this workspace? They will lose access immediately.`)) return
+    setBusyId(m.user_id)
+    setNotice('')
+    try {
+      await api(`/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(m.user_id)}`, { method: 'DELETE' })
+      setNotice(`${m.email} was removed.`)
+      load()
+    } catch (err) {
+      setLoadError(err.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <section className="max-w-3xl space-y-5">
+      <SectionHeading title="Team members" description="People who can use this workspace." />
+
+      {manage && (
+        <form onSubmit={invite} noValidate className="card card-pad space-y-3">
+          <h3 className="text-md font-semibold text-fg">Add a person</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto] sm:items-start">
+            <div>
+              <label htmlFor={ids.email} className="field-label">Email</label>
+              <input id={ids.email} type="email" className="input" placeholder="name@company.com" value={email}
+                onChange={(e) => { setEmail(e.target.value); if (inviteError) setInviteError('') }}
+                aria-invalid={inviteError ? 'true' : undefined} aria-describedby={inviteError ? `${ids.email}-err` : undefined} />
+            </div>
+            <div>
+              <label htmlFor={ids.role} className="field-label">Role</label>
+              <select id={ids.role} className="input" value={role} onChange={(e) => setRole(e.target.value)} aria-describedby={`${ids.role}-hint`}>
+                {Object.keys(ROLE_HELP).map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div className="sm:pt-[26px]">
+              <Button type="submit" variant="primary" icon={UserPlus} loading={inviting} className="w-full sm:w-auto">Add</Button>
+            </div>
+          </div>
+          <p id={`${ids.role}-hint`} className="field-hint">{ROLE_HELP[role]}. The person needs a DataPilot account with this email.</p>
+          <FieldError id={`${ids.email}-err`}>{inviteError}</FieldError>
+        </form>
+      )}
+
+      {notice && <SaveFeedback saved message={notice} />}
+
+      <div className="card overflow-hidden">
+        {loadError ? (
+          <div className="p-4"><ErrorState title="Couldn't load team members" description={loadError} onRetry={load} /></div>
+        ) : members === null || wsLoading ? (
+          <div className="space-y-2 p-4"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
+        ) : members.length === 0 ? (
+          <EmptyState compact icon={Users} title="Just you so far" description="Add teammates to share datasets and reports." />
+        ) : (
+          <ul className="divide-y divide-line">
+            {members.map((m) => {
+              const isYou = m.user_id === user?.user_id || m.email === user?.email
+              return (
+                <li key={m.user_id || m.email} className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary-text" aria-hidden="true">
+                    {(m.full_name || m.email || '?')[0].toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-medium text-fg">{m.full_name || m.email}{isYou && <span className="font-normal text-muted"> (you)</span>}</p>
+                    {m.full_name && <p className="truncate text-sm text-muted">{m.email}</p>}
+                  </div>
+                  <Badge tone={m.role === 'Owner' ? 'primary' : 'neutral'}>{m.role}</Badge>
+                  {manage && !isYou && m.role !== 'Owner' && (
+                    <IconButton icon={Trash2} label={`Remove ${m.email}`} tooltipSide="left" className="hover:text-danger" disabled={busyId === m.user_id} onClick={() => remove(m)} />
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </div>
+    </section>
+  )
+}
+
+// ── Password and security ────────────────────────────────────────────────────
+
+export function SecuritySessionsSettings() {
+  const { isAuthenticated, logout } = useAuth()
+  const [form, setForm] = useState({ current: '', next: '', confirm: '' })
+  const [errors, setErrors] = useState({})
+  const [formError, setFormError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useSavedFlag()
+
+  if (!isAuthenticated) return <GuestNotice what="Password settings" />
+
+  const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); if (errors[k]) setErrors((x) => ({ ...x, [k]: undefined })) }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const next = {}
+    if (!form.current) next.current = 'Enter your current password.'
+    if (form.next.length < 8) next.next = 'Use at least 8 characters.'
+    if (form.confirm !== form.next) next.confirm = "The two new passwords don't match."
+    setErrors(next)
+    if (Object.keys(next).length) return
+    setFormError('')
+    setSaving(true)
+    try {
+      await api('/user/password', { method: 'PUT', body: { current_password: form.current, new_password: form.next } })
+      setForm({ current: '', next: '', confirm: '' })
+      setSaved(true)
+    } catch (err) {
+      setFormError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const field = (key, label, autoComplete, hint) => (
+    <div>
+      <label htmlFor={`pw-${key}`} className="field-label">{label}</label>
+      <input id={`pw-${key}`} type="password" autoComplete={autoComplete} className="input" value={form[key]} onChange={set(key)}
+        aria-invalid={errors[key] ? 'true' : undefined} aria-describedby={cx(hint && `pw-${key}-hint`, errors[key] && `pw-${key}-err`)} />
+      {hint && <p id={`pw-${key}-hint`} className="field-hint">{hint}</p>}
+      <FieldError id={`pw-${key}-err`}>{errors[key]}</FieldError>
+    </div>
+  )
+
+  return (
+    <div className="max-w-xl space-y-5">
+      <section className="card card-pad">
+        <SectionHeading title="Change password" description="Changing your password signs you out on every other device." />
+        <form onSubmit={submit} noValidate className="space-y-4">
+          <FormError>{formError}</FormError>
+          {field('current', 'Current password', 'current-password')}
+          {field('next', 'New password', 'new-password', 'At least 8 characters.')}
+          {field('confirm', 'Confirm new password', 'new-password')}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Button type="submit" variant="primary" loading={saving}>Update password</Button>
+            <SaveFeedback saved={saved} message="Password updated." />
+          </div>
+        </form>
+      </section>
+      <section className="card card-pad">
+        <SectionHeading title="Sign out" description="Sign out of DataPilot on this device." />
+        <Button icon={LogOut} onClick={logout}>Sign out</Button>
+      </section>
     </div>
   )
 }

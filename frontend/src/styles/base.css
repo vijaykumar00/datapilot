@@ -1,0 +1,193 @@
+/* Base element styles.  Tokens live in tokens.css. */
+
+/* Bridge: older stylesheets and inline styles use these names.  They now resolve
+   to the semantic tokens, so they follow the active theme. */
+:root {
+  --bg-primary: rgb(var(--c-bg));
+  --bg-secondary: rgb(var(--c-surface));
+  --bg-tertiary: rgb(var(--c-surface-muted));
+  --bg-elevated: rgb(var(--c-elevated));
+  --bg-overlay: rgb(var(--c-bg) / 0.85);
+  --border: rgb(var(--c-line));
+  --border-default: rgb(var(--c-line));
+  --border-strong: rgb(var(--c-line-strong));
+  --border-focus: rgb(var(--c-focus));
+  --text-primary: rgb(var(--c-fg));
+  --text-secondary: rgb(var(--c-muted));
+  --text-muted: rgb(var(--c-subtle));
+  --text-inverse: rgb(var(--c-surface));
+  --accent: rgb(var(--c-primary));
+  --brand-primary: rgb(var(--c-primary-text));
+  --brand-secondary: rgb(var(--c-info));
+  --brand-hover: rgb(var(--c-primary-hover));
+  --brand-glow: rgb(var(--c-primary) / 0.2);
+  --glow: rgb(var(--c-primary) / 0.15);
+  --glow-accent: rgb(var(--c-info) / 0.15);
+  --accent-blue: rgb(var(--c-primary));
+  --accent-cyan: rgb(var(--c-info));
+  --success: rgb(var(--c-success));
+  --warning: rgb(var(--c-warning));
+  --error: rgb(var(--c-danger));
+  --information: rgb(var(--c-info));
+  --amber: var(--warning);
+  --emerald: var(--success);
+  --rose: var(--error);
+  --page-max-width: 1160px;
+  --section-spacing: clamp(3.5rem, 7vw, 6rem);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-button: var(--radius-control);
+  --radius-input: var(--radius-control);
+  --radius-pill: 999px;
+  --motion-slow: 260ms;
+  --focus-ring: 0 0 0 2px rgb(var(--c-surface)), 0 0 0 4px rgb(var(--c-focus));
+  --shadow-sm: none;
+  --shadow-md: var(--shadow-float);
+  --shadow-lg: var(--shadow-dialog);
+  --shadow-card: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-fg));
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'ss02' 0;
+  overflow: hidden;
+}
+
+/* Marketing and auth pages scroll the document; the app shell scrolls panes. */
+body.page-scroll {
+  overflow: auto;
+}
+
+body.mobile-nav-open {
+  overflow: hidden;
+}
+
+::selection {
+  background: rgb(var(--c-primary) / 0.22);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--c-focus));
+  outline-offset: 2px;
+}
+
+button,
+[role='button'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Numbers line up in tables, metrics and charts. */
+.tabular,
+table,
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars: thin and quiet in both themes. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-line-strong)) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-line-strong));
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--c-subtle));
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.sr-only-focusable:not(:focus):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100000;
+  transform: translateY(-150%);
+  border-radius: var(--radius-control);
+  background: rgb(var(--c-fg));
+  color: rgb(var(--c-surface));
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform var(--motion-fast) ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid rgb(var(--c-focus));
+  outline-offset: 2px;
+}
+
+.focus-ring {
+  outline: none;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid rgb(var(--c-focus));
+  outline-offset: 2px;
+}
+
+/* Safe areas for notched phones (used by the mobile header and composer). */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}

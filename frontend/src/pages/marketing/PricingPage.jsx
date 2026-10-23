@@ -142,7 +142,7 @@ export default function PricingPage() {
       <SectionContainer>
         <div className="pricing-toolbar">
           <div>
-            <span className="billing-eyebrow">Backend plan catalog</span>
+            <span className="billing-eyebrow">Plans</span>
             <h2>Choose a plan</h2>
             {current && <p>{friendlyBillingStatus(current.subscription?.status)} on {current.plan?.name || current.subscription?.plan_id}</p>}
           </div>
@@ -154,13 +154,13 @@ export default function PricingPage() {
 
         {error && (
           <div className="billing-alert billing-alert-error" role="alert">
-            <strong>Pricing action needs attention</strong>
+            <strong>Something went wrong</strong>
             <p>{error}</p>
           </div>
         )}
 
         {loading ? (
-          <div className="billing-loading" role="status">Loading plan catalog...</div>
+          <div className="billing-loading" role="status">Loading plans…</div>
         ) : (
           <div className="pricing-plan-grid">
             {plans.map((plan) => {

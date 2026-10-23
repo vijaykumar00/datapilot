@@ -1,0 +1,111 @@
+/*
+ * DataPilot design tokens.
+ * Colors are "R G B" triplets so Tailwind can apply opacity: bg-primary/10.
+ * Light is the default; dark applies via .dark on <html> (set before first paint
+ * from the saved preference, or from prefers-color-scheme when none is saved).
+ */
+:root {
+  --c-bg: 245 246 248;
+  --c-surface: 255 255 255;
+  --c-surface-muted: 238 240 243;
+  --c-elevated: 255 255 255;
+  --c-sunken: 233 236 240;
+  --c-line: 216 221 227;
+  --c-line-muted: 230 233 237;
+  --c-line-strong: 185 193 203;
+  --c-fg: 22 27 34;
+  --c-muted: 79 89 102;
+  --c-subtle: 100 109 121;
+  --c-ink: 22 27 34;
+  --c-primary: 31 91 216;
+  --c-primary-hover: 26 78 188;
+  --c-primary-text: 26 79 191;
+  --c-primary-soft: 231 238 252;
+  --c-on-primary: 255 255 255;
+  --c-success: 22 121 74;
+  --c-success-soft: 227 243 234;
+  --c-warning: 154 91 0;
+  --c-warning-soft: 251 240 220;
+  --c-danger: 192 49 44;
+  --c-danger-soft: 251 230 229;
+  --c-info: 30 104 168;
+  --c-info-soft: 226 239 249;
+  --c-focus: 31 91 216;
+  --c-chart-1: 31 91 216;
+  --c-chart-2: 217 130 43;
+  --c-chart-3: 27 158 119;
+  --c-chart-4: 194 65 122;
+  --c-chart-5: 107 91 209;
+  --c-chart-6: 92 107 122;
+  color-scheme: light;
+
+  /* Type: IBM Plex Sans for UI, IBM Plex Mono for data/code. */
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Radius: controls 6, cards 8, dialogs 12. */
+  --radius-sm: 4px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-dialog: 12px;
+
+  /* Elevation: borders do most of the work; shadows only for floating layers. */
+  --shadow-float: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 24px rgb(16 24 40 / 0.10);
+  --shadow-dialog: 0 2px 4px rgb(16 24 40 / 0.06), 0 24px 48px rgb(16 24 40 / 0.18);
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --sidebar-width: 232px;
+  --sidebar-compact-width: 64px;
+  --topbar-height: 56px;
+}
+
+.dark {
+  --c-bg: 15 18 23;
+  --c-surface: 22 26 33;
+  --c-surface-muted: 29 34 43;
+  --c-elevated: 27 32 41;
+  --c-sunken: 11 14 18;
+  --c-line: 43 50 60;
+  --c-line-muted: 35 41 49;
+  --c-line-strong: 61 70 82;
+  --c-fg: 232 235 240;
+  --c-muted: 163 172 185;
+  --c-subtle: 138 148 163;
+  --c-ink: 232 235 240;
+  --c-primary: 58 111 221;
+  --c-primary-hover: 83 131 230;
+  --c-primary-text: 141 178 255;
+  --c-primary-soft: 26 42 74;
+  --c-on-primary: 255 255 255;
+  --c-success: 76 195 138;
+  --c-success-soft: 20 48 31;
+  --c-warning: 229 164 69;
+  --c-warning-soft: 51 38 15;
+  --c-danger: 240 122 114;
+  --c-danger-soft: 58 26 25;
+  --c-info: 109 179 242;
+  --c-info-soft: 20 41 61;
+  --c-focus: 141 178 255;
+  --c-chart-1: 110 160 255;
+  --c-chart-2: 240 165 90;
+  --c-chart-3: 76 195 160;
+  --c-chart-4: 233 120 159;
+  --c-chart-5: 164 150 242;
+  --c-chart-6: 154 166 179;
+  color-scheme: dark;
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
+  --shadow-dialog: 0 2px 4px rgb(0 0 0 / 0.4), 0 24px 48px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-fast: 0ms; --motion-base: 0ms; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

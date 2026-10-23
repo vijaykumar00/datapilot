@@ -304,7 +304,7 @@ export function AuthProvider({ children }) {
     if (!res.ok) throw new Error(await readApiError(res, 'Conversion failed'));
     const data = await res.json();
     _storeAuthData(data);
-    addToast('Account created! Your guest data has been saved. ✨', 'success', 8000);
+    addToast('Account created. Your guest work has been saved.', 'success', 8000);
     return data;
   }, [guestToken, addToast]);
 
@@ -360,6 +360,15 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
+  // Merge profile changes saved through the API into the in-memory and stored user.
+  const updateUser = useCallback((patch) => {
+    setUser((current) => {
+      const next = { ...(current || {}), ...patch };
+      try { localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(next)); } catch { /* storage blocked */ }
+      return next;
+    });
+  }, []);
+
   const value = {
     user,
     sessionActive,
@@ -388,6 +397,7 @@ export function AuthProvider({ children }) {
     verifyEmail,
     silentRefresh,
     apiHeaders,
+    updateUser,
     addToast,
     dismissToast,
   };

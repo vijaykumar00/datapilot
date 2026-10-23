@@ -57,13 +57,13 @@ function LegalPage({ path }) {
             </Alert>
           </div>
 
-          <h1 className="text-3xl font-black text-[var(--text-primary)]">{page.title}</h1>
+          <h1 className="text-3xl font-semibold text-[var(--text-primary)]">{page.title}</h1>
           <p className="mt-3 text-sm font-mono text-[var(--text-muted)]">Last updated: July 2026</p>
 
           <div className="mt-10 space-y-8">
             {page.sections.map(([title, body], index) => (
               <section key={title}>
-                <h2 className="text-lg font-bold text-[var(--text-primary)]">
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                   {index + 1}. {title}
                 </h2>
                 <p className="mt-3 text-base leading-7 text-[var(--text-secondary)]">{body}</p>

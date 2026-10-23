@@ -75,20 +75,16 @@ test('pricing page uses backend plans and secure server-generated checkout or po
   assert.doesNotMatch(home, /Coming Soon|paid plans are ready|not enabled in this sprint/i)
 })
 
-test('billing styles include responsive, accessible, non-color-only usage states', () => {
+test('billing UI is responsive and shows usage as text plus an accessible progress bar', () => {
+  const billing = read('../src/components/BillingPortal.jsx')
   const styles = read('../src/index.css')
 
-  for (const selector of [
-    '.billing-shell',
-    '.billing-current-grid',
-    '.billing-usage-grid',
-    '.billing-progress',
-    '.billing-usage-row-warning',
-    '.billing-usage-row-danger',
-    '.billing-plan-grid',
-    '.pricing-plan-grid',
-    '@media (max-width: 760px)',
-  ]) {
-    assert.match(styles, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  }
+  // Usage meters expose their value to assistive tech, not only as a coloured bar.
+  assert.match(billing, /role="progressbar"/)
+  assert.match(billing, /aria-valuenow=/)
+  // Layouts start as a single column and only widen on larger screens.
+  assert.match(billing, /grid-cols-1[^"]*sm:grid-cols-2/)
+  assert.match(billing, /lg:grid-cols-3/)
+  // The public pricing grid keeps its responsive rule.
+  assert.match(styles, /\.pricing-plan-grid/)
 })

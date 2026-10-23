@@ -1,0 +1,389 @@
+/*
+ * Shared component classes.  Components prefer the React primitives in
+ * src/components/ui, which use these classes; older components use them directly.
+ */
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border text-sm font-medium
+      select-none transition-colors duration-fast
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface
+      disabled:cursor-not-allowed disabled:opacity-50;
+    height: 36px;
+    padding: 0 14px;
+  }
+
+  .btn-primary {
+    @apply btn border-transparent bg-primary text-on-primary hover:bg-primary-hover;
+  }
+
+  .btn-secondary {
+    @apply btn border-line bg-surface text-fg hover:bg-surface-muted;
+  }
+
+  .btn-ghost {
+    @apply btn border-transparent bg-transparent text-muted hover:bg-ink/[0.06] hover:text-fg;
+  }
+
+  .btn-ghost-active {
+    @apply bg-primary-soft text-primary-text;
+  }
+
+  .btn-destructive {
+    @apply btn border-transparent bg-danger text-on-primary hover:opacity-90;
+  }
+
+  .dark .btn-destructive {
+    @apply bg-danger-soft text-danger border-danger/40;
+  }
+
+  /* Kept for older markup; same as primary. */
+  .btn-accent {
+    @apply btn-primary;
+  }
+
+  /* Size modifiers come after the variants so they win. */
+  .btn-sm {
+    height: 30px;
+    padding: 0 10px;
+    @apply text-xs;
+  }
+
+  .btn-lg {
+    height: 44px;
+    padding: 0 18px;
+    @apply text-base;
+  }
+
+  .btn-icon {
+    width: 36px;
+    padding: 0;
+  }
+
+  .btn-icon.btn-sm {
+    width: 30px;
+  }
+
+
+  /* ── Inputs ──────────────────────────────────────────────────────────── */
+  .input,
+  .input-dark {
+    @apply block w-full rounded-md border border-line bg-surface text-base text-fg placeholder:text-subtle
+      transition-colors duration-fast
+      hover:border-line-strong
+      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20
+      disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-subtle;
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+
+  .input[aria-invalid='true'],
+  .input-dark[aria-invalid='true'] {
+    @apply border-danger focus:ring-danger/20;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-fg;
+  }
+
+  .field-hint {
+    @apply mt-1.5 text-xs text-subtle;
+  }
+
+  .field-error {
+    @apply mt-1.5 flex items-start gap-1.5 text-xs font-medium text-danger;
+  }
+
+  /* ── Surfaces ────────────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-lg border border-line bg-surface;
+  }
+
+  .card-pad {
+    @apply p-4 sm:p-5;
+  }
+
+  /* Former glass panels render as plain, solid surfaces. */
+  .glass {
+    @apply rounded-lg border border-line bg-surface;
+  }
+
+  .glass-sm {
+    @apply border border-line bg-surface;
+  }
+
+  .glass-highlight {
+    @apply border border-primary/30 bg-primary-soft;
+  }
+
+  .panel-header {
+    @apply flex min-h-[52px] items-center justify-between gap-3 border-b border-line px-4 sm:px-5;
+  }
+
+  /* ── Badges and chips ───────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded border border-transparent px-1.5 text-2xs font-medium;
+    height: 20px;
+  }
+
+  .badge-neutral { @apply border-line bg-surface-muted text-muted; }
+  .badge-primary { @apply bg-primary-soft text-primary-text; }
+  .badge-success { @apply bg-success-soft text-success; }
+  .badge-warning { @apply bg-warning-soft text-warning; }
+  .badge-danger { @apply bg-danger-soft text-danger; }
+  .badge-info { @apply bg-info-soft text-info; }
+
+  .chip {
+    @apply inline-flex max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-xs text-fg;
+    height: 28px;
+  }
+
+  .kbd {
+    @apply inline-flex items-center rounded border border-line bg-surface-muted px-1.5 font-mono text-2xs text-muted;
+    height: 20px;
+  }
+
+  /* ── Status dot ─────────────────────────────────────────────────────── */
+  .status-dot {
+    @apply inline-block h-2 w-2 flex-shrink-0 rounded-full;
+  }
+  .status-online { @apply bg-success; }
+  .status-offline { @apply bg-danger; }
+  .status-warn { @apply bg-warning; }
+
+  /* ── Data table ─────────────────────────────────────────────────────── */
+  .data-table {
+    @apply w-full border-separate text-sm;
+    border-spacing: 0;
+  }
+
+  .data-table th {
+    @apply sticky top-0 z-[1] whitespace-nowrap border-b border-line bg-surface-muted px-3 py-2 text-left text-xs font-semibold text-muted;
+  }
+
+  .data-table td {
+    @apply border-b border-line-muted px-3 py-2 font-mono text-[12.5px] text-fg;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .data-table td.is-number,
+  .data-table th.is-number {
+    @apply text-right;
+  }
+
+  .data-table tbody tr:hover td {
+    @apply bg-ink/[0.03];
+  }
+
+  /* ── Chat ───────────────────────────────────────────────────────────── */
+  .message-user {
+    @apply ml-auto max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-lg bg-surface-muted px-3.5 py-2.5 text-base text-fg;
+  }
+
+  .message-bot {
+    @apply max-w-none text-base;
+  }
+
+  /* ── Code / SQL ─────────────────────────────────────────────────────── */
+  .editor-block {
+    @apply overflow-hidden rounded-md border border-line bg-sunken;
+  }
+
+  .editor-header {
+    @apply flex items-center justify-between gap-2 border-b border-line bg-surface-muted px-3 py-1.5;
+  }
+
+  .editor-terminal {
+    @apply flex gap-4 overflow-x-auto p-3 font-mono text-[12.5px] leading-5 text-fg;
+  }
+
+  .editor-lines {
+    @apply select-none border-r border-line pr-3 text-right font-mono text-subtle;
+  }
+
+  .editor-code {
+    @apply flex-1 whitespace-pre;
+  }
+
+  /* ── Drop zone ──────────────────────────────────────────────────────── */
+  .drop-zone {
+    @apply relative cursor-pointer rounded-lg border border-dashed border-line-strong bg-surface p-6 text-center
+      transition-colors duration-fast hover:border-primary hover:bg-primary-soft/40;
+  }
+
+  .drop-zone.drag-over {
+    @apply border-primary bg-primary-soft;
+  }
+
+  /* ── Markdown (AI answers, reports) ─────────────────────────────────── */
+  .prose-dp,
+  .prose-dark {
+    @apply text-base text-fg;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .prose-dp > :first-child,
+  .prose-dark > :first-child { margin-top: 0; }
+  .prose-dp > :last-child,
+  .prose-dark > :last-child { margin-bottom: 0; }
+  .prose-dp p,
+  .prose-dark p { @apply my-2.5; }
+  .prose-dp h1, .prose-dp h2, .prose-dp h3, .prose-dp h4,
+  .prose-dark h1, .prose-dark h2, .prose-dark h3, .prose-dark h4 {
+    @apply mb-2 mt-5 font-semibold text-fg;
+  }
+  .prose-dp h1, .prose-dark h1 { @apply text-xl; }
+  .prose-dp h2, .prose-dark h2 { @apply text-lg; }
+  .prose-dp h3, .prose-dp h4, .prose-dark h3, .prose-dark h4 { @apply text-md; }
+  .prose-dp strong, .prose-dark strong { @apply font-semibold text-fg; }
+  .prose-dp ul, .prose-dp ol, .prose-dark ul, .prose-dark ol { @apply my-2.5 space-y-1 pl-5; }
+  .prose-dp ul, .prose-dark ul { list-style: disc; }
+  .prose-dp ol, .prose-dark ol { list-style: decimal; }
+  .prose-dp li::marker, .prose-dark li::marker { color: rgb(var(--c-subtle)); }
+  .prose-dp code, .prose-dark code {
+    @apply rounded bg-surface-muted px-1 py-px font-mono text-[0.88em] text-fg;
+  }
+  .prose-dp pre, .prose-dark pre {
+    @apply my-3 overflow-x-auto rounded-md border border-line bg-sunken p-3 text-[12.5px] leading-5;
+  }
+  .prose-dp pre code, .prose-dark pre code { @apply bg-transparent p-0; }
+  .prose-dp blockquote, .prose-dark blockquote { @apply my-3 border-l-2 border-line-strong pl-3 text-muted; }
+  .prose-dp a, .prose-dark a { @apply text-primary-text underline underline-offset-2 hover:no-underline; }
+  .prose-dp hr, .prose-dark hr { @apply my-4 border-line; }
+  .prose-dp table, .prose-dark table {
+    @apply my-3 block w-full max-w-full overflow-x-auto border-separate text-sm;
+    border-spacing: 0;
+  }
+  .prose-dp th, .prose-dark th { @apply border-b border-line bg-surface-muted px-3 py-1.5 text-left font-semibold; }
+  .prose-dp td, .prose-dark td { @apply border-b border-line-muted px-3 py-1.5; }
+
+  /* ── Skeletons and spinners ─────────────────────────────────────────── */
+  .shimmer,
+  .animate-shimmer,
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--c-ink) / 0.05) 25%,
+      rgb(var(--c-ink) / 0.10) 50%,
+      rgb(var(--c-ink) / 0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+    border-radius: var(--radius-sm);
+  }
+
+  .spinner {
+    @apply inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent align-[-2px];
+  }
+
+  /* ── Dialog ─────────────────────────────────────────────────────────── */
+  .dialog-backdrop {
+    @apply fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 animate-fade-in sm:items-center sm:p-4;
+  }
+
+  .dark .dialog-backdrop {
+    @apply bg-black/60;
+  }
+
+  .dialog-panel {
+    @apply w-full max-w-lg overflow-hidden rounded-t-2xl border border-line bg-elevated shadow-dialog animate-pop-in sm:rounded-2xl;
+    max-height: min(90dvh, 760px);
+  }
+
+  /* ── Former decorative helpers, neutralised ─────────────────────────── */
+  .gradient-text,
+  .gradient-text-blue {
+    color: rgb(var(--c-fg));
+  }
+  .glow-brand,
+  .glow-brand-sm,
+  .glow-accent {
+    box-shadow: none;
+  }
+  .ambient-glow,
+  .noise::after {
+    display: none;
+  }
+
+  /* Former app sidebar class (some older views reference it). */
+  .sidebar {
+    @apply flex h-full flex-shrink-0 flex-col border-r border-line bg-surface;
+    width: var(--sidebar-width);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--motion-base) var(--ease-out) both;
+}
+
+.animate-slide-up {
+  animation: slideUp var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Tooltip for icon-only controls (hover and keyboard focus) ───────── */
+[data-tooltip] {
+  position: relative;
+}
+
+@media (hover: hover) {
+  [data-tooltip]:hover::after,
+  [data-tooltip]:focus-visible::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    z-index: 60;
+    left: 50%;
+    top: calc(100% + 6px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    background: rgb(var(--c-fg));
+    color: rgb(var(--c-surface));
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    animation: fadeIn var(--motion-fast) ease 120ms both;
+  }
+
+  [data-tooltip-side='right']:hover::after,
+  [data-tooltip-side='right']:focus-visible::after {
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  [data-tooltip-side='top']:hover::after,
+  [data-tooltip-side='top']:focus-visible::after {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
+}
+
+/* SQL highlighting (values set per theme through tokens) */
+.sql-kw { color: rgb(var(--c-primary-text)); font-weight: 500; }
+.sql-str { color: rgb(var(--c-success)); }
+.sql-num { color: rgb(var(--c-warning)); }

@@ -66,7 +66,11 @@ test('router keeps app protected, registers public routes, and renders public 40
     }
   }
 
-  assert.match(app, /path="\/app" element={<RouteGuard><AppLayout \/><\/RouteGuard>}/)
+  assert.match(app, /path="\/app" element={<RouteGuard><AppShell \/><\/RouteGuard>}/)
+  // Pages consolidated for the MVP keep their old URLs working.
+  for (const old of ['dashboard', 'report', 'presentation', 'templates', 'history']) {
+    assert.match(app, new RegExp(`path="${old}" element={<Navigate to=`))
+  }
   assert.match(app, /path="\/try-free" element={<GuestModeTrigger \/>}/)
   assert.match(app, /path="\/auth\/oauth\/google\/callback" element={<OAuthCallback provider="google" \/>}/)
   assert.match(app, /path="\/auth\/oauth\/microsoft\/callback" element={<OAuthCallback provider="microsoft" \/>}/)
@@ -77,6 +81,7 @@ test('router keeps app protected, registers public routes, and renders public 40
 test('SEO foundation sets canonical, OG, Twitter, and noindex metadata', () => {
   const seo = read('../src/components/marketing/SEO.jsx')
   const app = read('../src/App.jsx')
+  const shell = read('../src/components/shell/AppShell.jsx')
 
   assert.match(seo, /link\[rel="canonical"\]/)
   assert.match(seo, /og:title/)
@@ -84,7 +89,7 @@ test('SEO foundation sets canonical, OG, Twitter, and noindex metadata', () => {
   assert.match(seo, /og:image/)
   assert.match(seo, /twitter:card/)
   assert.match(seo, /noindex, nofollow/)
-  assert.match(app, /canonicalPath="\/app"[\s\S]*noindex/)
+  assert.match(shell, /canonicalPath="\/app"[\s\S]*noindex/)
   assert.match(app, /canonicalPath=.*\/login/)
 })
 
@@ -114,86 +119,71 @@ test('Open Graph asset is the approved beta image size and public routes referen
   assert.match(seo, /siteConfig\.ogImage/)
 })
 
-test('Sprint 3.2 homepage includes premium product experience sections', () => {
+test('homepage leads with the product and keeps the essential sections', () => {
   const home = read('../src/pages/marketing/HomePage.jsx')
 
   for (const text of [
-    'Stop Fighting Spreadsheets. Start Talking To Your Data.',
+    'Stop fighting spreadsheets. Start talking to your data.',
     'Animated DataPilot product walkthrough',
     'What were our highest profit products?',
-    'Business problems',
     'Upload. Ask. Understand. Share.',
-    'Built around the result, not the menu item',
-    'Replace workbook busywork with a focused answer loop',
-    'Industry use cases',
-    'A clearer path than manual spreadsheet analysis',
+    'What you can do with DataPilot',
     'Trust and security',
     'Pricing preview',
     'FAQ',
-    'Ready To Stop Spending Hours Inside Excel?',
+    'Ready to stop spending hours inside Excel?',
   ]) {
     assert.match(home, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  // No claims about features the MVP does not expose.
+  assert.doesNotMatch(home, /Ollama|own API key|provider keys/i)
 })
-
 test('marketing path does not statically import Plotly chart renderer', () => {
   const app = read('../src/App.jsx')
   const chat = read('../src/components/ChatWindow.jsx')
 
   assert.doesNotMatch(app, /import ChartRenderer from/)
   assert.doesNotMatch(chat, /import ChartRenderer from/)
-  assert.match(app, /lazy\(\(\) => import\('\.\/components\/ChartRenderer'\)\)/)
+  assert.doesNotMatch(app, /ChartRenderer/)
   assert.match(chat, /lazy\(\(\) => import\('\.\/ChartRenderer'\)\)/)
 })
 
-test('Sprint 3.3 premium dashboard includes required workspace sections', () => {
+test('workspace home answers what to do, what data exists and what was recent', () => {
   const dashboard = read('../src/components/DashboardHome.jsx')
 
   for (const text of [
-    'Upload Dataset',
-    'Try Demo Dataset',
-    'Continue Previous Analysis',
-    'Recent Datasets',
-    'Recent Reports',
-    'Recent Conversations',
-    'Suggested Questions',
+    'Upload data',
+    'Ask AI',
+    'Ask about your data',
+    'Your data',
+    'Recent reports',
+    'Recent conversations',
     'Usage',
-    'Onboarding Progress',
-    'Premium Templates',
-    'No Dataset',
-    'No Reports',
-    'No Chat',
-    'Sales',
-    'Finance',
-    'Inventory',
-    'HR',
-    'Marketing',
-    'Construction',
-    'Healthcare',
-    'Retail',
+    'GettingStarted',
+    'No reports yet',
+    'No conversations yet',
   ]) {
     assert.match(dashboard, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 })
 
-test('Sprint 3.4 guided onboarding persists progress, skip, resume, and completion states', () => {
+test('getting-started checklist persists progress and dismissal on the home page', () => {
   const assistant = read('../src/components/OnboardingAssistant.jsx')
-  const app = read('../src/App.jsx')
+  const dashboard = read('../src/components/DashboardHome.jsx')
 
   for (const text of [
     'dp_onboarding_state_v1',
-    'Skip onboarding',
-    'Resume onboarding',
-    'Resume later',
-    'Onboarding complete',
-    'Guest converted to account',
-    'Success: you uploaded data',
-    'aria-label="Guided onboarding"',
+    'Hide getting started',
+    'completedCelebrated',
+    'dismissed',
+    'Your guest work was moved into your new account',
+    'Getting started',
   ]) {
     assert.match(assistant, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 
-  assert.match(app, /<OnboardingAssistant \/>/)
+  // The checklist lives on the home page instead of floating over the chat composer.
+  assert.match(dashboard, /<GettingStarted \/>/)
 })
 
 test('Sprint 3.4 starter prompts cover target dataset categories', () => {
@@ -242,63 +232,56 @@ test('Sprint 3.4 onboarding route and chat prompt handoff support activation flo
 
   assert.match(chat, /suggestedPrompt/)
   assert.match(chat, /inputRef\.current\?\.focus/)
-  assert.match(upload, /Upload your first spreadsheet/)
+  assert.match(upload, /Drag spreadsheets here/)
 })
 
-test('Sprint 3.4 guest conversion and accessibility affordances are present', () => {
+test('guest conversion and accessibility affordances are present', () => {
   const auth = read('../src/components/AuthModal.jsx')
-  const styles = read('../src/index.css')
+  const styles = read('../src/index.css') + read('../src/styles/tokens.css') + read('../src/styles/base.css')
   const marketingData = read('../src/data/marketing.js')
   const header = read('../src/components/marketing/MarketingHeader.jsx')
   const home = read('../src/pages/marketing/HomePage.jsx')
 
   assert.match(auth, /dp_guest_converted_success/)
-  assert.match(auth, /Your guest work is preserved/)
-  assert.match(auth, /Continue with Google/)
-  assert.match(auth, /Continue with Microsoft/)
-  assert.match(auth, /Phone Number/)
-  assert.match(auth, /requestPhoneOtp/)
-  assert.match(auth, /verifyPhoneOtp/)
+  assert.match(auth, /Your guest work is saved/)
+  assert.match(auth, /with Google/)
+  assert.match(auth, /with Microsoft/)
+  // Social sign-in buttons only render when the server reports the provider as configured.
+  assert.match(auth, /\/auth\/oauth\/providers/)
+  assert.match(auth, /htmlFor=/)
   assert.match(header, /to="\/try-free"/)
   assert.match(home, /Try DataPilot in guest mode without creating an account/)
   assert.match(marketingData, /ctaTo: '\/try-free'/)
-  assert.match(styles, /\.onboarding-assistant-toggle:focus-visible/)
+  assert.match(styles, /:focus-visible/)
   assert.match(styles, /prefers-reduced-motion: reduce/)
   assert.match(styles, /max-width: 640px/)
 })
 
-test('Sprint 3.5 polish layer standardizes shared design tokens and focus behavior', () => {
-  const styles = read('../src/index.css')
+test('design system defines semantic light and dark tokens and shared focus behaviour', () => {
+  const tokens = read('../src/styles/tokens.css')
+  const base = read('../src/styles/base.css')
+  const tailwind = read('../tailwind.config.js')
 
-  for (const token of [
-    '--space-1',
-    '--space-2',
-    '--space-3',
-    '--space-4',
-    '--space-6',
-    '--radius-pill',
-    '--motion-fast',
-    '--motion-base',
-    '--focus-ring',
-    'Sprint 3.5 product polish',
-    ':focus-visible',
-  ]) {
-    assert.match(styles, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  for (const token of ['--c-bg', '--c-surface', '--c-fg', '--c-muted', '--c-line', '--c-primary', '--c-success',
+    '--c-warning', '--c-danger', '--c-focus', '--radius-control', '--radius-card', '--motion-fast', '--font-sans']) {
+    assert.match(tokens, new RegExp(token))
   }
-
-  assert.match(styles, /\.auth-modal,\s*\n\.onboarding-panel,\s*\n\.user-dropdown/)
-  assert.match(styles, /\.toast-container/)
-  assert.match(styles, /max-width: 640px/)
+  // A deliberate dark theme, not an inversion.
+  assert.match(tokens, /\.dark\s*{/)
+  assert.match(base, /--focus-ring/)
+  assert.match(base, /:focus-visible/)
+  assert.match(tailwind, /darkMode: 'class'/)
+  assert.match(tailwind, /rgb\(var\(--c-\$\{name\}\) \/ <alpha-value>\)/)
 })
 
-test('Sprint 3.5 toast system uses token colors and accessible dismissal', () => {
+test('toast system uses token colors and accessible dismissal', () => {
   const toast = read('../src/components/ToastContainer.jsx')
 
-  assert.match(toast, /var\(--success\)/)
-  assert.match(toast, /var\(--error\)/)
-  assert.match(toast, /role=\{toastType === 'error' \? 'alert' : 'status'\}/)
+  assert.match(toast, /text-success/)
+  assert.match(toast, /text-danger/)
+  assert.match(toast, /role=\{type === 'error' \? 'alert' : 'status'\}/)
   assert.match(toast, /aria-label="Dismiss notification"/)
-  assert.match(toast, /tabIndex=\{0\}/)
+  assert.match(toast, /aria-live="polite"/)
   assert.doesNotMatch(toast, /#[0-9a-fA-F]{6}/)
 })
 
@@ -315,14 +298,16 @@ test('Sprint 3.5 browser verification records design consistency and 1280px resp
 
 test('routes are code-split: marketing and workspace views are lazy-loaded', () => {
   const app = read('../src/App.jsx')
-  for (const name of ['HomePage', 'PricingPage', 'NotFoundPage', 'ChatWindow', 'DataPreview', 'BillingPortal',
-    'SettingsLayout', 'DashboardHome', 'SavedReports', 'DatasetManager']) {
+  const shell = read('../src/components/shell/AppShell.jsx')
+  for (const name of ['HomePage', 'PricingPage', 'NotFoundPage', 'AppShell', 'AuthModal', 'ChatWindow', 'SpreadsheetPage',
+    'BillingPortal', 'SettingsLayout', 'DashboardHome', 'ReportsPage', 'SavedPage', 'DatasetManager']) {
     assert.doesNotMatch(app, new RegExp(`^import ${name} from`, 'm'), name)
     assert.match(app, new RegExp(`const ${name} = lazy\\(`), name)
   }
   assert.doesNotMatch(app, /^import ReactMarkdown from/m)
+  assert.doesNotMatch(app, /^import .* from '\.\/hooks\/useDataPilot'/m)
   assert.doesNotMatch(app, /^import .* from '\.\/components\/LegalPages'/m)
   // Every lazy view renders inside a Suspense boundary.
   assert.match(app, /<Suspense fallback={<ViewFallback \/>}>\s*<Routes>/)
-  assert.match(app, /<Suspense fallback={<ViewFallback \/>}>\s*<Outlet \/>/)
+  assert.match(shell, /<Suspense fallback={<PageSkeleton \/>}>\s*<Outlet \/>/)
 })

@@ -72,7 +72,7 @@ export const publicRouteMetadata = {
   '/security': {
     title: 'Security',
     description:
-      'Review DataPilot security foundations including workspace isolation, encrypted provider keys, session handling, and controlled guest access.',
+      'Review DataPilot security foundations including workspace isolation, secure sessions, verifiable answers and temporary guest access.',
     eyebrow: 'Trust foundation',
     heading: 'Security starts with isolated workspaces',
     summary:
@@ -124,7 +124,7 @@ export const publicRouteMetadata = {
   '/docs': {
     title: 'Documentation',
     description:
-      'Open the DataPilot documentation foundation for uploads, querying, reports, provider setup, and workspace workflows.',
+      'Open the DataPilot documentation foundation for uploads, questions, reports and workspace setup.',
     eyebrow: 'Guides',
     heading: 'Documentation foundation',
     summary:

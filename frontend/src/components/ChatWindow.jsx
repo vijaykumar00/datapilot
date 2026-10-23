@@ -1,92 +1,110 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+/**
+ * ChatWindow — the "Ask AI" workspace.
+ *
+ * Layout: conversation list (left, drawer on small screens) · conversation ·
+ * composer pinned to the bottom.  Messages are visually distinct by role:
+ *   user    — right-aligned bubble
+ *   AI      — plain prose on the page, with a small "DataPilot" label
+ *   result  — bordered block with its own toolbar (tables, charts)
+ *   system  — quiet one-line status rows
+ * The view only auto-scrolls when the reader is already at the bottom, so
+ * streaming never yanks the page while someone is reading earlier output.
+ */
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLocation } from 'react-router-dom'
+import {
+  ArrowDown, ArrowUp, BarChart3, Bookmark, Check, Copy, Database, Download, FileSpreadsheet, LineChart, ListChecks,
+  Loader2, MessagesSquare, PanelLeft, Paperclip, RotateCcw, Sigma, Sparkles, Square, Table2, Trash2, X,
+} from 'lucide-react'
 import { useDataPilot } from '../hooks/useDataPilot'
 import ExplainPanel from './ExplainPanel'
-import SmartSuggestions from './SmartSuggestions'
 import SaveAnalysisModal from './SaveAnalysisModal'
 import ErrorIntelligencePanel from './ErrorIntelligencePanel'
 import SchemaWarnings from './SchemaWarnings'
+import SessionManager from './SessionManager'
+import FileUploader from './FileUploader'
+import { IconButton, cx } from './ui'
+import { LogoMark } from './ui/Logo'
 
 const ChartRenderer = lazy(() => import('./ChartRenderer'))
 
-// ── Typing/Thinking Indicator ─────────────────────────────────────────────
-function ThinkingIndicator({ text = 'Analyzing spreadsheet...' }) {
+const openUpload = () => window.dispatchEvent(new Event('dp:open-upload'))
+
+// The raw SQL and row count are already shown in "How this was calculated" and
+// the result table, so they are hidden from the prose (the saved text is unchanged).
+function displayContent(msg) {
+  const text = msg.content || ''
+  if (!msg.metadata?.sql) return text
+  return text
+    .replace(/^\*\*Query:\*\* `[\s\S]*?`\s*$/m, '')
+    .replace(/^\*\*\d[\d,]* row\(s\) returned\.\*\*\s*$/m, '')
+    .trim()
+}
+
+function useCopy() {
+  const [copied, setCopied] = useState(false)
+  const copy = useCallback((text) => {
+    navigator.clipboard?.writeText(text)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1600)
+  }, [])
+  return [copied, copy]
+}
+
+// ── Result: table ──────────────────────────────────────────────────────────
+function ResultTable({ rows, onExport }) {
+  const [copied, copy] = useCopy()
+  const [showAll, setShowAll] = useState(false)
+  if (!rows?.length) return null
+  const cols = Object.keys(rows[0]).filter((c) => c !== '_row_index')
+  const numeric = new Set(cols.filter((c) => rows.slice(0, 20).every((r) => r[c] === null || r[c] === undefined || typeof r[c] === 'number')))
+  const limit = showAll ? 200 : 12
+  const visible = rows.slice(0, limit)
+
+  const copyTable = () => {
+    const header = cols.join('\t')
+    const body = rows.map((r) => cols.map((c) => String(r[c] ?? '')).join('\t')).join('\n')
+    copy(`${header}\n${body}`)
+  }
+  const fmt = (v) => (typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v))
+
   return (
-    <div className="flex gap-3 px-1.5 py-2 animate-pulse">
-      <div className="w-7 h-7 rounded-xl flex items-center justify-center bg-brand-500/20 text-sm border border-brand-500/25 spin-slow">
-        🧠
-      </div>
-      <div className="flex flex-col gap-1.5 flex-1 select-none">
-        <span className="text-[11px] font-semibold text-brand-300 flex items-center gap-1.5">
-          {text}
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-muted/60 px-3 py-1.5">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+          <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
+          Result · {rows.length.toLocaleString()} {rows.length === 1 ? 'row' : 'rows'}
         </span>
-        <div className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-bounce" style={{ animationDelay: '0s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-bounce" style={{ animationDelay: '0.2s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-bounce" style={{ animationDelay: '0.4s' }} />
+        <div className="flex items-center gap-0.5">
+          <button type="button" className="btn-ghost btn-sm h-7 px-2" onClick={copyTable}>
+            {copied ? <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          {onExport && (
+            <>
+              <button type="button" className="btn-ghost btn-sm h-7 px-2" onClick={() => onExport('csv')}>
+                <Download className="h-3.5 w-3.5" aria-hidden="true" /> CSV
+              </button>
+              <button type="button" className="btn-ghost btn-sm h-7 px-2" onClick={() => onExport('xlsx')}>
+                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" /> Excel
+              </button>
+            </>
+          )}
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Skeleton message loader ────────────────────────────────────────────────
-function SkeletonMessage() {
-  return (
-    <div className="flex gap-3 animate-fade-in py-2">
-      <Avatar bot />
-      <div className="flex flex-col gap-2.5 flex-1 max-w-[75%]">
-        <div className="shimmer h-3.5 rounded-full w-2/3" />
-        <div className="shimmer h-3.5 rounded-full w-1/2" />
-        <div className="shimmer h-3.5 rounded-full w-5/6" />
-      </div>
-    </div>
-  )
-}
-
-// ── Small interactive result table ────────────────────────────────────────
-function InlineTable({ rows }) {
-  const [copied, setCopied] = useState(false)
-  if (!rows?.length) return null
-  const cols = Object.keys(rows[0]).filter(c => c !== '_row_index')
-
-  const handleCopyTable = () => {
-    const headerRow = cols.join('\t')
-    const dataRows = rows.map(r => cols.map(c => String(r[c] ?? '')).join('\t')).join('\n')
-    navigator.clipboard.writeText(`${headerRow}\n${dataRows}`)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div className="mt-3 overflow-hidden rounded-xl border border-white/5 bg-[#050811] max-h-64 flex flex-col relative group">
-      {/* Table tools overlay */}
-      <div className="absolute right-3.5 top-2.5 hidden group-hover:flex items-center gap-1 z-10 bg-[#0c101b]/80 backdrop-blur pl-1 rounded-md">
-        <button
-          onClick={handleCopyTable}
-          className="text-[10px] bg-white/5 hover:bg-brand-500/20 text-slate-400 hover:text-brand-300 px-1.5 py-0.5 rounded border border-white/5 transition-colors"
-        >
-          {copied ? 'Copied ✓' : 'Copy Table'}
-        </button>
-      </div>
-
-      <div className="overflow-auto custom-scrollbar flex-1">
+      <div className="max-h-[360px] overflow-auto" tabIndex={0} role="region" aria-label="Result table">
         <table className="data-table">
           <thead>
-            <tr>{cols.map(c => <th key={c}>{c}</th>)}</tr>
+            <tr>{cols.map((c) => <th key={c} scope="col" className={numeric.has(c) ? 'is-number' : undefined}>{c}</th>)}</tr>
           </thead>
           <tbody>
-            {rows.slice(0, 20).map((row, i) => (
+            {visible.map((row, i) => (
               <tr key={i}>
-                {cols.map(c => (
-                  <td key={c} title={String(row[c] ?? '')}>
-                    {row[c] === null || row[c] === undefined ? (
-                      <span className="text-rose-500/50 italic text-[10px]">null</span>
-                    ) : (
-                      String(row[c])
-                    )}
+                {cols.map((c) => (
+                  <td key={c} title={String(row[c] ?? '')} className={numeric.has(c) ? 'is-number' : undefined}>
+                    {row[c] === null || row[c] === undefined ? <span className="text-subtle">—</span> : fmt(row[c])}
                   </td>
                 ))}
               </tr>
@@ -94,588 +112,492 @@ function InlineTable({ rows }) {
           </tbody>
         </table>
       </div>
-      {rows.length > 20 && (
-        <p className="text-[10px] text-slate-500 px-3.5 py-2 border-t border-white/5 font-mono select-none">
-          Showing 20 of {rows.length} rows (hover to copy table data)
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ── Avatar (Compass / User Glyph) ─────────────────────────────────────────
-function Avatar({ bot }) {
-  return (
-    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm flex-shrink-0 mt-0.5 ${
-      bot
-        ? 'bg-gradient-to-br from-brand-600 to-purple-600 shadow-md border border-brand-500/20 glow-brand-sm'
-        : 'bg-slate-800 border border-white/5'
-    }`}>
-      {bot ? '🧭' : '👤'}
-    </div>
-  )
-}
-
-// ── Status bubble trace ───────────────────────────────────────────────────
-function StatusBubble({ content }) {
-  return <ThinkingIndicator text={content} />
-}
-
-// ── Expandable AI Thoughts & Reasoning ────────────────────────────────────
-function ReasoningCard({ content }) {
-  const [expanded, setExpanded] = useState(false)
-
-  if (!content) return null
-
-  // Guess if this is reasoning text
-  const cleanContent = content.trim()
-  if (cleanContent.length < 5) return null
-
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.01] overflow-hidden text-[11px]">
-      <button
-        onClick={() => setExpanded(prev => !prev)}
-        className="w-full flex items-center justify-between px-3.5 py-2 text-slate-500 hover:text-slate-300 hover:bg-white/[0.01] transition-all focus:outline-none"
-      >
-        <span className="font-semibold flex items-center gap-1.5 text-brand-400">
-          🧠 AI Analytical Reasoning Steps
-        </span>
-        <span className="text-slate-600">{expanded ? 'Hide ✕' : 'Show ＋'}</span>
-      </button>
-
-      {expanded && (
-        <div className="px-3.5 pb-3.5 pt-2 border-t border-white/5 bg-black/10 animate-fade-in font-sans leading-relaxed text-slate-300 space-y-1.5">
-          {cleanContent.split('\n').map((step, idx) => (
-            <p key={idx} className="flex gap-2 items-start">
-              <span className="text-[10px] text-brand-400 leading-normal">✦</span>
-              <span>{step}</span>
-            </p>
-          ))}
+      {rows.length > 12 && (
+        <div className="flex items-center justify-between border-t border-line px-3 py-1.5 text-xs text-subtle">
+          <span>Showing {visible.length.toLocaleString()} of {rows.length.toLocaleString()}</span>
+          <button type="button" className="font-medium text-primary-text hover:underline" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? 'Show fewer' : `Show ${Math.min(rows.length, 200)} rows`}
+          </button>
         </div>
       )}
     </div>
   )
 }
 
-// ── AI Thought Process Trace ──────────────────────────────────────────────
-function ThoughtProcess({ metadata }) {
-  const [expanded, setExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
+// ── Messages ───────────────────────────────────────────────────────────────
+function StatusRow({ text }) {
+  return (
+    <div className="flex items-center gap-2.5 py-1 text-sm text-muted" role="status">
+      <Loader2 className="h-4 w-4 animate-spin text-primary-text" aria-hidden="true" />
+      <span>{text || 'Working on it…'}</span>
+    </div>
+  )
+}
 
-  if (!metadata?.sql) return null
+function AiLabel({ ts }) {
+  return (
+    <div className="mb-1.5 flex items-center gap-2">
+      <LogoMark size={18} />
+      <span className="text-sm font-semibold text-fg">DataPilot</span>
+      {ts && <time className="text-xs text-subtle" dateTime={ts}>{new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>}
+    </div>
+  )
+}
 
-  const handleCopy = (e) => {
-    e.stopPropagation()
-    navigator.clipboard.writeText(metadata.sql)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+function BotMessage({ msg, onAskFollowup, onRetry, canRetry }) {
+  const { exportRows, exportReport, saveAnalysis } = useDataPilot()
+  const [copied, copy] = useCopy()
+  const [saveModalOpen, setSaveModalOpen] = useState(false)
+  const [actionError, setActionError] = useState(null)
+
+  if (msg.type === 'loading') {
+    return (
+      <div className="animate-fade-in">
+        <AiLabel />
+        <div className="space-y-2 pt-1" aria-label="DataPilot is thinking" role="status">
+          <div className="skeleton h-3.5 w-2/3" />
+          <div className="skeleton h-3.5 w-1/2" />
+        </div>
+      </div>
+    )
+  }
+  if (msg.type === 'status') {
+    return (
+      <div>
+        <AiLabel />
+        <StatusRow text={msg.content} />
+      </div>
+    )
   }
 
-  // Create list of line numbers
-  const linesCount = metadata.sql.split('\n').length
-  const lineNums = Array.from({ length: linesCount }, (_, i) => i + 1).join('\n')
-
-  return (
-    <div className="mt-1 rounded-xl border border-white/5 bg-white/[0.01] overflow-hidden text-[11px]">
-      <button
-        onClick={() => setExpanded(prev => !prev)}
-        className="w-full flex items-center justify-between px-3.5 py-2 text-slate-500 hover:text-slate-300 hover:bg-white/[0.01] transition-all focus:outline-none"
-      >
-        <span className="font-semibold flex items-center gap-1.5 text-brand-400">
-          ⚙️ AI Thought Process & SQL Trace
-        </span>
-        <span className="text-slate-600">{expanded ? 'Hide ✕' : 'Show ＋'}</span>
-      </button>
-
-      {expanded && (
-        <div className="px-3.5 pb-3.5 pt-2 border-t border-white/5 bg-[#050811] animate-fade-in space-y-2">
-          {metadata.explanation && (
-            <div className="px-1.5 pt-1">
-              <span className="text-[9px] font-bold text-slate-500 tracking-wider uppercase block mb-0.5">
-                Plain-English SQL Logic
-              </span>
-              <p className="text-slate-300 leading-relaxed font-sans">{metadata.explanation}</p>
-            </div>
-          )}
-
-          {/* Monaco styled block */}
-          <div className="editor-block">
-            <div className="editor-header">
-              <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
-                <span>SQL Output</span>
-                {metadata.row_count !== undefined && (
-                  <span className="text-[8px] bg-brand-500/10 text-brand-300 px-1 py-0.2 rounded font-mono">
-                    {metadata.row_count} rows
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={handleCopy}
-                className="text-[9px] bg-white/5 hover:bg-brand-500/20 text-slate-400 hover:text-brand-300 px-1.5 py-0.5 rounded border border-white/5 transition-all"
-              >
-                {copied ? 'Copied ✓' : 'Copy'}
-              </button>
-            </div>
-            <div className="editor-terminal custom-scrollbar">
-              <div className="editor-lines">{lineNums}</div>
-              <code className="editor-code">{metadata.sql}</code>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Bot message ───────────────────────────────────────────────────────────
-function BotMessage({ msg, onAskFollowup }) {
-  const { exportRows, exportReport, files, setPreviewFile, saveAnalysis } = useDataPilot()
-  const [copiedResponse, setCopiedResponse] = useState(false)
-  const [saveModalOpen, setSaveModalOpen] = useState(false)
+  const isError = msg.type === 'error' || !!msg.error
+  const isStreaming = msg.type === 'streaming'
 
   const handleExportRows = async (format) => {
+    setActionError(null)
     const result = await exportRows(
       msg.table_data,
       msg.metadata?.filename || `${msg.type || 'results'}_results`,
       format,
       { sql: msg.metadata?.sql, file_ids: msg.metadata?.dataset_refs },
     )
-    if (!result?.success) {
-      window.alert(result?.error || `Failed to export ${format.toUpperCase()}`)
-    }
+    if (!result?.success) setActionError(result?.error || `Couldn't export ${format.toUpperCase()}. Please try again.`)
   }
 
   const handleExportReport = async () => {
+    setActionError(null)
     const result = await exportReport(
       msg.content,
-      msg.metadata?.filename
-        ? `${msg.metadata.filename}_${msg.type}`
-        : `${msg.type || 'report'}`,
+      msg.metadata?.filename ? `${msg.metadata.filename}_${msg.type}` : `${msg.type || 'report'}`,
       'md',
     )
-    if (!result?.success) {
-      window.alert(result?.error || 'Failed to export report')
-    }
+    if (!result?.success) setActionError(result?.error || "Couldn't download the brief. Please try again.")
   }
-
-  const handleCopyText = () => {
-    navigator.clipboard.writeText(msg.content || '')
-    setCopiedResponse(true)
-    setTimeout(() => setCopiedResponse(false), 2000)
-  }
-
-  if (msg.type === 'loading') return <SkeletonMessage />
-  if (msg.type === 'status') return <StatusBubble content={msg.content} />
-
-  const isError = msg.type === 'error' || !!msg.error
-  const reasoningSteps = msg.metadata?.reasoning || null
 
   return (
-    <div className="flex gap-3 animate-slide-up group/bot relative py-2">
-      <Avatar bot />
-      <div className="flex flex-col gap-2 flex-1 min-w-0">
-        
-        {/* Reasoning traces first if present */}
-        {reasoningSteps && (
-          <ReasoningCard content={reasoningSteps} />
-        )}
+    <article className="group/bot animate-fade-in" aria-label="DataPilot answer">
+      <AiLabel ts={msg.ts} />
 
-        {/* Text content card */}
-        {msg.content && (
-          isError ? (
-            <ErrorIntelligencePanel
-              intelligentError={msg.metadata?.intelligent_error}
-              fallbackMessage={msg.content}
-            />
-          ) : (
-            <div className="message-bot glass-sm px-4.5 py-3.5 border border-white/5">
-              <div className="prose-dark">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-              </div>
+      {msg.metadata?.reasoning && (
+        <details className="mb-2 rounded-md border border-line text-sm">
+          <summary className="cursor-pointer select-none px-3 py-2 font-medium text-muted hover:text-fg">Reasoning steps</summary>
+          <div className="space-y-1 border-t border-line px-3 py-2 text-fg">
+            {String(msg.metadata.reasoning).split('\n').filter(Boolean).map((step, i) => <p key={i}>{step}</p>)}
+          </div>
+        </details>
+      )}
+
+      {msg.content && (isError ? (
+        <ErrorIntelligencePanel intelligentError={msg.metadata?.intelligent_error} fallbackMessage={msg.content} />
+      ) : (
+        <div className="prose-dp">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent(msg)}</ReactMarkdown>
+          {isStreaming && <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-[3px] bg-fg animate-caret" aria-hidden="true" />}
+        </div>
+      ))}
+
+      {!isStreaming && (msg.chart_data || msg.table_data?.length > 0) && (
+        <div className="mt-3 space-y-3">
+          {msg.chart_data && (
+            <div className="overflow-hidden rounded-lg border border-line bg-surface">
+              <Suspense fallback={<div className="skeleton m-3 h-56" aria-label="Loading chart" />}>
+                <ChartRenderer
+                  spec={msg.chart_data}
+                  onDataPointClick={(point) => onAskFollowup(`Investigate this data point: ${JSON.stringify(point)}`)}
+                />
+              </Suspense>
             </div>
-          )
-        )}
+          )}
+          {msg.table_data?.length > 0 && !msg.chart_data && <ResultTable rows={msg.table_data} onExport={handleExportRows} />}
+        </div>
+      )}
 
-        {/* ExplainPanel — universal AI Explainability & Trust surface */}
-        <ExplainPanel metadata={msg.metadata} />
+      {!isStreaming && !isError && (msg.metadata?.explain || msg.metadata?.sql) && (
+        <div className="mt-3"><ExplainPanel metadata={msg.metadata} /></div>
+      )}
 
-        {/* Interactive Charts render */}
-        {msg.chart_data && (
-          <div className="mt-1 bg-[#050811] rounded-2xl border border-white/5 overflow-hidden">
-            <Suspense fallback={<div className="p-6 text-xs text-slate-500">Loading chart...</div>}>
-              <ChartRenderer
-                spec={msg.chart_data}
-                onDataPointClick={(point) => onAskFollowup(`Investigate outlier data point: ${JSON.stringify(point)}`)}
-              />
-            </Suspense>
-          </div>
-        )}
+      {actionError && <p role="alert" className="mt-2 text-sm text-danger">{actionError}</p>}
 
-        {/* Inline table result grids */}
-        {msg.table_data?.length > 0 && !msg.chart_data && (
-          <InlineTable rows={msg.table_data} />
-        )}
+      {!isStreaming && (msg.content || msg.table_data?.length > 0) && (
+        <div className="mt-2 flex flex-wrap items-center gap-0.5 [@media(hover:hover)]:opacity-70 [@media(hover:hover)]:transition-opacity [@media(hover:hover)]:group-hover/bot:opacity-100 [@media(hover:hover)]:group-focus-within/bot:opacity-100">
+          {msg.content && (
+            <IconButton icon={copied ? Check : Copy} label={copied ? 'Copied' : 'Copy answer'} size="sm" onClick={() => copy(msg.content || '')} />
+          )}
+          {canRetry && <IconButton icon={RotateCcw} label="Ask again" size="sm" onClick={onRetry} />}
+          {msg.table_data?.length > 0 && msg.chart_data && (
+            <>
+              <IconButton icon={Download} label="Export rows as CSV" size="sm" onClick={() => handleExportRows('csv')} />
+              <IconButton icon={FileSpreadsheet} label="Export rows as Excel" size="sm" onClick={() => handleExportRows('xlsx')} />
+            </>
+          )}
+          {msg.content && ['report', 'summary'].includes(msg.type) && (
+            <button type="button" className="btn-ghost btn-sm" onClick={handleExportReport}>
+              <Download className="h-3.5 w-3.5" aria-hidden="true" /> Download brief
+            </button>
+          )}
+          {msg.content && !isError && (
+            <button type="button" id={`save-analysis-btn-${msg.id}`} className="btn-ghost btn-sm" onClick={() => setSaveModalOpen(true)}>
+              <Bookmark className="h-3.5 w-3.5" aria-hidden="true" /> Save
+            </button>
+          )}
+        </div>
+      )}
 
-        {/* Quick Actions Toolbar belt */}
-        {((msg.table_data?.length > 0) || msg.content) && (
-          <div className="flex flex-wrap gap-1.5 px-1 py-0.5 select-none opacity-80 group-hover/bot:opacity-100 transition-opacity">
-            {files[0]?.file_id && (
-              <button
-                className="btn-ghost text-[10px]"
-                onClick={() => setPreviewFile(files[0].file_id)}
-              >
-                🔍 Edit Grid
-              </button>
-            )}
-            {msg.table_data?.length > 0 && (
-              <>
-                <button
-                  className="btn-ghost text-[10px]"
-                  onClick={() => handleExportRows('csv')}
-                >
-                  📥 Export CSV
-                </button>
-                <button
-                  className="btn-ghost text-[10px]"
-                  onClick={() => handleExportRows('xlsx')}
-                >
-                  📥 Export Excel
-                </button>
-              </>
-            )}
-            {msg.content && (
-              <button
-                className="btn-ghost text-[10px]"
-                onClick={handleCopyText}
-              >
-                📋 {copiedResponse ? 'Copied! ✓' : 'Copy'}
-              </button>
-            )}
-            {msg.content && ['report', 'summary'].includes(msg.type) && (
-              <button
-                className="btn-ghost text-[10px]"
-                onClick={handleExportReport}
-              >
-                📖 Save Executive Brief
-              </button>
-            )}
-            {/* Save Analysis button — always available on non-loading bot messages */}
-            {msg.content && msg.type !== 'loading' && msg.type !== 'status' && (
-              <button
-                id={`save-analysis-btn-${msg.id}`}
-                className="btn-ghost text-[10px] text-brand-400 hover:text-brand-300"
-                onClick={() => setSaveModalOpen(true)}
-              >
-                💾 Save
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Save Analysis Modal */}
-        {saveModalOpen && (
-          <SaveAnalysisModal
-            message={msg}
-            onSave={async ({ title, type, tags }) => {
-              const result = await saveAnalysis(msg, title, type, tags)
-              if (!result.success) throw new Error(result.error || 'Save failed')
-            }}
-            onClose={() => setSaveModalOpen(false)}
-          />
-        )}
-
-        {/* Timestamp footer indicator */}
-        <span className="text-[9px] text-slate-600 px-1 Select-none">
-          {new Date(msg.ts).toLocaleTimeString()}
-        </span>
-      </div>
-    </div>
+      {saveModalOpen && (
+        <SaveAnalysisModal
+          message={msg}
+          onSave={async ({ title, type, tags }) => {
+            const result = await saveAnalysis(msg, title, type, tags)
+            if (!result.success) throw new Error(result.error || 'Save failed')
+          }}
+          onClose={() => setSaveModalOpen(false)}
+        />
+      )}
+    </article>
   )
 }
 
-// ── User message bubble ───────────────────────────────────────────────────
 function UserMessage({ msg }) {
   return (
-    <div className="flex gap-3 justify-end animate-slide-up py-1.5">
-      <div className="flex flex-col items-end gap-1">
-        <div className="message-user">{msg.content}</div>
-        <span className="text-[9px] text-slate-600 select-none">{new Date(msg.ts).toLocaleTimeString()}</span>
+    <div className="flex justify-end animate-fade-in">
+      <div className="flex max-w-[min(85%,640px)] flex-col items-end gap-1">
+        <p className="message-user">{String(msg.content || '').replace(/^\[REASONING_MODE_ON\]\s*/, '')}</p>
+        <time className="text-xs text-subtle" dateTime={msg.ts}>{new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
-      <Avatar bot={false} />
     </div>
   )
 }
 
-// ── High conversion Suggested prompts suggestions chips ────────────────────
-const QUICK_PROMPTS = [
-  { label: '📊 Summarize Metric Data', text: 'Give me an executive summary of this data' },
-  { label: '🧹 Scan Data Outliers', text: 'Check this data for quality issues and outliers' },
-  { label: '📈 Analyze Main Columns', text: 'Show me the top 10 rows by the main metric' },
-  { label: '🔮 Forecast Timeline Trends', text: 'Forecast the next 3 months' },
+// ── Empty states ───────────────────────────────────────────────────────────
+const STARTERS = [
+  { icon: Sigma, label: 'Summarize this data', text: 'Give me an executive summary of this data' },
+  { icon: BarChart3, label: 'Compare categories', text: 'Show the top 10 rows by the main metric' },
+  { icon: ListChecks, label: 'Check data quality', text: 'Check this data for quality issues and outliers' },
+  { icon: LineChart, label: 'Forecast a trend', text: 'Forecast the next 3 months' },
 ]
 
-// ── Main ChatWindow Redesign ──────────────────────────────────────────────
+const SUGGESTION_ICONS = { forecast: LineChart, visualize: BarChart3, clean: ListChecks, summary: Sigma, insight: Sparkles }
+
+function EmptyConversation({ hasFiles, files, activeFileIds, suggestions, onPick }) {
+  if (!hasFiles) {
+    return (
+      <div className="mx-auto w-full max-w-xl py-8 sm:py-14">
+        <h2 className="text-2xl font-semibold text-fg">Ask questions about a spreadsheet</h2>
+        <p className="mt-2 text-base text-muted">
+          Upload a CSV or Excel file and ask in plain English — “Which region grew fastest last quarter?” DataPilot runs the
+          numbers on your data and shows how it got each answer.
+        </p>
+        <div className="mt-6">
+          <FileUploader showFiles={false} />
+        </div>
+      </div>
+    )
+  }
+
+  const active = files.filter((f) => activeFileIds.includes(f.file_id))
+  const fromProfile = (suggestions || []).slice(0, 4).map((s) => ({
+    icon: SUGGESTION_ICONS[s.type] || Sparkles, label: s.title, text: s.prompt, hint: s.description,
+  }))
+  const prompts = fromProfile.length ? fromProfile : STARTERS
+
+  return (
+    <div className="mx-auto w-full max-w-2xl py-8 sm:py-14">
+      <h2 className="text-2xl font-semibold text-fg">What do you want to know?</h2>
+      <p className="mt-2 text-base text-muted">
+        {active.length
+          ? <>Asking about <span className="font-medium text-fg">{active.map((f) => f.filename).join(', ')}</span>. Try one of these, or type your own question.</>
+          : 'Select a dataset below the message box, then ask a question.'}
+      </p>
+      <ul className="mt-6 grid gap-2 sm:grid-cols-2">
+        {prompts.map((p) => {
+          const Icon = p.icon
+          return (
+            <li key={p.label}>
+              <button
+                type="button"
+                onClick={() => onPick(p.text)}
+                className="flex h-full w-full items-start gap-3 rounded-lg border border-line bg-surface p-3 text-left transition-colors hover:border-line-strong hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              >
+                <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary-text" aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="block text-base font-medium text-fg">{p.label}</span>
+                  <span className="mt-0.5 line-clamp-2 block text-sm text-muted">{p.hint || p.text}</span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+// ── Composer ───────────────────────────────────────────────────────────────
+function Composer({ inputRef, value, onChange, onSend, onStop, isStreaming, hasFiles, files, activeFileIds, toggleFileActive }) {
+  const active = files.filter((f) => activeFileIds.includes(f.file_id))
+  const inactive = files.filter((f) => !activeFileIds.includes(f.file_id))
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef(null)
+
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }, [value, inputRef])
+
+  useEffect(() => {
+    if (!pickerOpen) return undefined
+    const close = (e) => { if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false) }
+    const esc = (e) => { if (e.key === 'Escape') setPickerOpen(false) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc) }
+  }, [pickerOpen])
+
+  const canSend = value.trim().length > 0 && hasFiles
+
+  return (
+    <div className="pb-safe flex-shrink-0 border-t border-line bg-bg px-3 pb-3 pt-2 sm:px-6">
+      <div className="mx-auto w-full max-w-3xl">
+        <div className="rounded-xl border border-line bg-surface transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
+          <label htmlFor="chat-input" className="sr-only">Ask a question about your data</label>
+          <textarea
+            ref={inputRef}
+            id="chat-input"
+            value={value}
+            rows={1}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                if (!isStreaming) onSend()
+              }
+            }}
+            placeholder={hasFiles ? 'Ask about your data, e.g. “Total revenue by region”' : 'Upload a spreadsheet to start asking questions'}
+            disabled={!hasFiles}
+            enterKeyHint="send"
+            className="block max-h-[200px] w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-lg text-fg placeholder:text-subtle focus:outline-none disabled:cursor-not-allowed sm:text-base"
+          />
+          <div className="flex items-center gap-1 px-2 pb-2 pt-1">
+            <IconButton icon={Paperclip} label="Upload a file" size="sm" tooltipSide="top" onClick={openUpload} />
+            <div className="relative min-w-0" ref={pickerRef}>
+              <button
+                type="button"
+                onClick={() => setPickerOpen((v) => !v)}
+                disabled={!files.length}
+                aria-expanded={pickerOpen}
+                aria-haspopup="true"
+                className="flex h-[30px] min-w-0 max-w-[180px] items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted hover:bg-ink/[0.06] hover:text-fg disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus sm:max-w-[280px]"
+              >
+                <Database className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate">
+                  {active.length === 0 ? 'No dataset selected' : active.length === 1 ? active[0].filename : `${active.length} datasets`}
+                </span>
+              </button>
+              {pickerOpen && (
+                <div className="absolute bottom-full left-0 z-30 mb-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-elevated p-1.5 shadow-float animate-pop-in">
+                  <p className="px-2 pb-1 pt-1 text-xs text-subtle">Datasets used for answers</p>
+                  {[...active, ...inactive].map((f) => (
+                    <label key={f.file_id} className="flex cursor-pointer items-center gap-2.5 rounded px-2 py-2 hover:bg-ink/[0.05]">
+                      <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--c-primary))]" checked={activeFileIds.includes(f.file_id)} onChange={() => toggleFileActive(f.file_id)} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm text-fg">{f.filename}</span>
+                        <span className="block text-xs text-subtle">{f.row_count?.toLocaleString()} rows · {f.column_count} columns</span>
+                      </span>
+                    </label>
+                  ))}
+                  <button type="button" className="btn-ghost btn-sm mt-1 w-full justify-start" onClick={() => { setPickerOpen(false); openUpload() }}>
+                    <Paperclip className="h-3.5 w-3.5" aria-hidden="true" /> Upload another file
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="hidden text-xs text-subtle lg:inline">Shift + Enter for a new line</span>
+              {isStreaming ? (
+                <button type="button" id="send-btn" onClick={onStop} className="btn-secondary btn-sm btn-icon h-9 w-9 rounded-full" aria-label="Stop generating">
+                  <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                </button>
+              ) : (
+                <button type="button" id="send-btn" onClick={onSend} disabled={!canSend} className="btn-primary btn-sm btn-icon h-9 w-9 rounded-full" aria-label="Send message">
+                  <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        <p className="mt-1.5 hidden text-center text-xs text-subtle sm:block">Answers are computed from your data. Check the SQL under each answer before you share it.</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
 export default function ChatWindow() {
   const location = useLocation()
   const {
-    messages,
-    isStreaming,
-    sendMessage,
-    cancelStream,
-    clearMessages,
-    files,
-    activeFileIds,
-    reasoningMode,
-    setReasoningMode,
-    chatPromptInput,
-    setChatPromptInput,
+    messages, isStreaming, sendMessage, cancelStream, clearMessages, files, activeFileIds, toggleFileActive,
+    chatPromptInput, setChatPromptInput, suggestions, sessions, sessionId,
   } = useDataPilot()
 
-  const input = chatPromptInput
-  const setInput = setChatPromptInput
-  const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const scrollRef = useRef(null)
+  const atBottomRef = useRef(true)
   const routedPromptRef = useRef(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [showJump, setShowJump] = useState(false)
 
-  // Auto-scroll on new messages
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  const hasFiles = files.length > 0
+  const sessionName = sessions?.find((s) => s.session_id === sessionId)?.name
+
+  // Follow new content only when the reader is already at the bottom.
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    atBottomRef.current = near
+    setShowJump(!near)
+  }
+  const scrollToBottom = (smooth = true) => {
+    const el = scrollRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  }
+  useLayoutEffect(() => {
+    if (atBottomRef.current) scrollToBottom(false)
   }, [messages])
 
   useEffect(() => {
     const prompt = location.state?.suggestedPrompt
     if (!prompt || routedPromptRef.current === prompt) return
     routedPromptRef.current = prompt
-    setInput(prompt)
+    setChatPromptInput(prompt)
     window.setTimeout(() => inputRef.current?.focus(), 0)
-  }, [location.state, setInput])
+  }, [location.state, setChatPromptInput])
 
-  const handleSend = () => {
-    const text = input.trim()
-    if (!text || isStreaming) return
-    setInput('')
-    
-    // Inject reasoning trigger prefix if reasoningMode is enabled
-    const finalMsg = reasoningMode ? `[REASONING_MODE_ON] ${text}` : text
-    sendMessage(finalMsg)
-    
-    // Reset heights
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto'
-    }
+  const send = (raw) => {
+    const text = (raw ?? chatPromptInput).trim()
+    if (!text || isStreaming || !hasFiles) return
+    if (raw === undefined) setChatPromptInput('')
+    atBottomRef.current = true
+    sendMessage(text)
     inputRef.current?.focus()
   }
 
-  const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+  const previousUserText = (index) => {
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') return messages[i].content
     }
+    return null
   }
-
-  const handleFollowup = (text) => {
-    sendMessage(text)
-  }
-
-  const [logicDrawerOpen, setLogicDrawerOpen] = useState(false)
-  const lastBotMessage = [...messages].reverse().find(m => m.role === 'assistant' && m.type !== 'loading' && m.type !== 'status')
-
-  const hasFiles = files.length > 0
-  const activeCount = activeFileIds.length
 
   return (
-    <div className="flex flex-col h-full bg-[#030712]">
-      {/* Header bar banner */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 flex-shrink-0 bg-[#050811]/40 backdrop-blur">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-200">Conversational Workspace</span>
-          {activeCount > 0 && (
-            <span className="text-[10px] bg-brand-500/10 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/15 font-semibold">
-              {activeCount} dataset{activeCount > 1 ? 's' : ''} active
-            </span>
-          )}
+    <div className="flex h-full min-h-0">
+      {/* Conversation list */}
+      <aside className="hidden w-[260px] flex-shrink-0 border-r border-line bg-surface xl:block" aria-label="Conversations">
+        <SessionManager />
+      </aside>
+      {historyOpen && (
+        <div className="fixed inset-0 z-40 xl:hidden" role="dialog" aria-modal="true" aria-label="Conversations">
+          <button type="button" className="absolute inset-0 h-full w-full cursor-default bg-black/40" aria-label="Close conversations" tabIndex={-1} onClick={() => setHistoryOpen(false)} />
+          <div className="pt-safe absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col border-r border-line bg-surface shadow-dialog animate-slide-up">
+            <div className="flex h-14 flex-shrink-0 items-center justify-between border-b border-line px-3">
+              <span className="text-md font-semibold text-fg">Conversations</span>
+              <IconButton icon={X} label="Close" tooltip={false} onClick={() => setHistoryOpen(false)} />
+            </div>
+            <div className="min-h-0 flex-1"><SessionManager onSelect={() => setHistoryOpen(false)} /></div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {lastBotMessage && (
-            <button
-              onClick={() => setLogicDrawerOpen(prev => !prev)}
-              className="flex items-center gap-1.5 px-3 py-1 bg-brand-500/10 border border-brand-500/20 hover:bg-brand-500/20 hover:border-brand-500/35 text-brand-300 rounded-xl text-[10px] font-bold transition-all select-none"
-            >
-              💡 {logicDrawerOpen ? 'Close Logic Trace' : 'Show Logic Trace'}
-            </button>
-          )}
+      )}
+
+      <section className="relative flex min-w-0 flex-1 flex-col" aria-label="Conversation">
+        <div className="flex h-12 flex-shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
+          <IconButton icon={PanelLeft} label="Conversations" size="sm" className="xl:hidden" onClick={() => setHistoryOpen(true)} />
+          <MessagesSquare className="hidden h-4 w-4 text-subtle xl:block" aria-hidden="true" />
+          <h2 className="min-w-0 flex-1 truncate text-base font-medium text-fg">{sessionName || 'New conversation'}</h2>
           {messages.length > 0 && (
             <button
+              type="button"
               id="clear-chat-btn"
-              onClick={clearMessages}
-              className="btn-ghost text-[10px]"
+              className="btn-ghost btn-sm"
+              onClick={() => { if (window.confirm('Clear all messages in this conversation?')) clearMessages() }}
             >
-              Clear History
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden sm:inline">Clear</span>
             </button>
           )}
         </div>
-      </div>
 
-      {/* Main Workspace split */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Message Chat stream */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 custom-scrollbar">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-6 animate-fade-in max-w-xl mx-auto py-12">
-              <div className="text-center">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shadow-xl border border-brand-500/20 bg-gradient-to-br from-brand-600 to-purple-600 mx-auto mb-4 animate-bounce">
-                  🧭
-                </div>
-                <h2 className="text-base font-black tracking-tight text-white mb-2">
-                  {hasFiles ? 'Conversational Analytics' : 'AI Spreadsheet Workspace'}
-                </h2>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-                  {hasFiles
-                    ? `Active datasets verified successfully. Enter questions naturally to profile, forecast, or generate interactive charts.`
-                    : 'Start by uploading a CSV or Excel spreadsheet inside the left navigation sidebar.'}
-                </p>
-              </div>
+        <SchemaWarnings />
 
-              {hasFiles && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-2 select-none">
-                  {QUICK_PROMPTS.map((p) => (
-                    <button
-                      key={p.label}
-                      onClick={() => sendMessage(p.text)}
-                      className="glass-sm px-3.5 py-3 text-left rounded-xl border border-white/5 text-slate-400 hover:text-brand-300 hover:border-brand-500/30 transition-all duration-200 hover:bg-brand-500/[0.03]"
-                    >
-                      <span className="text-[11px] font-semibold block mb-0.5">{p.label}</span>
-                      <span className="text-[9px] text-slate-600 truncate block">{p.text}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6" aria-busy={isStreaming}>
+          {messages.length === 0 ? (
+            <EmptyConversation
+              hasFiles={hasFiles}
+              files={files}
+              activeFileIds={activeFileIds}
+              suggestions={suggestions}
+              onPick={(text) => send(text)}
+            />
+          ) : (
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-6" role="log" aria-live="polite" aria-relevant="additions">
+              {messages.map((msg, index) => (msg.role === 'user'
+                ? <UserMessage key={msg.id} msg={msg} />
+                : (
+                  <BotMessage
+                    key={msg.id}
+                    msg={msg}
+                    onAskFollowup={(text) => send(text)}
+                    canRetry={!isStreaming && !!previousUserText(index)}
+                    onRetry={() => send(previousUserText(index))}
+                  />
+                )))}
             </div>
           )}
-
-          {messages.map((msg) =>
-            msg.role === 'user'
-              ? <UserMessage key={msg.id} msg={msg} />
-              : <BotMessage key={msg.id} msg={msg} onAskFollowup={handleFollowup} />
-          )}
-          <div ref={bottomRef} />
         </div>
 
-        {/* Explainability Side Drawer */}
-        {logicDrawerOpen && (
-          <div className="w-96 border-l border-white/5 bg-[#050811] flex flex-col z-20 overflow-y-auto p-5 custom-scrollbar animate-slide-left">
-            <div className="flex items-center justify-between pb-3 border-b border-white/5 mb-4 select-none">
-              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">💡 Active Logic Trace</h3>
-              <button 
-                onClick={() => setLogicDrawerOpen(false)}
-                className="text-slate-500 hover:text-slate-300 text-xs"
-              >
-                ✕
-              </button>
-            </div>
-            {lastBotMessage?.metadata ? (
-              <ExplainPanel metadata={lastBotMessage.metadata} />
-            ) : (
-              <div className="text-center py-12 text-slate-500 text-xs font-medium">
-                No active query logic metadata is loaded.
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-
-      {/* Schema Warnings Banner */}
-      <SchemaWarnings />
-
-      {/* Smart AI Suggestion Tray — above the input box */}
-      <SmartSuggestions />
-
-      {/* Premium Prompt box decking deck */}
-      <div className="px-5 py-4 border-t border-white/5 bg-[#050811]/60 backdrop-blur-md flex-shrink-0">
-        
-        {/* Attachment Card Previews lists */}
-        {activeFileIds.length > 0 && (
-          <div className="flex gap-2 mb-3 flex-wrap select-none">
-            {files
-              .filter(f => activeFileIds.includes(f.file_id))
-              .map(f => (
-                <div key={f.file_id} className="glass-sm px-2.5 py-1 rounded-xl border border-brand-500/20 text-[10px] text-brand-300 flex items-center gap-1.5 animate-fade-in">
-                  <span>📊</span>
-                  <span className="font-semibold truncate max-w-[120px]">{f.filename}</span>
-                  <span className="text-slate-600 font-mono text-[9px]">({f.row_count} rows)</span>
-                </div>
-              ))}
-          </div>
+        {showJump && messages.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { atBottomRef.current = true; scrollToBottom() }}
+            className="absolute bottom-[132px] left-1/2 z-10 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-xs font-medium text-fg shadow-float"
+          >
+            <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" /> Latest
+          </button>
         )}
 
-        {/* Rounded Input Prompt deck */}
-        <div className="glass p-1.5 rounded-2xl border border-white/5 hover:border-brand-500/25 focus-within:border-brand-500/35 focus-within:ring-4 focus-within:ring-brand-500/10 transition-all duration-300 bg-[#080d19]/80">
-          <textarea
-            ref={inputRef}
-            id="chat-input"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder={hasFiles ? 'Ask analytical questions, build charts, or run forecasts…' : 'Please upload a dataset first to begin chat analysis…'}
-            disabled={isStreaming}
-            rows={1}
-            className="w-full bg-transparent border-0 resize-none text-xs text-slate-200 placeholder-slate-600 focus:outline-none px-3.5 py-2.5 max-h-32 custom-scrollbar"
-            style={{ height: 'auto' }}
-            onInput={e => {
-              e.target.style.height = 'auto'
-              e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
-            }}
-          />
-          
-          {/* Deck Action buttons */}
-          <div className="flex items-center justify-between px-2 pt-2 border-t border-white/5 select-none">
-            <div className="flex items-center gap-1.5">
-              
-              {/* Deep Reasoning Toggle Switch */}
-              <button
-                onClick={() => setReasoningMode(!reasoningMode)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[9px] font-bold transition-all ${
-                  reasoningMode
-                    ? 'bg-brand-500/15 border-brand-500/30 text-brand-300'
-                    : 'bg-white/5 border-transparent text-slate-500 hover:text-slate-300'
-                }`}
-                title="Reasoning logs outline"
-              >
-                🧠 Deep Reasoning
-              </button>
-
-              <span className="text-[10px] text-slate-600 font-mono pl-1 hidden sm:inline">
-                Ctrl+K Command Menu
-              </span>
-            </div>
-
-            <button
-              id="send-btn"
-              onClick={isStreaming ? cancelStream : handleSend}
-              disabled={!input.trim() && !isStreaming}
-              title={isStreaming ? 'Stop generating' : 'Send'}
-              aria-label={isStreaming ? 'Stop generating' : 'Send'}
-              className="btn-primary w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center p-0 shadow-lg"
-            >
-              {isStreaming ? (
-                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <SendIcon />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+        <Composer
+          inputRef={inputRef}
+          value={chatPromptInput}
+          onChange={setChatPromptInput}
+          onSend={() => send()}
+          onStop={cancelStream}
+          isStreaming={isStreaming}
+          hasFiles={hasFiles}
+          files={files}
+          activeFileIds={activeFileIds}
+          toggleFileActive={toggleFileActive}
+        />
+      </section>
     </div>
-  )
-}
-
-function SendIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-      <line x1="22" y1="2" x2="11" y2="13"/>
-      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-    </svg>
   )
 }
