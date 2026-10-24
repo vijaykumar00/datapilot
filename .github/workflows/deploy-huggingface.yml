@@ -1,0 +1,81 @@
+name: Deploy test build to Hugging Face
+
+# Pushes a single-container test build to a Hugging Face Docker Space.
+# Setup (once), in GitHub → Settings → Secrets and variables → Actions:
+#   Variable  HF_SPACE        e.g. vijaykumar00/datapilot  (<hf-username>/<space-name>)
+#   Secret    HF_TOKEN        Hugging Face access token with "write" permission
+#   Secret    GEMINI_API_KEY  a NEW Gemini key (copied into the Space's secrets)
+# See deploy/huggingface/ for the Dockerfile, nginx config and start script.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-huggingface
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble Space contents
+        env:
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          set -euo pipefail
+          host="$(echo "$HF_SPACE" | tr '[:upper:]' '[:lower:]' | sed -e 's#/#-#' -e 's#[._]#-#g')"
+          url="https://${host}.hf.space"
+          echo "SPACE_URL=$url" >> "$GITHUB_ENV"
+
+          mkdir -p space/deploy/huggingface
+          cp -r backend frontend space/
+          cp deploy/huggingface/nginx.conf deploy/huggingface/start.sh space/deploy/huggingface/
+          sed "s#__SPACE_URL__#${url}#g" deploy/huggingface/Dockerfile > space/Dockerfile
+          sed "s#__SPACE_URL__#${url}#g" deploy/huggingface/README.md > space/README.md
+
+          # Never ship local secrets, logs, data or build output.
+          rm -rf space/backend/.env space/backend/logs space/backend/uploads \
+                 space/backend/venv space/frontend/node_modules space/frontend/dist \
+                 space/frontend/test-results
+          find space -name '__pycache__' -type d -prune -exec rm -rf {} +
+          printf 'node_modules\n**/__pycache__\nbackend/venv\n' > space/.dockerignore
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "huggingface_hub>=0.25"
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          space = os.environ["HF_SPACE"]
+          api.create_repo(space, repo_type="space", space_sdk="docker", exist_ok=True)
+          if os.environ.get("GEMINI_API_KEY"):
+              api.add_space_secret(space, "GEMINI_API_KEY", os.environ["GEMINI_API_KEY"])
+          api.upload_folder(
+              folder_path="space",
+              repo_id=space,
+              repo_type="space",
+              delete_patterns=["*"],
+              commit_message=f"Deploy {os.environ['GIT_SHA'][:8]} from GitHub",
+          )
+          PY
+          echo "Deployed. App URL: $SPACE_URL"
