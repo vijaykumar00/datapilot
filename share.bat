@@ -1,6 +1,7 @@
 @echo off
 setlocal
 title DataPilot - Public test link
+cd /d "%~dp0"
 
 echo.
 echo  ====================================================
@@ -29,27 +30,50 @@ if not defined CLOUDFLARED (
   exit /b 1
 )
 
-:: -- Start DataPilot if it is not already running -------------------------
-curl -s -o nul http://localhost:5173
+:: -- Start the backend (start.bat also installs dependencies) -------------
+curl -s -o nul http://127.0.0.1:8001/live
 if errorlevel 1 (
-  echo [INFO] Starting DataPilot...
+  echo [INFO] Starting DataPilot backend - first run can take several minutes...
   rem Public-link safety: no dev-mode phone OTP codes in API responses.
   set PHONE_OTP_ENABLED=false
   set PHONE_OTP_DEV_MODE=false
-  start "DataPilot" cmd /c "%~dp0start.bat"
-  echo [INFO] Waiting for DataPilot to come up...
-  for /l %%i in (1,1,60) do (
-    curl -s -o nul http://localhost:5173 && goto :ready
+  start "DataPilot setup" cmd /c "%~dp0start.bat"
+  for /l %%i in (1,1,300) do (
+    curl -s -o nul http://127.0.0.1:8001/live && goto :backend_ready
     timeout /t 2 /nobreak >nul
   )
-  echo [ERROR] DataPilot did not start. Check the DataPilot windows for errors.
+  echo [ERROR] The backend did not start. Check the "Tallis Backend" window for errors.
   pause
   exit /b 1
-) else (
-  echo [OK] DataPilot is already running.
 )
+:backend_ready
+echo [OK] Backend is running.
 
-:ready
+:: -- Build the frontend and serve the optimized build ----------------------
+:: A production build loads a handful of files per page instead of hundreds,
+:: which keeps testers well under the free tunnel's request limit.
+echo [INFO] Building the web app...
+pushd frontend
+set VITE_API_URL=/api
+call npm run build
+if errorlevel 1 (
+  popd
+  echo [ERROR] Frontend build failed - see the messages above.
+  pause
+  exit /b 1
+)
+popd
+start "DataPilot web (keep open)" cmd /k "cd /d %~dp0frontend && npx vite preview --port 4173 --strictPort"
+for /l %%i in (1,1,30) do (
+  curl -s -o nul http://localhost:4173 && goto :web_ready
+  timeout /t 1 /nobreak >nul
+)
+echo [ERROR] The web app did not start. Check the "DataPilot web" window.
+pause
+exit /b 1
+:web_ready
+echo [OK] Web app is running.
+
 echo.
 echo  ----------------------------------------------------
 echo   Your public link appears below in a box, like:
@@ -57,4 +81,4 @@ echo     https://something-random.trycloudflare.com
 echo   Send that link to your testers.
 echo  ----------------------------------------------------
 echo.
-%CLOUDFLARED% tunnel --no-autoupdate --url http://localhost:5173
+%CLOUDFLARED% tunnel --no-autoupdate --url http://localhost:4173
