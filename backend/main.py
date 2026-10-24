@@ -105,12 +105,14 @@ APP_VERSION = os.getenv("APP_RELEASE", "1.1.0")
 
 
 def _get_backend_host() -> str:
-    return os.getenv("BACKEND_HOST", "127.0.0.1")
+    # Windows `set VAR=value && next` keeps the trailing space ("127.0.0.1 "),
+    # which makes the bind fail with "getaddrinfo failed".
+    return (os.getenv("BACKEND_HOST") or "127.0.0.1").strip() or "127.0.0.1"
 
 
 def _get_backend_port() -> int:
     try:
-        return int(os.getenv("BACKEND_PORT", "8001"))
+        return int((os.getenv("BACKEND_PORT") or "8001").strip())
     except ValueError:
         return 8001
 

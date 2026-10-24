@@ -112,7 +112,7 @@ if not exist "!FRONTEND_DIR!\node_modules" (
 :: ── Start backend ─────────────────────────────────────────────────────────
 echo.
 echo [INFO] Starting FastAPI backend on http://!BACKEND_HOST!:!BACKEND_PORT! ...
-start "DataPilot Backend" cmd /k "cd /d !BACKEND_DIR! && set BACKEND_HOST=!BACKEND_HOST! && set BACKEND_PORT=!BACKEND_PORT! && !VENV_PYTHON! main.py"
+start "DataPilot Backend" cmd /k "cd /d !BACKEND_DIR! && set BACKEND_HOST=!BACKEND_HOST!&& set BACKEND_PORT=!BACKEND_PORT!&& !VENV_PYTHON! main.py"
 
 :: Wait for backend to start
 echo [INFO] Waiting for backend to start...
