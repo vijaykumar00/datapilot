@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Back up DataPilot: the PostgreSQL database and (with --with-objects) the dataset object store.
+# Back up Tallis: the PostgreSQL database and (with --with-objects) the dataset object store.
 #
 # Postgres holds users, billing, the dataset registry and jobs; the datasets
 # themselves (original uploads + every Parquet version) live in object storage.

@@ -1,8 +1,8 @@
-# DataPilot Production Readiness Report
+# Tallis Production Readiness Report
 
 ## Executive Summary
 
-DataPilot is now materially stronger than the earlier RC-2 state. The stale backend collection failure is fixed, frontend API configuration is centralized behind same-origin `/api`, major guest/auth tenant-isolation gaps have regression coverage, Redis-backed rate limiting is production-mandatory, S3-compatible storage is implemented, production SQLite fallback is blocked, Nginx security headers are hardened, and a GitHub Actions readiness workflow is checked in.
+Tallis is now materially stronger than the earlier RC-2 state. The stale backend collection failure is fixed, frontend API configuration is centralized behind same-origin `/api`, major guest/auth tenant-isolation gaps have regression coverage, Redis-backed rate limiting is production-mandatory, S3-compatible storage is implemented, production SQLite fallback is blocked, Nginx security headers are hardened, and a GitHub Actions readiness workflow is checked in.
 
 Recommended release decision: CONDITIONAL PASS for controlled production/private beta after the remaining operator actions are completed and the unresolved engineering items below are accepted for the initial scale.
 
@@ -155,4 +155,4 @@ PostgreSQL backup and restore scripts are checked in under `scripts/`. A real re
 
 CONDITIONAL PASS.
 
-DataPilot is suitable for controlled production/private beta once external service configuration, audit execution, staging restore, and smoke tests are completed. It is not yet a 10/10 broad public SaaS because durable background jobs, full observability, full cookie/CSRF auth, and measured load testing remain.
+Tallis is suitable for controlled production/private beta once external service configuration, audit execution, staging restore, and smoke tests are completed. It is not yet a 10/10 broad public SaaS because durable background jobs, full observability, full cookie/CSRF auth, and measured load testing remain.

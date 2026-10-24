@@ -97,7 +97,7 @@ export function GettingStarted() {
       <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div>
           <h2 id="getting-started-title" className="text-md font-semibold text-fg">
-            {isGuest ? 'Try DataPilot in five steps' : 'Getting started'}
+            {isGuest ? 'Try Tallis in five steps' : 'Getting started'}
           </h2>
           <p className="mt-0.5 text-sm text-muted">{done} of {steps.length} done</p>
         </div>

@@ -61,10 +61,17 @@ test('pricing page uses backend plans and secure server-generated checkout or po
   const marketing = read('../src/data/marketing.js')
   const home = read('../src/pages/marketing/HomePage.jsx')
 
+  const checkout = read('../src/lib/checkout.js')
+
   assert.match(pricing, /client\.getPlans/)
   assert.match(pricing, /client\.getCurrent/)
-  assert.match(pricing, /client\.createCheckout/)
+  assert.match(pricing, /startUpgrade/)
   assert.match(pricing, /client\.createPortal/)
+  // One checkout flow: Stripe redirects are validated, Razorpay payments are verified by the server.
+  assert.match(checkout, /billingClient\.createCheckout/)
+  assert.match(checkout, /isSafeBillingRedirect/)
+  assert.match(checkout, /verifyRazorpay/)
+  assert.doesNotMatch(checkout, /key_secret|sk_live|sk_test|whsec/)
   assert.match(pricing, /isSafeBillingRedirect/)
   assert.match(pricing, /Sign up to choose/)
   assert.match(pricing, /Current plan/)

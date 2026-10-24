@@ -1,4 +1,4 @@
-# DataPilot Phase 4.1 Subscription Foundation
+# Tallis Phase 4.1 Subscription Foundation
 
 ## Verdict
 

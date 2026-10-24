@@ -5,11 +5,14 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { useDataPilot } from '../../hooks/useDataPilot'
 import { Skeleton } from '../ui'
+import SheetSelector from '../SheetSelector'
 
 const DataPreview = lazy(() => import('../DataPreview'))
 
 export default function SpreadsheetPage() {
   const { files, previewFileId, setPreviewFile } = useDataPilot()
+  const previewFile = files.find((f) => f.file_id === previewFileId)
+  const hasTables = (previewFile?.metadata?.sheet_names?.length || 0) > 1
 
   // Open the first file automatically so the page is never blank when data exists.
   useEffect(() => {
@@ -18,8 +21,9 @@ export default function SpreadsheetPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {files.length > 1 && (
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-line bg-surface px-4 py-2 sm:px-5">
+      {(files.length > 1 || hasTables) && (
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-surface px-4 py-2 sm:px-5">
+          {files.length > 1 && (<div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
           <label htmlFor="spreadsheet-file" className="text-sm text-muted">File</label>
           <select
             id="spreadsheet-file"
@@ -30,6 +34,8 @@ export default function SpreadsheetPage() {
             {!previewFileId && <option value="">Choose a file</option>}
             {files.map((f) => <option key={f.file_id} value={f.file_id}>{f.filename}</option>)}
           </select>
+          </div>)}
+          {hasTables && <SheetSelector file={previewFile} variant="select" />}
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-hidden">

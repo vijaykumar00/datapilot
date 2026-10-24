@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Restore a DataPilot backup created by backup-postgres.ps1 / backup-postgres.sh.
+  Restore a Tallis backup created by backup-postgres.ps1 / backup-postgres.sh.
 
 .DESCRIPTION
   Verifies the checksum and archive, then (unless -VerifyOnly) restores the

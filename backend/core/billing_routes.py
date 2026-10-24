@@ -69,6 +69,21 @@ class CheckoutRequest(BaseModel):
     cancel_url: str | None = None
 
 
+class RazorpaySubscriptionRequest(BaseModel):
+    plan_id: str
+    interval: str = Field("monthly", pattern="^(monthly|annual|yearly|year)$")
+
+
+class RazorpayVerifyRequest(BaseModel):
+    razorpay_payment_id: str = Field(..., max_length=100)
+    razorpay_subscription_id: str = Field(..., max_length=100)
+    razorpay_signature: str = Field(..., max_length=200)
+
+
+class RazorpayCancelRequest(BaseModel):
+    at_cycle_end: bool = True
+
+
 class PortalRequest(BaseModel):
     return_url: str | None = None
     action: str | None = Field(
@@ -171,6 +186,85 @@ async def stripe_webhook(
     event = construct_webhook_event(payload, stripe_signature)
     # Processing does blocking DB work and may call the Stripe API: never on the event loop.
     return await run_in_threadpool(handle_webhook_event, event, db)
+
+
+@router.get("/providers")
+def payment_providers():
+    """Which checkouts this server can run: Razorpay (INR, UPI) and/or Stripe (USD, cards)."""
+    from core.razorpay_billing import get_razorpay_settings, mapping_report
+
+    rzp = get_razorpay_settings()
+    stripe_settings = get_stripe_settings()
+    return {
+        "razorpay": {"configured": rzp.configured, "currency": "INR", "methods": ["upi", "card", "emandate"],
+                     "mode": rzp.mode if rzp.configured else None,
+                     "plans": [m for m in mapping_report() if m["configured"]] if rzp.configured else []},
+        "stripe": {"configured": stripe_settings.configured, "currency": "USD", "methods": ["card"]},
+    }
+
+
+@router.post("/razorpay/subscription")
+def razorpay_subscription(
+    payload: RazorpaySubscriptionRequest,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
+    from core.razorpay_billing import create_subscription
+
+    _require_workspace_member(caller, db)
+    get_workspace_member(caller.user, caller.workspace_id, db, required_role="Admin")
+    response = create_subscription(caller, caller.workspace_id, payload.plan_id, payload.interval, db)
+    _audit(db, caller, "RAZORPAY_SUBSCRIPTION_CREATED", f"Razorpay subscription started for plan '{payload.plan_id}'.")
+    db.commit()
+    return response
+
+
+@router.post("/razorpay/verify")
+def razorpay_verify(
+    payload: RazorpayVerifyRequest,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
+    from core.razorpay_billing import verify_checkout
+
+    _require_workspace_member(caller, db)
+    get_workspace_member(caller.user, caller.workspace_id, db, required_role="Admin")
+    result = verify_checkout(caller.workspace_id, payload.razorpay_payment_id, payload.razorpay_subscription_id,
+                             payload.razorpay_signature, db)
+    _audit(db, caller, "RAZORPAY_PAYMENT_VERIFIED", "Razorpay payment verified; plan activated.")
+    db.commit()
+    return result
+
+
+@router.post("/razorpay/cancel")
+def razorpay_cancel(
+    payload: RazorpayCancelRequest | None = None,
+    caller: CallerContext = Depends(get_caller),
+    db: Session = Depends(get_db),
+):
+    from core.razorpay_billing import cancel_subscription
+
+    _require_workspace_member(caller, db)
+    get_workspace_member(caller.user, caller.workspace_id, db, required_role="Admin")
+    result = cancel_subscription(caller.workspace_id, db, at_cycle_end=(payload or RazorpayCancelRequest()).at_cycle_end)
+    _audit(db, caller, "RAZORPAY_SUBSCRIPTION_CANCELLED", "Razorpay subscription cancellation requested.")
+    db.commit()
+    return result
+
+
+@router.post("/razorpay/webhook")
+async def razorpay_webhook(
+    request: Request,
+    x_razorpay_signature: str | None = Header(None, alias="X-Razorpay-Signature"),
+    x_razorpay_event_id: str | None = Header(None, alias="X-Razorpay-Event-Id"),
+    db: Session = Depends(get_db),
+):
+    from starlette.concurrency import run_in_threadpool
+
+    from core.razorpay_billing import handle_webhook
+
+    body = await request.body()
+    return await run_in_threadpool(handle_webhook, body, x_razorpay_signature, x_razorpay_event_id, db)
 
 
 @router.get("/plans")

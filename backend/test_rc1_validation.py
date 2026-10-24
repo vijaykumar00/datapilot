@@ -48,7 +48,7 @@ def check(name, code, body, expected_code):
         print(f"       Body: {body}")
     tests.append(passed)
 
-print("\n=== DataPilot RC-1 Quick Validation ===\n")
+print("\n=== Tallis RC-1 Quick Validation ===\n")
 
 # Health
 code, body = get("/health")

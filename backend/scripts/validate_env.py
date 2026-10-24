@@ -1,4 +1,4 @@
-"""Validate DataPilot backend environment before production startup."""
+"""Validate Tallis backend environment before production startup."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Back up DataPilot: the PostgreSQL database and (with -WithObjects) the dataset object store.
+  Back up Tallis: the PostgreSQL database and (with -WithObjects) the dataset object store.
 
 .DESCRIPTION
   Postgres holds users, billing, the dataset registry and jobs; the datasets

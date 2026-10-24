@@ -1,5 +1,5 @@
 """
-suggestion_engine.py — Deterministic smart suggestion generator for DataPilot.
+suggestion_engine.py — Deterministic smart suggestion generator for Tallis.
 
 Analyzes a FileRecord's DataFrame + semantic metadata to produce a prioritized
 list of proactive AI suggestions. Zero LLM calls required.

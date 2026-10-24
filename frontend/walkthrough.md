@@ -1,6 +1,6 @@
 # Walkthrough — Phase 3: Premium UI/UX, Onboarding, Billing and Launch Readiness
 
-We have successfully implemented and verified **Phase 3 — Premium UI/UX, Onboarding, Billing and Launch Readiness** in DataPilot. Below is a detailed summary of the architectural changes and verification results.
+We have successfully implemented and verified **Phase 3 — Premium UI/UX, Onboarding, Billing and Launch Readiness** in Tallis. Below is a detailed summary of the architectural changes and verification results.
 
 ---
 

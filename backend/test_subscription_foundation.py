@@ -84,7 +84,11 @@ class TestSubscriptionFoundation(unittest.TestCase):
 
         self.assertTrue({"free", "pro", "team", "enterprise"}.issubset(plan_ids))
         team = next(plan for plan in plans if plan["plan_id"] == "team")
-        self.assertEqual(team["limits"]["member_count"], 10)
+        self.assertEqual(team["limits"]["member_count"], 5)
+        self.assertEqual(team["prices"]["INR"]["monthly"], 199900)
+        # No plan promises more than the server can process.
+        for plan in plans:
+            self.assertLessEqual(plan["limits"]["max_file_size_bytes"], 50 * 1024 * 1024)
         self.assertTrue(team["features"]["can_invite_members"])
 
     def test_workspace_subscription_summary_creates_trial_state(self):

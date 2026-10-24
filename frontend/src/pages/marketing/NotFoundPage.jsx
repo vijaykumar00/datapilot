@@ -12,7 +12,7 @@ export default function NotFoundPage() {
     <MarketingLayout>
       <SEO
         title="Page Not Found"
-        description="The requested DataPilot page could not be found."
+        description="The requested Tallis page could not be found."
         canonicalPath="/404"
         noindex
       />

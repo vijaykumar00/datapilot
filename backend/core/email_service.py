@@ -1,5 +1,5 @@
 """
-email_service.py — Email sending service for DataPilot.
+email_service.py — Email sending service for Tallis.
 
 Supports:
   - SMTP (production): configured via SMTP_* env vars
@@ -25,8 +25,8 @@ SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@datapilot.ai")
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "DataPilot")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@example.com")  # set SMTP_FROM_EMAIL to your own domain
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Tallis")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
 def app_url() -> str:
@@ -122,18 +122,18 @@ def send_verification_email(to_email: str, full_name: Optional[str], raw_token: 
     name = full_name or to_email.split("@")[0]
     verify_url = f"{app_url()}/verify-email?token={raw_token}"
 
-    subject = "Verify your DataPilot email address"
+    subject = "Verify your Tallis email address"
 
     text_body = f"""Hi {name},
 
-Welcome to DataPilot! Please verify your email address to activate your account.
+Welcome to Tallis! Please verify your email address to activate your account.
 
 Click the link below (expires in 24 hours):
 {verify_url}
 
 If you did not create an account, you can safely ignore this email.
 
-— The DataPilot Team
+— The Tallis Team
 """
 
     html_body = f"""<!DOCTYPE html>
@@ -143,11 +143,11 @@ If you did not create an account, you can safely ignore this email.
   <div style="max-width:520px; margin:0 auto; background:#1a1d27; border-radius:16px; padding:40px; border:1px solid rgba(255,255,255,0.08);">
     <div style="text-align:center; margin-bottom:32px;">
       <div style="display:inline-block; background:linear-gradient(135deg,#6366f1,#4f46e5); border-radius:12px; padding:12px 20px;">
-        <span style="font-size:20px; font-weight:700; color:white;">DataPilot</span>
+        <span style="font-size:20px; font-weight:700; color:white;">Tallis</span>
       </div>
     </div>
     <h1 style="font-size:24px; font-weight:700; color:#f1f5f9; margin:0 0 8px;">Verify your email</h1>
-    <p style="color:#94a3b8; margin:0 0 32px; line-height:1.6;">Hi {name}, welcome to DataPilot! Click the button below to verify your email address and activate your account.</p>
+    <p style="color:#94a3b8; margin:0 0 32px; line-height:1.6;">Hi {name}, welcome to Tallis! Click the button below to verify your email address and activate your account.</p>
     <div style="text-align:center; margin:32px 0;">
       <a href="{verify_url}" style="display:inline-block; background:linear-gradient(135deg,#6366f1,#4f46e5); color:white; text-decoration:none; padding:14px 32px; border-radius:10px; font-weight:600; font-size:15px;">Verify Email Address</a>
     </div>
@@ -166,18 +166,18 @@ def send_password_reset_email(to_email: str, full_name: Optional[str], raw_token
     name = full_name or to_email.split("@")[0]
     reset_url = f"{app_url()}/reset-password?token={raw_token}"
 
-    subject = "Reset your DataPilot password"
+    subject = "Reset your Tallis password"
 
     text_body = f"""Hi {name},
 
-We received a request to reset the password for your DataPilot account.
+We received a request to reset the password for your Tallis account.
 
 Click the link below (expires in 1 hour):
 {reset_url}
 
 If you did not request a password reset, you can safely ignore this email. Your password will not change.
 
-— The DataPilot Team
+— The Tallis Team
 """
 
     html_body = f"""<!DOCTYPE html>
@@ -187,11 +187,11 @@ If you did not request a password reset, you can safely ignore this email. Your 
   <div style="max-width:520px; margin:0 auto; background:#1a1d27; border-radius:16px; padding:40px; border:1px solid rgba(255,255,255,0.08);">
     <div style="text-align:center; margin-bottom:32px;">
       <div style="display:inline-block; background:linear-gradient(135deg,#6366f1,#4f46e5); border-radius:12px; padding:12px 20px;">
-        <span style="font-size:20px; font-weight:700; color:white;">DataPilot</span>
+        <span style="font-size:20px; font-weight:700; color:white;">Tallis</span>
       </div>
     </div>
     <h1 style="font-size:24px; font-weight:700; color:#f1f5f9; margin:0 0 8px;">Reset your password</h1>
-    <p style="color:#94a3b8; margin:0 0 32px; line-height:1.6;">Hi {name}, we received a request to reset your DataPilot account password. Click below to set a new one.</p>
+    <p style="color:#94a3b8; margin:0 0 32px; line-height:1.6;">Hi {name}, we received a request to reset your Tallis account password. Click below to set a new one.</p>
     <div style="text-align:center; margin:32px 0;">
       <a href="{reset_url}" style="display:inline-block; background:linear-gradient(135deg,#ef4444,#dc2626); color:white; text-decoration:none; padding:14px 32px; border-radius:10px; font-weight:600; font-size:15px;">Reset Password</a>
     </div>

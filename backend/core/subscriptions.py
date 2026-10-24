@@ -1,4 +1,4 @@
-"""Provider-neutral subscription foundation for DataPilot.
+"""Provider-neutral subscription foundation for Tallis.
 
 This module owns plan definitions, feature flags, quota checks, usage snapshots,
 trial state, and workspace subscription state. Payment providers should plug
@@ -45,27 +45,42 @@ FEATURE_KEYS = [
     "can_access_priority_support",
 ]
 
+MB = 1024 * 1024
+GB = 1024 * MB
+
+# Hard limits of the processing pipeline, the same on every plan (see core/file_manager.py
+# MAX_UPLOAD_BYTES / MAX_DATASET_ROWS and core/document_tables.py MAX_DOCUMENT_PAGES).
+# Plans never promise more than these.
+SERVER_MAX_FILE_BYTES = 50 * MB
+SERVER_MAX_PDF_PAGES = 300
+
+# ``query_count`` / ``ai_prompt_count`` are *AI questions*: answers from the built-in
+# question engine or a reused query never count, so instant answers are unlimited on
+# every plan.  ``ai_token_count`` is an internal safety cap on AI spend, not shown to users.
+# Prices: INR in paise (Razorpay, UPI), USD in cents (Stripe).
 PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
     "free": {
         "name": "Free",
-        "description": "Starter workspace for evaluating DataPilot.",
+        "description": "Save your work and try Tallis on real files.",
         "monthly_price_cents": 0,
         "annual_price_cents": 0,
+        "prices": {"INR": {"monthly": 0, "annual": 0}, "USD": {"monthly": 0, "annual": 0}},
         "display_order": 10,
         "limits": {
-            "upload_count": 20,
-            "dataset_count": 3,
+            "upload_count": 30,
+            "dataset_count": 10,
             "report_count": 10,
-            "query_count": 200,
-            "ai_prompt_count": 200,
-            "storage_bytes": 500 * 1024 * 1024,
+            "query_count": 50,
+            "ai_prompt_count": 50,
+            "storage_bytes": 500 * MB,
             "export_count": 20,
             "workspace_count": 1,
             "member_count": 1,
-            "chart_count": 50,
+            "chart_count": 100,
             "api_usage_count": 0,
-            "max_file_size_bytes": 25 * 1024 * 1024,
-            "ai_token_count": 2_000_000,
+            "max_file_size_bytes": 10 * MB,
+            "max_pdf_pages": 50,
+            "ai_token_count": 1_000_000,
         },
         "features": {
             "can_export_pdf": False,
@@ -82,23 +97,25 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
     },
     "pro": {
         "name": "Pro",
-        "description": "Solo professional plan with higher limits and exports.",
-        "monthly_price_cents": 1900,
-        "annual_price_cents": 19000,
+        "description": "For one person who works with data every week.",
+        "monthly_price_cents": 900,
+        "annual_price_cents": 9000,
+        "prices": {"INR": {"monthly": 49900, "annual": 499900}, "USD": {"monthly": 900, "annual": 9000}},
         "display_order": 20,
         "limits": {
             "upload_count": UNLIMITED,
-            "dataset_count": 100,
+            "dataset_count": 200,
             "report_count": UNLIMITED,
-            "query_count": UNLIMITED,
-            "ai_prompt_count": UNLIMITED,
-            "storage_bytes": 10 * 1024 * 1024 * 1024,
+            "query_count": 1000,
+            "ai_prompt_count": 1000,
+            "storage_bytes": 10 * GB,
             "export_count": UNLIMITED,
             "workspace_count": 3,
             "member_count": 1,
-            "chart_count": 1000,
+            "chart_count": UNLIMITED,
             "api_usage_count": 1000,
-            "max_file_size_bytes": 100 * 1024 * 1024,
+            "max_file_size_bytes": SERVER_MAX_FILE_BYTES,
+            "max_pdf_pages": SERVER_MAX_PDF_PAGES,
             "ai_token_count": 20_000_000,
         },
         "features": {
@@ -115,24 +132,26 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
         "is_public": True,
     },
     "team": {
-        "name": "Team",
-        "description": "Collaborative workspace plan for small teams.",
-        "monthly_price_cents": 4900,
-        "annual_price_cents": 49000,
+        "name": "Business",
+        "description": "For small teams and accounting firms sharing one workspace.",
+        "monthly_price_cents": 2900,
+        "annual_price_cents": 29000,
+        "prices": {"INR": {"monthly": 199900, "annual": 1999900}, "USD": {"monthly": 2900, "annual": 29000}},
         "display_order": 30,
         "limits": {
-            "upload_count": 2000,
-            "dataset_count": 500,
-            "report_count": 1000,
-            "query_count": 25000,
-            "ai_prompt_count": 25000,
-            "storage_bytes": 50 * 1024 * 1024 * 1024,
-            "export_count": 2000,
+            "upload_count": UNLIMITED,
+            "dataset_count": 1000,
+            "report_count": UNLIMITED,
+            "query_count": 5000,
+            "ai_prompt_count": 5000,
+            "storage_bytes": 50 * GB,
+            "export_count": UNLIMITED,
             "workspace_count": 10,
-            "member_count": 10,
-            "chart_count": 5000,
+            "member_count": 5,
+            "chart_count": UNLIMITED,
             "api_usage_count": 10000,
-            "max_file_size_bytes": 500 * 1024 * 1024,
+            "max_file_size_bytes": SERVER_MAX_FILE_BYTES,
+            "max_pdf_pages": SERVER_MAX_PDF_PAGES,
             "ai_token_count": 100_000_000,
         },
         "features": {key: True for key in FEATURE_KEYS},
@@ -141,7 +160,7 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
     },
     "enterprise": {
         "name": "Enterprise",
-        "description": "Placeholder for custom enterprise subscriptions.",
+        "description": "Custom plan, set up with our team.",
         "monthly_price_cents": 0,
         "annual_price_cents": 0,
         "display_order": 40,
@@ -157,7 +176,8 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
             "member_count": UNLIMITED,
             "chart_count": UNLIMITED,
             "api_usage_count": UNLIMITED,
-            "max_file_size_bytes": 1024 * 1024 * 1024,
+            "max_file_size_bytes": SERVER_MAX_FILE_BYTES,
+            "max_pdf_pages": SERVER_MAX_PDF_PAGES,
             "ai_token_count": UNLIMITED,
         },
         "features": {key: True for key in FEATURE_KEYS},
@@ -165,6 +185,14 @@ PLAN_BLUEPRINTS: dict[str, dict[str, Any]] = {
         "is_public": False,
     },
 }
+
+
+def plan_prices(plan_id: str, monthly_cents: int = 0, annual_cents: int = 0) -> dict[str, dict[str, int]]:
+    prices = (PLAN_BLUEPRINTS.get(plan_id) or {}).get("prices")
+    if prices:
+        return {cur: dict(v) for cur, v in prices.items()}
+    return {"USD": {"monthly": monthly_cents, "annual": annual_cents}}
+
 
 ACTION_TO_METRIC = {
     "upload": "upload_count",
@@ -684,7 +712,11 @@ def subscription_summary(workspace_id: str, db: Session) -> dict[str, Any]:
         "billing": {
             "payment_provider": metadata.get("payment_provider"),
             "payment_status": metadata.get("payment_status", sub.status),
-            "portal_available": bool(metadata.get("provider_customer_id")),
+            # The hosted billing portal is Stripe's; Razorpay plans are managed in Tallis (cancel button).
+            "portal_available": bool(metadata.get("provider_customer_id"))
+            and metadata.get("payment_provider") in (None, "stripe"),
+            "can_cancel_in_app": metadata.get("payment_provider") == "razorpay"
+            and sub.status in ("active", "past_due") and not sub.cancel_at_period_end,
             "provider_subscription_id": metadata.get("provider_subscription_id"),
         },
         "usage": usage_totals(workspace_id, db),
@@ -703,6 +735,8 @@ def plan_to_dict(plan: Plan, limits: dict[str, int] | None = None, features: dic
         "description": plan.description,
         "monthly_price_cents": plan.monthly_price_cents,
         "annual_price_cents": plan.annual_price_cents,
+        # Minor units per currency: INR in paise (Razorpay/UPI), USD in cents (Stripe).
+        "prices": plan_prices(plan.plan_id, plan.monthly_price_cents, plan.annual_price_cents),
         "is_public": plan.is_public,
         "is_active": plan.is_active,
         "trial_days": plan.trial_days,

@@ -15,7 +15,7 @@ function formatSize(kb) {
 function FileRow({ file, onRemove, onPreview, isActive, onToggle }) {
   const { renameFile } = useDataPilot()
   const ext = file.filename.split('.').pop().toLowerCase()
-  const Icon = ext === 'csv' ? FileText : FileSpreadsheet
+  const Icon = ['csv', 'pdf', 'docx'].includes(ext) ? FileText : FileSpreadsheet
   const [editing, setEditing] = useState(false)
   const [renameVal, setRenameVal] = useState(file.filename)
   const inputRef = useRef(null)
@@ -118,6 +118,8 @@ export default function FileUploader({ showFiles = true }) {
       'text/csv': ['.csv'],
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       'application/vnd.ms-excel': ['.xls'],
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     },
     multiple: true,
   })
@@ -127,14 +129,14 @@ export default function FileUploader({ showFiles = true }) {
   return (
     <div className="flex flex-col gap-4">
       <div {...getRootProps()} className={cx('drop-zone', isDragActive && 'drag-over')} id="file-drop-zone">
-        <input {...getInputProps()} id="file-input" aria-label="Choose spreadsheet files" />
+        <input {...getInputProps()} id="file-input" aria-label="Choose files to upload" />
         <div className="flex flex-col items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft text-primary-text">
             <UploadCloud className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-md font-medium text-fg">{isDragActive ? 'Drop to upload' : 'Drag spreadsheets here'}</p>
-            <p className="mt-0.5 text-sm text-muted">CSV, XLSX or XLS · up to {MAX_MB} MB each</p>
+            <p className="text-md font-medium text-fg">{isDragActive ? 'Drop to upload' : 'Drag files here'}</p>
+            <p className="mt-0.5 text-sm text-muted">CSV, Excel, or PDF/Word with tables · up to {MAX_MB} MB each</p>
           </div>
           <button type="button" className="btn-secondary" onClick={open}>
             Choose files

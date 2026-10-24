@@ -1,5 +1,5 @@
 /**
- * DataPilot UI primitives.  Small, dependency-free building blocks that every
+ * Tallis UI primitives.  Small, dependency-free building blocks that every
  * page uses so buttons, badges, empty states and skeletons look the same
  * everywhere.  Icons come from lucide-react only.
  */

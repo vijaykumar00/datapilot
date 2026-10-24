@@ -66,6 +66,8 @@ class CreateWorkspaceRequest(BaseModel):
 class UpdateWorkspaceRequest(BaseModel):
     name: Optional[str] = None
     plan_tier: Optional[str] = None
+    # False = never send this workspace's data to an AI service.
+    ai_enabled: Optional[bool] = None
 
 
 class InviteMemberRequest(BaseModel):
@@ -89,6 +91,7 @@ def _workspace_to_dict(ws: Workspace, member: WorkspaceMember) -> dict:
         "plan_tier": ws.plan_tier,
         "owner_id": ws.owner_id,
         "your_role": member.role,
+        "ai_enabled": bool(ws.ai_enabled) if ws.ai_enabled is not None else True,
         "created_at": ws.created_at.isoformat() if ws.created_at else None,
     }
 
@@ -205,6 +208,10 @@ def update_workspace(
         ws.name = payload.name
     if payload.plan_tier and payload.plan_tier != ws.plan_tier:
         raise HTTPException(status_code=403, detail="Workspace plans can only be changed through billing.")
+    if payload.ai_enabled is not None and bool(payload.ai_enabled) != bool(ws.ai_enabled):
+        ws.ai_enabled = bool(payload.ai_enabled)
+        _audit(db, user.user_id, workspace_id, "WORKSPACE_AI_ENABLED" if ws.ai_enabled else "WORKSPACE_AI_DISABLED",
+               f"AI {'turned on' if ws.ai_enabled else 'turned off'} by {user.email}.")
 
     _audit(db, user.user_id, workspace_id, "WORKSPACE_UPDATED",
            f"Workspace updated by {user.email}.")

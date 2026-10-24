@@ -124,10 +124,10 @@ test('homepage leads with the product and keeps the essential sections', () => {
 
   for (const text of [
     'Stop fighting spreadsheets. Start talking to your data.',
-    'Animated DataPilot product walkthrough',
+    'Animated Tallis product walkthrough',
     'What were our highest profit products?',
     'Upload. Ask. Understand. Share.',
-    'What you can do with DataPilot',
+    'What you can do with Tallis',
     'Trust and security',
     'Pricing preview',
     'FAQ',
@@ -232,7 +232,7 @@ test('Sprint 3.4 onboarding route and chat prompt handoff support activation flo
 
   assert.match(chat, /suggestedPrompt/)
   assert.match(chat, /inputRef\.current\?\.focus/)
-  assert.match(upload, /Drag spreadsheets here/)
+  assert.match(upload, /Drag files here/)
 })
 
 test('guest conversion and accessibility affordances are present', () => {
@@ -250,7 +250,7 @@ test('guest conversion and accessibility affordances are present', () => {
   assert.match(auth, /\/auth\/oauth\/providers/)
   assert.match(auth, /htmlFor=/)
   assert.match(header, /to="\/try-free"/)
-  assert.match(home, /Try DataPilot in guest mode without creating an account/)
+  assert.match(home, /Try Tallis in guest mode without creating an account/)
   assert.match(marketingData, /ctaTo: '\/try-free'/)
   assert.match(styles, /:focus-visible/)
   assert.match(styles, /prefers-reduced-motion: reduce/)

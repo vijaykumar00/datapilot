@@ -43,7 +43,9 @@ def _llm_for(user_id: str | None, workspace_id: str | None, *, is_guest: bool):
         if workspace_id and not is_guest:
             record_ai_tokens(workspace_id, tokens)
 
-    return build_client(settings, _usage)
+    from core.ai_policy import client_for_workspace
+
+    return client_for_workspace(None if is_guest else workspace_id, lambda: build_client(settings, _usage))
 
 
 def _release_quota(payload: dict) -> None:
@@ -394,26 +396,25 @@ def agent_run(payload: dict, ctx: jobs.JobContext) -> dict:
 
 @jobs.register("workspace_cleanup")
 def workspace_cleanup(payload: dict, ctx: jobs.JobContext) -> dict:
-    from core.file_manager import get_file_manager
-    from core.storage import get_storage_provider
+    from core.data_purge import purge_namespace
 
-    deleted = get_file_manager().delete_workspace_data(payload["workspace_id"])
-    try:
-        get_storage_provider().delete_prefix(f"workspace/{payload['workspace_id']}/")
-    except Exception as exc:
-        logger.warning("Workspace prefix cleanup failed: %s", exc)
-    return {"datasets_deleted": deleted}
+    counts = purge_namespace(payload["workspace_id"], keep_job_id=ctx.job_id)
+    return {"datasets_deleted": counts["datasets"], "deleted": counts}
 
 
 def cleanup_expired_guests(batch: int = 100) -> int:
-    """Delete datasets/sessions of guest sessions that expired without converting."""
+    """Delete all data of guest sessions that expired without converting.
+
+    Guest data lives no longer than the session (GUEST_SESSION_TTL_HOURS); set
+    GUEST_DATA_RETENTION_HOURS to keep it for a grace period after expiry.
+    """
     import datetime as dt
 
     from core.db import SessionLocal
-    from core.file_manager import get_file_manager
-    from core.models import GuestSession, Session as ChatSession
+    from core.guest_routes import purge_guest_namespace
+    from core.models import GuestSession
 
-    cutoff = dt.datetime.utcnow() - dt.timedelta(hours=int(os.getenv("GUEST_DATA_RETENTION_HOURS", "24")))
+    cutoff = dt.datetime.utcnow() - dt.timedelta(hours=int(os.getenv("GUEST_DATA_RETENTION_HOURS", "0")))
     db = SessionLocal()
     try:
         expired = (
@@ -425,16 +426,8 @@ def cleanup_expired_guests(batch: int = 100) -> int:
         ids = [r[0] for r in expired]
     finally:
         db.close()
-    manager = get_file_manager()
     for gid in ids:
-        manager.delete_workspace_data(gid)
-        db = SessionLocal()
-        try:
-            db.query(ChatSession).filter(ChatSession.workspace_id == gid).delete(synchronize_session=False)
-            db.query(GuestSession).filter(GuestSession.guest_session_id == gid).delete(synchronize_session=False)
-            db.commit()
-        finally:
-            db.close()
+        purge_guest_namespace(gid)
     return len(ids)
 
 
@@ -451,3 +444,85 @@ def cleanup_staged_transforms() -> int:
         return n
     finally:
         db.close()
+
+
+# ── "Download all my data" ────────────────────────────────────────────────────
+
+@jobs.register("account_export")
+def account_export(payload: dict, ctx: jobs.JobContext) -> dict:
+    """Zip of the account profile, every dataset in the workspace (CSV), chats, saved answers and reports."""
+    import datetime as dt
+    import json as _json
+    import re
+    import zipfile
+
+    from sqlalchemy import text
+
+    from core.db import SessionLocal
+    from core.file_manager import get_file_manager
+    from core.models import User, Workspace, WorkspaceMember
+
+    ws_id, user_id = ctx.workspace_id, ctx.user_id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if user is None:
+            raise jobs.PermanentJobError("Account not found")
+        memberships = [
+            {"workspace_id": m.workspace_id, "role": m.role,
+             "workspace_name": (db.query(Workspace.name).filter(Workspace.workspace_id == m.workspace_id).scalar())}
+            for m in db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user_id)
+        ]
+        account = {"email": user.email, "full_name": user.full_name,
+                   "created_at": user.created_at.isoformat() if user.created_at else None,
+                   "workspaces": memberships}
+
+        def rows(sql, **params):
+            result = db.execute(text(sql), params)
+            return [dict(r._mapping) for r in result]
+
+        chats = rows("SELECT * FROM sessions WHERE workspace_id = :ws AND (user_id = :u OR user_id IS NULL)",
+                     ws=ws_id, u=user_id)
+        for chat in chats:
+            chat["messages"] = rows("SELECT role, content, type, created_at FROM messages WHERE session_id = :s "
+                                    "ORDER BY created_at", s=chat["session_id"])
+        saved = rows("SELECT * FROM saved_analyses WHERE workspace_id = :ws AND (user_id = :u OR user_id IS NULL)",
+                     ws=ws_id, u=user_id)
+        reports = rows("SELECT * FROM reports WHERE workspace_id = :ws", ws=ws_id)
+    finally:
+        db.close()
+
+    manager = get_file_manager()
+    stamp = dt.datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"tallis-export-{stamp}.zip"
+    with tempfile.TemporaryDirectory(prefix="dp_account_export_") as tmp:
+        zip_path = os.path.join(tmp, filename)
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("README.txt", (
+                "Your Tallis data export\n\n"
+                "account.json         your profile and workspace memberships\n"
+                "datasets/            the current version of every file in this workspace, as CSV\n"
+                "chats.json           your conversations and their messages\n"
+                "saved_answers.json   answers you saved\n"
+                "reports.json         reports in this workspace\n"
+            ))
+            zf.writestr("account.json", _json.dumps(account, indent=2, default=str))
+            datasets = 0
+            for item in manager.list_files(ws_id):
+                rec = manager.get_record(item["file_id"], ws_id)
+                if rec is None:
+                    continue
+                stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(item["filename"])[0]).strip("._") or "dataset"
+                csv_path = os.path.join(tmp, "dataset.csv")
+                with open(csv_path, "w", encoding="utf-8", newline="") as fh:
+                    write_csv(rec.df, fh)
+                zf.write(csv_path, f"datasets/{stem}__{item['file_id'][:8]}.csv")
+                os.unlink(csv_path)
+                datasets += 1
+            zf.writestr("chats.json", _json.dumps(chats, indent=2, default=str))
+            zf.writestr("saved_answers.json", _json.dumps(saved, indent=2, default=str))
+            zf.writestr("reports.json", _json.dumps(reports, indent=2, default=str))
+        size = os.path.getsize(zip_path)
+        key = _store_result_file(ctx.job_id, ws_id, filename, path=zip_path)
+    return {"filename": filename, "media_type": "application/zip", "size": size, "datasets": datasets,
+            "_result_key": key}

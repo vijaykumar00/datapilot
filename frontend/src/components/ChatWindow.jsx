@@ -4,7 +4,7 @@
  * Layout: conversation list (left, drawer on small screens) · conversation ·
  * composer pinned to the bottom.  Messages are visually distinct by role:
  *   user    — right-aligned bubble
- *   AI      — plain prose on the page, with a small "DataPilot" label
+ *   AI      — plain prose on the page, with a small "Tallis" label
  *   result  — bordered block with its own toolbar (tables, charts)
  *   system  — quiet one-line status rows
  * The view only auto-scrolls when the reader is already at the bottom, so
@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 import { useLocation } from 'react-router-dom'
 import {
   ArrowDown, ArrowUp, BarChart3, Bookmark, Check, Copy, Database, Download, FileSpreadsheet, LineChart, ListChecks,
-  Loader2, MessagesSquare, PanelLeft, Paperclip, RotateCcw, Sigma, Sparkles, Square, Table2, Trash2, X,
+  Loader2, MessagesSquare, PanelLeft, Paperclip, RotateCcw, Sigma, Sparkles, Square, Table2, Trash2, X, Zap,
 } from 'lucide-react'
 import { useDataPilot } from '../hooks/useDataPilot'
 import ExplainPanel from './ExplainPanel'
@@ -25,6 +25,7 @@ import ErrorIntelligencePanel from './ErrorIntelligencePanel'
 import SchemaWarnings from './SchemaWarnings'
 import SessionManager from './SessionManager'
 import FileUploader from './FileUploader'
+import SampleDataButton from './SampleDataButton'
 import { IconButton, cx } from './ui'
 import { LogoMark } from './ui/Logo'
 
@@ -134,12 +135,32 @@ function StatusRow({ text }) {
   )
 }
 
-function AiLabel({ ts }) {
+const SOURCE_LABEL = {
+  engine: { text: 'Answered instantly', hint: "Tallis's question engine built this query without using AI." },
+  cache: { text: 'Reused query', hint: 'This question was answered before; the same query ran on your current data.' },
+  ai: {
+    text: 'Used AI',
+    hint: 'Your question, the column names and a few sample rows were sent to the AI service — never the whole file.',
+    tone: 'badge-neutral',
+    icon: Sparkles,
+  },
+}
+
+function AiLabel({ ts, source }) {
+  const badge = SOURCE_LABEL[source]
   return (
-    <div className="mb-1.5 flex items-center gap-2">
+    <div className="mb-1.5 flex flex-wrap items-center gap-2">
       <LogoMark size={18} />
-      <span className="text-sm font-semibold text-fg">DataPilot</span>
+      <span className="text-sm font-semibold text-fg">Tallis</span>
       {ts && <time className="text-xs text-subtle" dateTime={ts}>{new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>}
+      {badge && (() => {
+        const Icon = badge.icon || Zap
+        return (
+          <span className={cx('badge', badge.tone || 'badge-success')} title={badge.hint}>
+            <Icon className="h-3 w-3" aria-hidden="true" />{badge.text}
+          </span>
+        )
+      })()}
     </div>
   )
 }
@@ -154,7 +175,7 @@ function BotMessage({ msg, onAskFollowup, onRetry, canRetry }) {
     return (
       <div className="animate-fade-in">
         <AiLabel />
-        <div className="space-y-2 pt-1" aria-label="DataPilot is thinking" role="status">
+        <div className="space-y-2 pt-1" aria-label="Tallis is thinking" role="status">
           <div className="skeleton h-3.5 w-2/3" />
           <div className="skeleton h-3.5 w-1/2" />
         </div>
@@ -195,8 +216,8 @@ function BotMessage({ msg, onAskFollowup, onRetry, canRetry }) {
   }
 
   return (
-    <article className="group/bot animate-fade-in" aria-label="DataPilot answer">
-      <AiLabel ts={msg.ts} />
+    <article className="group/bot animate-fade-in" aria-label="Tallis answer">
+      <AiLabel ts={msg.ts} source={msg.metadata?.answered_by} />
 
       {msg.metadata?.reasoning && (
         <details className="mb-2 rounded-md border border-line text-sm">
@@ -304,12 +325,13 @@ function EmptyConversation({ hasFiles, files, activeFileIds, suggestions, onPick
       <div className="mx-auto w-full max-w-xl py-8 sm:py-14">
         <h2 className="text-2xl font-semibold text-fg">Ask questions about a spreadsheet</h2>
         <p className="mt-2 text-base text-muted">
-          Upload a CSV or Excel file and ask in plain English — “Which region grew fastest last quarter?” DataPilot runs the
-          numbers on your data and shows how it got each answer.
+          Upload a CSV or Excel file (or a PDF or Word file with tables) and ask in plain English — “Which region grew
+          fastest last quarter?” Tallis runs the numbers on your data and shows how it got each answer.
         </p>
         <div className="mt-6">
           <FileUploader showFiles={false} />
         </div>
+        <SampleDataButton className="mt-3" />
       </div>
     )
   }

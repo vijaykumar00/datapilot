@@ -45,7 +45,7 @@ export default function MarketingFooter() {
       </div>
 
       <div className="marketing-footer-bottom">
-        <span>Copyright 2026 DataPilot. Draft legal pages require professional review before production launch.</span>
+        <span>Copyright 2026 Tallis. Draft legal pages require professional review before production launch.</span>
       </div>
     </footer>
   )

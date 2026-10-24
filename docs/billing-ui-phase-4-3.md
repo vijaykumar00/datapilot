@@ -1,4 +1,4 @@
-# DataPilot Phase 4.3 Billing UI
+# Tallis Phase 4.3 Billing UI
 
 Phase 4.3 adds the frontend billing and usage experience on top of the provider-neutral subscription foundation and Stripe adapter.
 

@@ -97,9 +97,11 @@ from core.llm_client import (  # noqa: E402
 from core.models import StagedTransform, UserAPIKey, UserSettings  # noqa: E402
 from core.rate_limiter import caller_key, check_rate_limit_async, rate_limiter_health  # noqa: E402
 from core.request_identity import CallerContext, get_caller  # noqa: E402
-from core.router import classify  # noqa: E402
+from core.router import _keyword_match, classify  # noqa: E402
+from core.question_engine import plan_question  # noqa: E402
 from core.suggestion_engine import build_greeting, generate_suggestions  # noqa: E402
 from core.usage import record_ai_tokens  # noqa: E402
+from core.ai_policy import AIDisabledError, DisabledLLM, client_for_workspace, workspace_ai_enabled  # noqa: E402
 
 APP_VERSION = os.getenv("APP_RELEASE", "1.1.0")
 
@@ -142,11 +144,11 @@ async def lifespan(_app: FastAPI):
             logger.error("Platform AI provider '%s' has no API key configured.", platform.provider)
     except LLMConfigError as exc:
         logger.error("AI provider misconfigured: %s", exc)
-    logger.info("DataPilot API ready (job execution mode: %s)", jobs.execution_mode())
+    logger.info("Tallis API ready (job execution mode: %s)", jobs.execution_mode())
     yield
 
 
-app = FastAPI(title="DataPilot API", description="AI data analysis assistant", version=APP_VERSION, lifespan=lifespan)
+app = FastAPI(title="Tallis API", description="AI data analysis assistant", version=APP_VERSION, lifespan=lifespan)
 
 from core.auth_routes import router as auth_router  # noqa: E402
 from core.billing_routes import router as billing_router  # noqa: E402
@@ -413,6 +415,11 @@ async def concurrent_modification_handler(request: Request, exc: ConcurrentModif
     return _error_response(409, str(exc), {"code": "CONCURRENT_MODIFICATION"})
 
 
+@app.exception_handler(AIDisabledError)
+async def ai_disabled_handler(request: Request, exc: AIDisabledError):
+    return _error_response(403, str(exc), {"code": "AI_DISABLED"})
+
+
 @app.exception_handler(LLMConfigError)
 async def llm_config_handler(request: Request, exc: LLMConfigError):
     return _error_response(400, str(exc), {"code": "AI_PROVIDER_NOT_CONFIGURED"})
@@ -567,7 +574,12 @@ def _require_file_record(file_id: str, caller: CallerContext):
 
 
 def _llm_for_caller(caller: CallerContext, db: Session):
-    """Build a request-scoped AI client for the caller (own key when configured)."""
+    """Build a request-scoped AI client for the caller (own key when configured).
+
+    Workspaces with AI turned off get a ``DisabledLLM``: nothing is ever sent.
+    """
+    if caller.is_authenticated and not workspace_ai_enabled(caller.workspace_id):
+        return DisabledLLM()
     if caller.is_authenticated:
         settings = resolve_settings_for_user(caller.user_id, db)
         workspace_id = caller.workspace_id
@@ -579,7 +591,7 @@ def _llm_for_caller(caller: CallerContext, db: Session):
         if workspace_id:
             record_ai_tokens(workspace_id, tokens)
 
-    return build_client(settings, _usage)
+    return client_for_workspace(workspace_id, lambda: build_client(settings, _usage))
 
 
 def get_agents(llm=None, workspace_id: str | None = None):
@@ -970,6 +982,18 @@ def get_job_status(job_id: str, caller: CallerContext = Depends(get_caller)):
     return {"success": True, **job}
 
 
+@app.post("/user/export")
+def start_account_export(caller: CallerContext = Depends(get_caller)):
+    """Start a "download all my data" export for the signed-in user and current workspace."""
+    if not caller.is_authenticated:
+        raise HTTPException(401, "Sign in to download your data.")
+    _, workspace_id = _require_resource_context(caller)
+    job_id = jobs.enqueue("account_export", {}, workspace_id=workspace_id, user_id=caller.user_id, max_attempts=2)
+    if jobs.execution_mode() == "inline":
+        jobs.run_inline(job_id)
+    return {"success": True, "job_id": job_id}
+
+
 @app.get("/jobs/{job_id}/download")
 def download_job_result(job_id: str, caller: CallerContext = Depends(get_caller)):
     _, workspace_id = _require_resource_context(caller)
@@ -981,10 +1005,25 @@ def download_job_result(job_id: str, caller: CallerContext = Depends(get_caller)
 
 # ── Upload ────────────────────────────────────────────────────────────────────
 
+def _check_pdf_pages(path: Path, caller: CallerContext, db: Session) -> None:
+    """Reject PDFs longer than the plan allows before any work is queued."""
+    from core.document_tables import count_pdf_pages
+
+    _, limits, _ = caller.plan(db)
+    limit = int(limits.get("max_pdf_pages", -1))
+    pages = count_pdf_pages(path)
+    if limit != -1 and pages is not None and pages > limit:
+        raise HTTPException(status_code=413, detail={
+            "error": "PDF_PAGE_LIMIT", "limit": limit, "current": pages, "upgrade_prompt": True,
+            "message": f"This PDF has {pages} pages. Your plan reads tables from PDFs of up to {limit} pages — "
+                       "upgrade, or upload just the pages with tables.",
+        })
+
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), caller: CallerContext = Depends(get_caller),
                       db: Session = Depends(get_db)):
-    """Upload a CSV/Excel file. Parsing/profiling runs as a durable background job."""
+    """Upload a CSV/Excel file, or a PDF/Word file with tables. Parsing/profiling runs as a durable background job."""
     _require_resource_context(caller)
     caller.require_role("Member")
     filename = file.filename or "upload.csv"
@@ -1008,6 +1047,8 @@ async def upload_file(file: UploadFile = File(...), caller: CallerContext = Depe
 
         def _stage() -> tuple[str, str]:
             caller.check_upload(size, db)
+            if Path(filename).suffix.lower() == ".pdf":
+                _check_pdf_pages(Path(tmp.name), caller, db)
             caller.consume("upload", db)
             try:
                 ds_id = get_file_manager().stage_upload(
@@ -1610,6 +1651,17 @@ class _ScopedFiles:
             return None
 
 
+def _engine_intent(message: str, file_id: str, workspace_id: str) -> str | None:
+    """"insight" when the question engine can answer without AI, else None."""
+    try:
+        record = get_file_manager().get_record(file_id, workspace_id)
+        if record is not None and plan_question(message, record.df, record.table_name) is not None:
+            return "insight"
+    except Exception:
+        return None
+    return None
+
+
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext = Depends(get_caller),
                       db: Session = Depends(get_db)):
@@ -1627,17 +1679,27 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
         with connection_released(db):
             for fid in req.file_ids:
                 _require_file_record(fid, caller)
-            caller.check_ai_budget(db)
-            caller.consume("query", db)
+            # Questions the built-in engine answers never touch AI: they are free and
+            # unlimited on every plan.  Only AI questions use the plan's monthly allowance.
+            engine_intent = None
+            if req.file_ids and _keyword_match(message) is None:
+                engine_intent = _engine_intent(message, req.file_ids[0], workspace_id)
+            ai_on = not caller.is_authenticated or workspace_ai_enabled(caller.workspace_id)
+            billed = ai_on and engine_intent is None
+            if billed:
+                caller.check_ai_budget(db)
+                caller.consume("query", db)
             try:
                 llm_client = _llm_for_caller(caller, db)
-            except LLMConfigError:
-                caller.release("query", db)
-                raise
+            except LLMConfigError as exc:
+                if billed:
+                    caller.release("query", db)
+                    raise
+                llm_client = DisabledLLM(str(exc))  # the engine answers; AI is never called
             _, _, features = caller.plan(db)
-            return llm_client, features
+            return llm_client, features, engine_intent, ai_on, billed
 
-    llm, features = await run_in_threadpool(_prepare)
+    llm, features, engine_intent, ai_on, billed = await run_in_threadpool(_prepare)
 
     file_ids = list(req.file_ids)
     sid = req.session_id
@@ -1646,7 +1708,8 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
         for m in (req.conversation_history or [])[-10:] if isinstance(m, dict)
     ]
 
-    quota_state = {"released": False}
+    # Nothing was reserved for engine answers or AI-off workspaces, so there is nothing to release.
+    quota_state = {"released": not billed}
 
     async def _release_once() -> None:
         # The query was reserved in _prepare(); return it at most once when no answer is produced.
@@ -1662,16 +1725,22 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
             await run_in_threadpool(_persist, sid, "user", message, None, user_id, workspace_id)
 
             yield _sse({"type": "status", "content": "🔍 Analyzing your question...", "is_final": False})
-            try:
-                intent = await asyncio.wait_for(classify(message, len(file_ids), llm=llm), timeout=15)
-            except asyncio.TimeoutError:
-                intent = "general"
+            # Questions Tallis's own engine can answer skip the AI intent classifier, and
+            # workspaces with AI off never call it: they go straight to the question engine.
+            intent = engine_intent
+            if intent is None and not ai_on:
+                intent = _keyword_match(message) or ("insight" if file_ids else "general")
+            if intent is None:
+                try:
+                    intent = await asyncio.wait_for(classify(message, len(file_ids), llm=llm), timeout=15)
+                except asyncio.TimeoutError:
+                    intent = "general"
             logger.info("Intent '%s' files=%s", intent, file_ids)
 
             if intent == "general" or not file_ids:
                 if not file_ids:
                     response_text = (
-                        "👋 **Welcome to DataPilot!**\n\n"
+                        "👋 **Welcome to Tallis!**\n\n"
                         "Upload a CSV or Excel file to get started. Once uploaded, you can:\n"
                         "- 📊 Ask questions about your data\n- 📈 Generate charts and visualizations\n"
                         "- 🔮 Forecast trends\n- 🧹 Clean and fix data quality issues\n"
@@ -1681,7 +1750,7 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
                     files = await run_in_threadpool(get_file_manager().list_files, workspace_id)
                     context_files = [f"{r['filename']} ({r['row_count']} rows, {r['column_count']} columns)"
                                      for r in files if r["file_id"] in file_ids]
-                    system = ("You are DataPilot, an AI data assistant. Loaded files: " + ", ".join(context_files)
+                    system = ("You are Tallis, an AI data assistant. Loaded files: " + ", ".join(context_files)
                               + ". Answer concisely. Never invent numbers about the data; suggest a specific question instead.")
                     response_text = ""
                     async for token in llm.stream(message, system=system):
@@ -1756,6 +1825,8 @@ async def chat_stream(req: ChatRequest, request: Request, caller: CallerContext 
                 # Timeout, AI-provider failure or agent error: no valid answer was produced,
                 # so the query is not billed.
                 await _release_once()
+            elif meta.get("answered_by") in ("engine", "cache"):
+                await _release_once()  # answered without AI: never counts as an AI question
             if no_result or response.get("error"):
                 response["type"] = "error"
             meta["agent_used"] = intent

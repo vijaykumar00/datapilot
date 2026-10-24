@@ -24,7 +24,7 @@ const profitRows = [
 ]
 
 const timeline = [
-  ['Upload', 'Bring in CSV or Excel files and let DataPilot profile the workbook.'],
+  ['Upload', 'Bring in CSV or Excel files and let Tallis profile the workbook.'],
   ['Ask', 'Type the question you would normally translate into formulas or pivot tables.'],
   ['Understand', 'Review charts, summaries, and the SQL behind the answer.'],
   ['Share', 'Export a report artifact for a meeting, handoff, or follow-up review.'],
@@ -47,7 +47,7 @@ const trustItems = [
 ]
 
 const pricing = [
-  ['Free', 'Start free', 'Try DataPilot in guest mode without creating an account.', '/try-free'],
+  ['Free', 'Start free', 'Try Tallis in guest mode without creating an account.', '/try-free'],
   ['Pro', 'View plans', 'Higher limits for people who analyse spreadsheets every week.', '/pricing'],
   ['Team', 'View plans', 'Shared workspace, more members and higher limits for teams.', '/pricing'],
   ['Enterprise', 'Contact sales', 'Custom limits, deployment and support for larger organisations.', '/contact'],
@@ -56,7 +56,7 @@ const pricing = [
 const faqs = [
   ['What files are supported?', 'CSV, XLSX and XLS files up to 50 MB.'],
   ['Can it handle multiple sheets?', 'Yes. Pick the sheet you want to analyse from any Excel workbook.'],
-  ['How accurate are the answers?', 'AI-assisted answers should be verified. DataPilot helps by showing charts, summaries, and explainable SQL.'],
+  ['How accurate are the answers?', 'AI-assisted answers should be verified. Tallis helps by showing charts, summaries, and explainable SQL.'],
   ['Do I need to know SQL or formulas?', 'No. Ask in plain English. The SQL is shown only so you can check the answer if you want to.'],
   ['Is my data private?', 'Your data stays inside your workspace. Only upload data you are allowed to process.'],
   ['Can I export reports?', 'Yes. Results export to CSV and Excel, and reports to PDF, Word, PowerPoint or Excel.'],
@@ -76,7 +76,7 @@ function ProductPreview({ compact = false }) {
   const activeStep = demoSteps[step]
 
   return (
-    <div className={`product-preview ${compact ? 'product-preview-compact' : ''}`} aria-label="Animated DataPilot product walkthrough">
+    <div className={`product-preview ${compact ? 'product-preview-compact' : ''}`} aria-label="Animated Tallis product walkthrough">
       <div className="preview-topbar">
         <span className="preview-dot" />
         <span className="preview-dot preview-dot-muted" />
@@ -206,7 +206,7 @@ export default function HomePage() {
       <SectionContainer>
         <HomeSectionHeader
           eyebrow="Feature outcomes"
-          title="What you can do with DataPilot"
+          title="What you can do with Tallis"
         />
         <div className="outcome-grid">
           {outcomes.map(([title, description]) => (
@@ -237,7 +237,7 @@ export default function HomePage() {
         <HomeSectionHeader
           eyebrow="Pricing preview"
           title="Start free, upgrade when you need more"
-          description="Payments are handled securely by Stripe. Cancel any time."
+          description="Pay in ₹ with UPI or card (Razorpay), or in $ by card (Stripe). Cancel any time."
         />
         <div className="pricing-preview-grid">
           {pricing.map(([plan, action, description, to], index) => (
@@ -251,7 +251,7 @@ export default function HomePage() {
       </SectionContainer>
 
       <SectionContainer>
-        <HomeSectionHeader eyebrow="FAQ" title="Practical questions before you try DataPilot" />
+        <HomeSectionHeader eyebrow="FAQ" title="Practical questions before you try Tallis" />
         <div className="faq-grid">
           {faqs.map(([question, answer]) => (
             <details key={question} className="faq-item">

@@ -196,7 +196,7 @@ export default function DashboardView({ ChartRenderer }) {
     <ViewPage>
       <PageHeader
         title="Insights"
-        description="Patterns, trends and data quality issues DataPilot found in your data, plus every chart from your conversations."
+        description="Patterns, trends and data quality issues Tallis found in your data, plus every chart from your conversations."
       />
       {toolbar}
 
@@ -205,7 +205,7 @@ export default function DashboardView({ ChartRenderer }) {
           <EmptyState
             icon={Upload}
             title="Upload a spreadsheet to see insights"
-            description="DataPilot profiles each CSV or Excel file you add and lists what stands out."
+            description="Tallis profiles each CSV or Excel file you add and lists what stands out."
             action={<Button variant="primary" icon={Upload} onClick={openUpload}>Upload data</Button>}
           />
         </div>

@@ -52,6 +52,7 @@ PLAN_LIMITS = {
         "dataset_count": 3,
         "storage_bytes": 10 * 1024 * 1024,
         "max_file_size_bytes": 5 * 1024 * 1024,
+        "max_pdf_pages": 20,
         "ai_token_count": 200_000,
     },
     "free": dict(PLAN_BLUEPRINTS["free"]["limits"]),

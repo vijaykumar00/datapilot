@@ -1,5 +1,5 @@
 """
-worker.py — DataPilot background worker.
+worker.py — Tallis background worker.
 
 Run one or more of these alongside the API (``python worker.py``).  Workers
 claim durable jobs from the database (``FOR UPDATE SKIP LOCKED`` on Postgres),

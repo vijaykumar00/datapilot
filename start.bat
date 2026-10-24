@@ -1,12 +1,12 @@
 @echo off
 setlocal enabledelayedexpansion
-title DataPilot Startup
+title Tallis Startup
 set BACKEND_HOST=127.0.0.1
 set BACKEND_PORT=8001
 
 echo.
 echo  ====================================================
-echo   ^🧭  DataPilot — Local AI Data Assistant
+echo   ^🧭  Tallis — Local AI Data Assistant
 echo  ====================================================
 echo.
 
@@ -56,7 +56,7 @@ if !errorlevel! == 0 (
   echo [WARN] Ollama is not running.
   echo        Start it in a separate terminal: ollama serve
   echo        Or install from: https://ollama.ai
-  echo        DataPilot will still work — LLM features will be limited.
+  echo        Tallis will still work — LLM features will be limited.
 )
 
 :: ── Backend virtual environment ───────────────────────────────────────────
@@ -112,7 +112,7 @@ if not exist "!FRONTEND_DIR!\node_modules" (
 :: ── Start backend ─────────────────────────────────────────────────────────
 echo.
 echo [INFO] Starting FastAPI backend on http://!BACKEND_HOST!:!BACKEND_PORT! ...
-start "DataPilot Backend" cmd /k "cd /d !BACKEND_DIR! && set BACKEND_HOST=!BACKEND_HOST!&& set BACKEND_PORT=!BACKEND_PORT!&& !VENV_PYTHON! main.py"
+start "Tallis Backend" cmd /k "cd /d !BACKEND_DIR! && set BACKEND_HOST=!BACKEND_HOST!&& set BACKEND_PORT=!BACKEND_PORT!&& !VENV_PYTHON! main.py"
 
 :: Wait for backend to start
 echo [INFO] Waiting for backend to start...
@@ -120,7 +120,7 @@ timeout /t 4 /nobreak >nul
 
 :: ── Start frontend ────────────────────────────────────────────────────────
 echo [INFO] Starting Vite dev server on http://localhost:5173 ...
-start "DataPilot Frontend" cmd /k "cd /d !FRONTEND_DIR! && npm run dev"
+start "Tallis Frontend" cmd /k "cd /d !FRONTEND_DIR! && npm run dev"
 
 :: Wait and open browser
 timeout /t 3 /nobreak >nul
@@ -130,7 +130,7 @@ start "" "http://localhost:5173"
 
 echo.
 echo  ====================================================
-echo   DataPilot is running!
+echo   Tallis is running!
 echo.
 echo   Frontend : http://localhost:5173
 echo   Backend  : http://!BACKEND_HOST!:!BACKEND_PORT!

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore a DataPilot backup created by backup-postgres.sh / backup-postgres.ps1.
+# Restore a Tallis backup created by backup-postgres.sh / backup-postgres.ps1.
 #
 # Usage: DATABASE_URL=postgresql://... scripts/restore-postgres.sh BACKUP_FILE [--objects-dir DIR] [--verify-only] [--yes]
 #   --verify-only   check checksum + archive integrity, do not touch the database

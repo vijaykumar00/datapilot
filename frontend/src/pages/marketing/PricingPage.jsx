@@ -5,17 +5,15 @@ import SEO from '../../components/marketing/SEO'
 import SectionContainer from '../../components/marketing/SectionContainer'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  centsToPrice,
   createBillingClient,
-  formatLimit,
+  defaultCurrency,
+  formatPlanPrice,
   friendlyBillingStatus,
   isSafeBillingRedirect,
+  planHighlights,
+  rememberCurrency,
 } from '../../lib/billingClient'
-
-function planPrice(plan, interval) {
-  if (plan?.plan_id === 'enterprise') return 'Contact sales'
-  return centsToPrice(interval === 'annual' ? plan?.annual_price_cents : plan?.monthly_price_cents, interval)
-}
+import { startUpgrade } from '../../lib/checkout'
 
 export default function PricingPage() {
   const { apiHeaders, isAuthenticated, isGuest } = useAuth()
@@ -26,7 +24,9 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [interval, setInterval] = useState('monthly')
+  const [currency, setCurrencyState] = useState(defaultCurrency)
   const [pendingPlan, setPendingPlan] = useState(null)
+  const setCurrency = (value) => { setCurrencyState(value); rememberCurrency(value) }
 
   const loadPlans = useCallback(async () => {
     setLoading(true)
@@ -60,20 +60,17 @@ export default function PricingPage() {
     setPendingPlan(planId)
     setError(null)
     try {
-      const result = await client.createCheckout({
-        plan_id: planId,
+      const result = await startUpgrade({
+        billingClient: client,
+        planId,
         interval,
-        success_url: `${window.location.origin}/app/settings/billing?checkout=success`,
-        cancel_url: `${window.location.origin}/pricing?checkout=cancelled`,
+        currency,
+        successUrl: `${window.location.origin}/app/settings/billing?checkout=success`,
+        cancelUrl: `${window.location.origin}/pricing?checkout=cancelled`,
       })
-      const checkoutUrl = result.checkout_url || result.url
-      if (!checkoutUrl || !isSafeBillingRedirect(checkoutUrl)) {
-        setError('Checkout could not be opened safely. Please contact support.')
-        return
-      }
-      window.location.assign(checkoutUrl)
+      if (result.status === 'activated') navigate('/app/settings/billing?checkout=success')
     } catch (err) {
-      setError(err?.payload?.message || err?.message || 'Checkout could not be started.')
+      if (!err?.cancelled) setError(err?.payload?.message || err?.message || 'Checkout could not be started.')
     } finally {
       setPendingPlan(null)
     }
@@ -124,13 +121,13 @@ export default function PricingPage() {
     <MarketingLayout>
       <SEO
         title="Pricing"
-        description="Compare DataPilot plans using backend subscription data, trial status, and secure checkout actions."
+        description="Tallis plans: free to start, Pro and Business in ₹ with UPI, or in $ by card. Instant answers are always unlimited."
         canonicalPath="/pricing"
       />
       <section className="pricing-hero">
         <span>Pricing</span>
-        <h1>Plans for spreadsheet analytics teams</h1>
-        <p>Compare workspace limits, start checkout securely, or manage an existing subscription through the billing portal.</p>
+        <h1>Simple plans. Your data stays yours.</h1>
+        <p>Instant answers are unlimited on every plan. Pay for AI questions, storage and team features only when you need them. Pay in ₹ with UPI or card, or in $ by card.</p>
         <div className="pricing-hero-actions">
           <Link to={isAuthenticated ? '/app/settings/billing' : '/try-free'} className="btn-primary">
             {isAuthenticated ? 'Open billing' : 'Start free'}
@@ -146,9 +143,15 @@ export default function PricingPage() {
             <h2>Choose a plan</h2>
             {current && <p>{friendlyBillingStatus(current.subscription?.status)} on {current.plan?.name || current.subscription?.plan_id}</p>}
           </div>
-          <div className="billing-segment" role="group" aria-label="Billing interval">
-            <button type="button" className={interval === 'monthly' ? 'is-active' : ''} onClick={() => setInterval('monthly')}>Monthly</button>
-            <button type="button" className={interval === 'annual' ? 'is-active' : ''} onClick={() => setInterval('annual')}>Annual</button>
+          <div className="flex flex-wrap gap-2">
+            <div className="billing-segment" role="group" aria-label="Currency">
+              <button type="button" aria-pressed={currency === 'INR'} className={currency === 'INR' ? 'is-active' : ''} onClick={() => setCurrency('INR')}>₹ INR</button>
+              <button type="button" aria-pressed={currency === 'USD'} className={currency === 'USD' ? 'is-active' : ''} onClick={() => setCurrency('USD')}>$ USD</button>
+            </div>
+            <div className="billing-segment" role="group" aria-label="Billing interval">
+              <button type="button" aria-pressed={interval === 'monthly'} className={interval === 'monthly' ? 'is-active' : ''} onClick={() => setInterval('monthly')}>Monthly</button>
+              <button type="button" aria-pressed={interval === 'annual'} className={interval === 'annual' ? 'is-active' : ''} onClick={() => setInterval('annual')}>Annual · 2 months free</button>
+            </div>
           </div>
         </div>
 
@@ -172,15 +175,10 @@ export default function PricingPage() {
                     <span className="billing-eyebrow">{recommended ? 'Recommended' : isCurrent ? 'Current plan' : 'Plan'}</span>
                     <h3>{plan.name}</h3>
                     <p>{plan.description}</p>
-                    <strong>{planPrice(plan, interval)}</strong>
+                    <strong>{formatPlanPrice(plan, currency, interval)}</strong>
                   </div>
                   <ul>
-                    <li>{formatLimit(plan.limits?.ai_prompt_count ?? plan.limits?.query_count)} AI prompts</li>
-                    <li>{formatLimit(plan.limits?.upload_count)} uploads</li>
-                    <li>{formatLimit(plan.limits?.dataset_count)} datasets</li>
-                    <li>{formatLimit(plan.limits?.report_count)} reports</li>
-                    <li>{formatLimit(plan.limits?.storage_bytes, 'bytes')} storage</li>
-                    <li>{formatLimit(plan.limits?.member_count)} workspace members</li>
+                    {planHighlights(plan).map((line) => <li key={line}>{line}</li>)}
                   </ul>
                   {actionForPlan(plan)}
                 </article>
@@ -190,8 +188,8 @@ export default function PricingPage() {
         )}
 
         <div className="pricing-security-note">
-          <strong>Security boundary</strong>
-          <p>Checkout and portal redirects are generated by DataPilot backend endpoints. The browser never receives Stripe secret keys, webhook secrets, or authoritative entitlement logic.</p>
+          <strong>Same privacy on every plan</strong>
+          <p>Free or paid, your files are never sold or used to train AI, you can switch AI off for a workspace, and you can download or delete everything at any time. Paid plans renew automatically and can be cancelled any time; you keep access until the end of the period you paid for. Every file can have up to 250,000 rows.</p>
         </div>
       </SectionContainer>
     </MarketingLayout>

@@ -104,7 +104,7 @@ class TestProductionHardening(unittest.TestCase):
         sid = f"s_{uuid.uuid4().hex[:10]}"
         with patch.object(main, "build_client", lambda settings, cb=None: FakeLLM()):
             resp = self.client.post("/chat/stream", headers=owner["headers"],
-                                    json={"message": "total revenue by region", "file_ids": [file_id], "session_id": sid})
+                                    json={"message": "explain total revenue by region", "file_ids": [file_id], "session_id": sid})
         events = _sse_events(resp.text)
         final = [e for e in events if e.get("is_final")]
         self.assertEqual(len(final), 1, events)
@@ -116,6 +116,23 @@ class TestProductionHardening(unittest.TestCase):
         finally:
             db.close()
         self.assertEqual(sorted(roles), ["bot", "user"])
+
+    def test_common_question_is_answered_without_any_ai_call(self):
+        """The question engine answers "total revenue by region": no classifier or SQL call to the AI."""
+        owner = _make_user()
+        file_id = self._upload(owner["headers"]).json()["file_id"]
+
+        class NoAI(FakeLLM):
+            async def generate(self, *a, **k):
+                raise AssertionError("AI must not be called")
+
+        with patch.object(main, "build_client", lambda settings, cb=None: NoAI()):
+            resp = self.client.post("/chat/stream", headers=owner["headers"],
+                                    json={"message": "What is the total revenue by region?", "file_ids": [file_id]})
+        final = [e for e in _sse_events(resp.text) if e.get("is_final")]
+        self.assertEqual(final[0]["type"], "insight", final)
+        self.assertEqual(final[0]["metadata"]["answered_by"], "engine")
+        self.assertEqual(final[0]["table_data"][0], {"region": "N", "total_revenue": 40})
 
     def test_prompt_injected_sql_cannot_read_server_files(self):
         owner = _make_user()
@@ -184,7 +201,7 @@ class TestProductionHardening(unittest.TestCase):
         before = query_count()
         with patch.object(main, "build_client", lambda settings, cb=None: FailingLLM()):
             resp = self.client.post("/chat/stream", headers=owner["headers"],
-                                    json={"message": "total revenue by region", "file_ids": [file_id]})
+                                    json={"message": "explain total revenue by region", "file_ids": [file_id]})
         finals = [e for e in _sse_events(resp.text) if e.get("is_final")]
         self.assertEqual(len(finals), 1)
         self.assertEqual(finals[0]["type"], "error", finals[0])
@@ -198,7 +215,7 @@ class TestProductionHardening(unittest.TestCase):
         try:
             from core.usage import _usage_row_id
             row_id = _usage_row_id(owner["workspace_id"], db)
-            db.query(UsageStats).filter(UsageStats.id == row_id).update({UsageStats.query_count: 195})
+            db.query(UsageStats).filter(UsageStats.id == row_id).update({UsageStats.query_count: 45})
             db.commit()
         finally:
             db.close()
@@ -222,10 +239,10 @@ class TestProductionHardening(unittest.TestCase):
         threads = [threading.Thread(target=consume) for _ in range(12)]
         [t.start() for t in threads]
         [t.join() for t in threads]
-        self.assertEqual(results.count(True), 5, errors)  # free plan: 200 queries
+        self.assertEqual(results.count(True), 5, errors)  # free plan: 50 AI questions
         db = SessionLocal()
         try:
-            self.assertEqual(db.query(UsageStats).filter(UsageStats.workspace_id == owner["workspace_id"]).first().query_count, 200)
+            self.assertEqual(db.query(UsageStats).filter(UsageStats.workspace_id == owner["workspace_id"]).first().query_count, 50)
         finally:
             db.close()
 

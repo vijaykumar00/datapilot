@@ -1,5 +1,5 @@
 """
-error_intelligence.py — Deterministic error diagnosis engine for DataPilot.
+error_intelligence.py — Deterministic error diagnosis engine for Tallis.
 
 Converts every raw technical exception or data quality issue into a professional,
 human-readable diagnostic with:
@@ -138,8 +138,8 @@ def diagnose_upload_error(exc: Exception, filename: str, raw_bytes: bytes | None
             code="UNSUPPORTED_FORMAT",
             title="Unsupported file",
             message=(
-                f"'.{ext}' files are not supported. DataPilot accepts CSV (.csv), "
-                f"Excel (.xlsx), and legacy Excel (.xls) files."
+                f"'.{ext}' files are not supported. Tallis accepts CSV (.csv), "
+                f"Excel (.xlsx, .xls), and tables inside PDF (.pdf) or Word (.docx) files."
             ),
             suggestions=[
                 "Export your data as CSV from your source system.",
@@ -265,9 +265,9 @@ def diagnose_schema(df: pd.DataFrame, filename: str) -> list[dict]:
                     ))
 
         # ── Potential ID column used as metric ──
-        if pd.api.types.is_integer_dtype(series) or (
-            pd.api.types.is_object_dtype(series) and unique_count == total_rows
-        ):
+        # Only numeric IDs can be summed or averaged by mistake; text IDs ("SO-10001")
+        # are never aggregated, so warning about them is just noise.
+        if pd.api.types.is_integer_dtype(series):
             col_lower = col.lower()
             id_hints = ["id", "key", "code", "ref", "uuid", "guid", "number", "no", "num", "idx"]
             if any(h in col_lower for h in id_hints) and unique_count == total_rows and total_rows > 5:
@@ -316,7 +316,10 @@ def diagnose_schema(df: pd.DataFrame, filename: str) -> list[dict]:
             non_null = series.dropna().head(50)
             if len(non_null) > 0:
                 parsed = pd.to_datetime(non_null, errors="coerce").notna().sum()
-                if parsed / len(non_null) > 0.8 and not pd.api.types.is_datetime64_any_dtype(series):
+                # ISO dates (2025-01-31) sort and filter correctly as text and are read as
+                # dates by the query engine; only ambiguous formats (03/01/2025) need fixing.
+                iso = non_null.astype(str).str.match(r"^\d{4}-\d{2}-\d{2}").mean()
+                if parsed / len(non_null) > 0.8 and iso < 0.8 and not pd.api.types.is_datetime64_any_dtype(series):
                     sample = non_null.iloc[0] if len(non_null) > 0 else "2023-01-15"
                     warnings.append(_make_error(
                         code="DATE_AS_TEXT",
@@ -688,7 +691,7 @@ def diagnose_agent_error(
             message="There is no data file loaded for this analysis. Please upload a CSV or Excel file first.",
             suggestions=[
                 "Drag and drop a file onto the upload area in the left sidebar.",
-                "Accepted formats: .csv, .xlsx, .xls (up to 50 MB).",
+                "Accepted formats: .csv, .xlsx, .xls, and tables in .pdf or .docx (up to 50 MB).",
             ],
             severity="info",
         )

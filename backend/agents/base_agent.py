@@ -1,5 +1,5 @@
 """
-base_agent.py — Abstract base class for all DataPilot agents.
+base_agent.py — Abstract base class for all Tallis agents.
 
 Agents are constructed per request with:
 * a request-scoped LLM client (never a global one),

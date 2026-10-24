@@ -1,5 +1,6 @@
 import datetime
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, BigInteger, UniqueConstraint
+from sqlalchemy import true as sa_true
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -37,6 +38,8 @@ class Workspace(Base):
     slug = Column(String(100), unique=True, nullable=True, index=True)
     plan_tier = Column(String(50), default="free", nullable=False)  # free, pro, enterprise
     owner_id = Column(String(50), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    # False = "never send my data to AI": only the built-in question engine answers.
+    ai_enabled = Column(Boolean, default=True, server_default=sa_true(), nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 
@@ -628,3 +631,27 @@ class WebhookEvent(Base):
     stripe_event_id = Column(String(255), unique=True, nullable=False)
     processed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class QuestionSqlCache(Base):
+    """SQL that already answered a question for a given column layout (workspace-scoped).
+
+    Lets a repeated question - or the same question on next month's file with the
+    same columns - be answered without calling the AI model again.  ``workspace_id``
+    has no foreign key because guest workspaces are not rows in ``workspaces``.
+    """
+    __tablename__ = "question_sql_cache"
+
+    id = Column(String(50), primary_key=True)
+    workspace_id = Column(String(64), nullable=False, index=True)
+    schema_hash = Column(String(64), nullable=False)
+    question_key = Column(String(255), nullable=False)
+    sql_template = Column(Text, nullable=False)
+    explanation = Column(Text, nullable=True)
+    hits = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "schema_hash", "question_key", name="uq_question_sql_cache_key"),
+    )

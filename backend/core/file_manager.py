@@ -97,6 +97,13 @@ def _parse_timeout_seconds() -> int:
     return _int_env("FILE_PARSE_TIMEOUT_SECONDS", 60)
 
 
+def _parse_timeout_for(ext: str) -> int:
+    # Reading tables page by page from a long PDF is slower than reading a workbook.
+    if ext in {".pdf", ".docx"}:
+        return max(_parse_timeout_seconds(), _int_env("DOCUMENT_PARSE_TIMEOUT_SECONDS", 180))
+    return _parse_timeout_seconds()
+
+
 def _max_dataset_rows() -> int:
     return _int_env("MAX_DATASET_ROWS", 250_000)
 
@@ -127,7 +134,8 @@ def _cache_max_bytes() -> int:
     return _int_env("DATASET_CACHE_MAX_BYTES", 1024 * 1024 * 1024)
 
 
-ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".pdf", ".docx"}
+ZIP_CONTAINERS = {".xlsx": "xl/", ".docx": "word/document.xml"}
 MAGIC_BYTES = {b"PK\x03\x04": "xlsx", b"\xd0\xcf\x11\xe0": "xls"}
 
 # Kept for import compatibility; nothing is served from this directory any more.
@@ -273,22 +281,33 @@ class FileManager:
             if b"\x00" in raw[:4096]:
                 raise ValueError("File content does not look like a text CSV file")
             return
+        if ext == ".pdf":
+            if b"%PDF-" not in raw[:1024]:
+                raise ValueError("File content does not look like a PDF document")
+            return
+        if ext == ".docx":
+            if not raw.startswith(b"PK\x03\x04"):
+                raise ValueError("File content does not look like a Word (.docx) document")
+            return
         for magic in MAGIC_BYTES:
             if raw.startswith(magic):
                 return
         raise ValueError("File content does not match Excel format")
 
     def _validate_workbook_expansion(self, raw: bytes | str | Path, ext: str) -> None:
-        if ext != ".xlsx":
+        if ext not in ZIP_CONTAINERS:
             return
+        kind = "Excel workbook" if ext == ".xlsx" else "Word document"
         source = io.BytesIO(raw) if isinstance(raw, (bytes, bytearray)) else raw
         try:
-            with zipfile.ZipFile(source) as workbook_zip:
-                total = sum(item.file_size for item in workbook_zip.infolist())
+            with zipfile.ZipFile(source) as container:
+                entries = container.infolist()
         except zipfile.BadZipFile as exc:
-            raise ValueError("Invalid XLSX container") from exc
-        if total > _max_workbook_decompressed_bytes():
-            raise ValueError("Excel workbook expands beyond the supported decompressed size limit.")
+            raise ValueError(f"Invalid {ext.lstrip('.').upper()} container") from exc
+        if not any(item.filename.startswith(ZIP_CONTAINERS[ext]) for item in entries):
+            raise ValueError(f"File content does not match the {kind} format")
+        if sum(item.file_size for item in entries) > _max_workbook_decompressed_bytes():
+            raise ValueError(f"{kind} expands beyond the supported decompressed size limit.")
 
     def _validate_dataframe_bounds(self, df: pd.DataFrame) -> None:
         _check_bounds(len(df), len(df.columns))
@@ -380,8 +399,8 @@ class FileManager:
             try:
                 # The parser (a killable child process) writes the canonical Parquet file;
                 # this process only reads it back, and later uploads the same file as v1.
-                parse_meta = parse_to_parquet(local, ext, None, _parse_timeout_seconds(), parquet_path)
-                if parse_meta.get("sheet_names") and len(parse_meta["sheet_names"]) > _max_excel_sheets():
+                parse_meta = parse_to_parquet(local, ext, None, _parse_timeout_for(ext), parquet_path)
+                if ext in {".xlsx", ".xls"} and parse_meta.get("sheet_names") and len(parse_meta["sheet_names"]) > _max_excel_sheets():
                     raise ValueError(
                         f"Excel workbook has too many sheets. Maximum supported sheets: {_max_excel_sheets()}"
                     )
@@ -419,7 +438,8 @@ class FileManager:
 
     def _profile(self, df: pd.DataFrame, filename: str, parse_meta: dict, previous_semantic: dict | None) -> dict:
         metadata: dict[str, Any] = {}
-        for key in ("sheet_names", "active_sheet", "sheet_columns", "encoding", "encoding_guessed", "delimiter", "header_row", "numeric_conversions"):
+        for key in ("sheet_names", "active_sheet", "sheet_columns", "encoding", "encoding_guessed", "delimiter", "header_row",
+                    "numeric_conversions", "document_type", "page_count", "table_locators", "tables_truncated"):
             if key in parse_meta:
                 metadata[key] = parse_meta[key]
         try:
@@ -815,7 +835,7 @@ class FileManager:
         meta = copy.deepcopy(record.metadata)
         meta.pop("async_task", None)
         meta.update(metadata_updates or {})
-        profile = self._profile(new_df, record.filename, {k: meta[k] for k in ("sheet_names", "active_sheet", "sheet_columns") if k in meta}, meta.get("semantic_map"))
+        profile = self._profile(new_df, record.filename, {k: meta[k] for k in ("sheet_names", "active_sheet", "sheet_columns", "document_type", "page_count", "table_locators", "tables_truncated") if k in meta}, meta.get("semantic_map"))
         meta["insights"] = profile["insights"]
         meta["schema_warnings"] = profile["schema_warnings"]
         meta["semantic_map"] = profile["semantic_map"]
@@ -968,7 +988,9 @@ class FileManager:
             local = Path(tmp) / f"original{ext}"
             parquet_path = Path(tmp) / "version.parquet"
             get_storage_provider().download_object(record.path, local)
-            parse_meta = parse_to_parquet(local, ext, sheet_name, _parse_timeout_seconds(), parquet_path)
+            # Document tables carry a locator so only the pages of that table are read again.
+            target = (record.metadata.get("table_locators") or {}).get(sheet_name, sheet_name)
+            parse_meta = parse_to_parquet(local, ext, target, _parse_timeout_for(ext), parquet_path)
             self._validate_parquet_bounds(parquet_path)
             df = read_parquet(parquet_path)
         updated = self._commit(

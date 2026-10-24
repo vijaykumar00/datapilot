@@ -29,6 +29,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from core.document_tables import DOCUMENT_EXTENSIONS, DocumentError, extract_document_tables
+
 logger = logging.getLogger("datapilot.parsing")
 
 # CSV text is held as Arrow-backed strings while parsing (~5x smaller than Python
@@ -290,7 +292,7 @@ def _text_to_object(df: pd.DataFrame) -> None:
 
 def parse_file(path: str | Path, ext: str, sheet: str | None = None,
                keep_arrow_text: bool = False) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Parse a CSV/XLS/XLSX file into a DataFrame plus parse metadata.
+    """Parse a CSV/XLS/XLSX file (or the tables of a PDF/DOCX) into a DataFrame plus parse metadata.
 
     Text columns come back as classic object dtype unless *keep_arrow_text* is
     set (the Parquet path), where they stay Arrow-backed to save memory — the
@@ -347,6 +349,12 @@ def parse_file(path: str | Path, ext: str, sheet: str | None = None,
                 continue
         meta.update({"sheet_names": sheet_names, "active_sheet": active, "header_row": int(header_row),
                      "sheet_columns": sheet_columns})
+    elif ext in DOCUMENT_EXTENSIONS:
+        try:
+            df, meta = extract_document_tables(path, ext, sheet)
+        except DocumentError as exc:
+            raise ParseError(str(exc)) from exc
+        infer_text_column_types(df)
     else:
         raise ParseError(f"Unsupported file type '{ext}'.")
 

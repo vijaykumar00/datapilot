@@ -179,7 +179,7 @@ export default function ReportView() {
           <EmptyState
             icon={FileText}
             title="Upload a spreadsheet to build a report"
-            description="Add a CSV or Excel file and DataPilot will draft a summary, a chart and key figures for you."
+            description="Add a CSV or Excel file and Tallis will draft a summary, a chart and key figures for you."
             action={<Button variant="primary" icon={Upload} onClick={openUpload}>Upload data</Button>}
           />
         </div>
@@ -344,7 +344,7 @@ export default function ReportView() {
                             <path d="M2 17L12 22L22 17" stroke={theme.secondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                             <path d="M2 12L12 17L22 12" stroke={theme.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
-                          <span className="text-sm font-semibold text-fg">DataPilot</span>
+                          <span className="text-sm font-semibold text-fg">Tallis</span>
                         </div>
                         <span className="text-xs text-subtle">Confidential · {reportTypeLabel} report</span>
                       </div>
@@ -359,7 +359,7 @@ export default function ReportView() {
                         {reportData.title || title}
                       </p>
                       <p className="text-sm text-muted">
-                        {reportData.date_range || 'All periods'} · Prepared with DataPilot
+                        {reportData.date_range || 'All periods'} · Prepared with Tallis
                       </p>
                     </div>
 

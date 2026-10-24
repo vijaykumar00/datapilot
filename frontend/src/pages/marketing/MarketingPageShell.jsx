@@ -41,7 +41,7 @@ export default function MarketingPageShell({ path }) {
           <Card>
             <h2>Brand consistency</h2>
             <p>
-              Layout, buttons, card styling, focus states, and responsive spacing use DataPilot
+              Layout, buttons, card styling, focus states, and responsive spacing use Tallis
               design tokens rather than page-specific styling.
             </p>
           </Card>

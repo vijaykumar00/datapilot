@@ -11,7 +11,7 @@ export function StatusScreen({ state = 'loading', title, message, actions }) {
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-bg px-4 py-10 text-fg">
       <div className="w-full max-w-sm text-center" role={isError ? 'alert' : 'status'} aria-live="polite">
-        <Link to="/" className="mx-auto mb-6 inline-flex rounded-md focus-ring" aria-label="DataPilot home">
+        <Link to="/" className="mx-auto mb-6 inline-flex rounded-md focus-ring" aria-label="Tallis home">
           <LogoMark size={36} />
         </Link>
         <div className="flex items-center justify-center gap-2">

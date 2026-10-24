@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
-import { AlertCircle, Building2, CheckCircle2, CreditCard, LogOut, ShieldCheck, Trash2, User, UserPlus, Users } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle2, CreditCard, Download, Lock, LogOut, ShieldCheck, Trash2, User, UserPlus, Users } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { authedFetch, readApiError } from '../lib/authSession'
+import { authedFetch, clearSession, readApiError } from '../lib/authSession'
+import Dialog from './ui/Dialog'
 import { Badge, Button, EmptyState, ErrorState, IconButton, PageHeader, Skeleton, cx } from './ui'
 
 const NAV_ITEMS = [
@@ -10,6 +11,7 @@ const NAV_ITEMS = [
   { path: '/app/settings/workspace', label: 'Workspace', icon: Building2 },
   { path: '/app/settings/members', label: 'Team members', icon: Users },
   { path: '/app/settings/security', label: 'Password and security', icon: ShieldCheck },
+  { path: '/app/settings/privacy', label: 'Privacy and data', icon: Lock },
   { path: '/app/settings/billing', label: 'Billing and usage', icon: CreditCard },
 ]
 
@@ -380,7 +382,7 @@ export function TeamMembersSettings() {
               <Button type="submit" variant="primary" icon={UserPlus} loading={inviting} className="w-full sm:w-auto">Add</Button>
             </div>
           </div>
-          <p id={`${ids.role}-hint`} className="field-hint">{ROLE_HELP[role]}. The person needs a DataPilot account with this email.</p>
+          <p id={`${ids.role}-hint`} className="field-hint">{ROLE_HELP[role]}. The person needs a Tallis account with this email.</p>
           <FieldError id={`${ids.email}-err`}>{inviteError}</FieldError>
         </form>
       )}
@@ -482,9 +484,199 @@ export function SecuritySessionsSettings() {
         </form>
       </section>
       <section className="card card-pad">
-        <SectionHeading title="Sign out" description="Sign out of DataPilot on this device." />
+        <SectionHeading title="Sign out" description="Sign out of Tallis on this device." />
         <Button icon={LogOut} onClick={logout}>Sign out</Button>
       </section>
     </div>
+  )
+}
+
+// ── Privacy and data ─────────────────────────────────────────────────────────
+
+const PRIVACY_POINTS = [
+  'Your files stay in your workspace. We never sell them or use them to train AI models.',
+  'Answers marked “Answered instantly” or “Reused query” are calculated on Tallis servers. Nothing is sent to an AI service.',
+  'When a question needs AI, the AI service receives your question, the column names and a few sample rows or summary figures — never the whole file. On upload, column names and a few sample values may be sent so Tallis understands your columns.',
+  'Delete any file at any time. Deleting your account deletes everything you own here.',
+]
+
+async function waitForJob(jobId, tries = 120) {
+  for (let i = 0; i < tries; i += 1) {
+    const job = await api(`/jobs/${encodeURIComponent(jobId)}`)
+    if (job.status === 'succeeded') return job
+    if (job.status === 'failed' || job.status === 'dead') throw new Error(job.error || 'The export failed. Try again.')
+    await new Promise((r) => window.setTimeout(r, 1000))
+  }
+  throw new Error('The export is taking longer than expected. Try again in a minute.')
+}
+
+export function PrivacySettings() {
+  const { isAuthenticated, user } = useAuth()
+  const { loading, error, workspace, reload, workspaceId, setWorkspace } = useWorkspace()
+  const [aiSaving, setAiSaving] = useState(false)
+  const [aiError, setAiError] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  if (!isAuthenticated) return <GuestNotice what="Privacy settings" />
+  if (loading) return <section className="card card-pad max-w-xl space-y-3"><Skeleton className="h-5 w-32" /><Skeleton className="h-10 w-full" /></section>
+  if (error) return <ErrorState title="Couldn't load your workspace" description={error} onRetry={reload} />
+  if (!workspace) return null
+
+  const editable = canManage(workspace.your_role)
+  const aiOn = workspace.ai_enabled !== false
+
+  const toggleAi = async () => {
+    setAiError(''); setAiSaving(true)
+    try {
+      const data = await api(`/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PUT', body: { ai_enabled: !aiOn } })
+      setWorkspace(data.workspace || { ...workspace, ai_enabled: !aiOn })
+    } catch (err) {
+      setAiError(err.message)
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  const exportData = async () => {
+    setExportError(''); setExporting(true)
+    try {
+      const { job_id: jobId } = await api('/user/export', { method: 'POST' })
+      const job = await waitForJob(jobId)
+      const resp = await authedFetch(`/jobs/${encodeURIComponent(jobId)}/download`)
+      if (!resp.ok) throw new Error(await readApiError(resp, "The export couldn't be downloaded."))
+      const url = URL.createObjectURL(await resp.blob())
+      const a = document.createElement('a')
+      a.href = url
+      a.download = job.result?.filename || 'tallis-export.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+    } catch (err) {
+      setExportError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl space-y-5">
+      <section className="card card-pad">
+        <SectionHeading title="How your data is handled" />
+        <ul className="space-y-2.5">
+          {PRIVACY_POINTS.map((point) => (
+            <li key={point} className="flex gap-2.5 text-base text-fg">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" aria-hidden="true" />
+              <span>{point}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="card card-pad">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 id="ai-switch-label" className="text-lg font-semibold text-fg">Use AI for questions</h2>
+            <p id="ai-switch-desc" className="mt-1 text-sm text-muted">
+              {aiOn
+                ? 'On: questions the built-in engine can’t answer go to an AI service, as described above.'
+                : 'Off: nothing from this workspace is ever sent to an AI service. Tallis answers direct questions with its built-in engine; questions that need AI are declined.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={aiOn}
+            aria-labelledby="ai-switch-label"
+            aria-describedby="ai-switch-desc"
+            disabled={!editable || aiSaving}
+            onClick={toggleAi}
+            className={cx(
+              'relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors duration-fast focus-ring disabled:opacity-60',
+              aiOn ? 'bg-primary' : 'bg-ink/20',
+            )}
+          >
+            <span className={cx('inline-block h-5 w-5 rounded-full bg-surface shadow transition-transform duration-fast', aiOn ? 'translate-x-6' : 'translate-x-1')} />
+          </button>
+        </div>
+        {!editable && <p className="field-hint mt-3">Only workspace owners and admins can change this.</p>}
+        {aiError && <div className="mt-3"><FormError>{aiError}</FormError></div>}
+      </section>
+
+      <section className="card card-pad">
+        <SectionHeading
+          title="Download your data"
+          description="A .zip with your profile, every file in this workspace as CSV, your chats, saved answers and reports."
+        />
+        <FormError>{exportError}</FormError>
+        <Button icon={Download} onClick={exportData} loading={exporting} className={exportError ? 'mt-3' : ''}>
+          {exporting ? 'Preparing your download…' : 'Download my data'}
+        </Button>
+      </section>
+
+      <section className="card card-pad border-danger/30">
+        <SectionHeading
+          title="Delete account"
+          description="Permanently deletes your account, the workspaces you own (with their files, chats and reports) and your chats elsewhere. This can't be undone."
+        />
+        <Button variant="danger" icon={Trash2} onClick={() => setDeleteOpen(true)}>Delete my account</Button>
+      </section>
+
+      <DeleteAccountDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} email={user?.email || ''} />
+    </div>
+  )
+}
+
+function DeleteAccountDialog({ open, onClose, email }) {
+  const [confirmEmail, setConfirmEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const matches = confirmEmail.trim().toLowerCase() === email.toLowerCase() && !!email
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!matches) { setError('Type your account email exactly to confirm.'); return }
+    setError(''); setBusy(true)
+    try {
+      await api('/user/account', { method: 'DELETE', body: { confirm_email: confirmEmail.trim(), password: password || null } })
+      clearSession()
+      try { localStorage.removeItem('datapilot_session_id') } catch { /* storage blocked */ }
+      window.location.replace('/')
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={() => { if (!busy) onClose() }}
+      size="sm"
+      title="Delete your account?"
+      description="Everything you own in Tallis is deleted for good. Download your data first if you want a copy."
+    >
+      <form onSubmit={submit} noValidate className="space-y-4">
+        <FormError>{error}</FormError>
+        <div>
+          <label htmlFor="delete-email" className="field-label">Type <span className="font-semibold">{email}</span> to confirm</label>
+          <input id="delete-email" type="email" autoComplete="off" className="input" value={confirmEmail}
+            onChange={(e) => setConfirmEmail(e.target.value)} data-autofocus />
+        </div>
+        <div>
+          <label htmlFor="delete-password" className="field-label">Password</label>
+          <input id="delete-password" type="password" autoComplete="current-password" className="input" value={password}
+            onChange={(e) => setPassword(e.target.value)} aria-describedby="delete-password-hint" />
+          <p id="delete-password-hint" className="field-hint">Not needed if you only sign in with Google.</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 pt-1">
+          <Button type="button" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button type="submit" variant="danger" icon={Trash2} loading={busy} disabled={!matches}>Delete account</Button>
+        </div>
+      </form>
+    </Dialog>
   )
 }

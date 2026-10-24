@@ -19,10 +19,14 @@ import threading
 import time
 from collections import OrderedDict
 
+import asyncio
+
 from agents.base_agent import AgentResponse, BaseAgent
+from core import sql_cache
 from core.data_store import QueryTimeoutError, UnsafeQueryError
 from core.error_intelligence import diagnose_empty_result, diagnose_sql_error, format_for_user
 from core.jsonsafe import to_jsonable
+from core.question_engine import plan_question
 
 logger = logging.getLogger("datapilot.agent.insight")
 _AS_SPLIT = re.compile(r"\bAS\b", re.IGNORECASE)
@@ -198,43 +202,70 @@ class InsightAgent(BaseAgent):
             cached["metadata"]["cached"] = True
             return AgentResponse(**cached)
 
-        columns_info = ", ".join(f'"{col}" ({dtype})' for col, dtype in zip(df.columns, df.dtypes))
-        sample = json.dumps(to_jsonable(df.head(2).to_dict(orient="records")))[:4000]
-        prompt = f"Table: {table_name}\nColumns: {columns_info}\nSample values: {sample}\nQuestion: {query}"
-
-        raw = await self.llm.generate(prompt, system=SQL_SYSTEM, json_mode=True)
-        sql, explanation = _extract_sql(raw)
-        if not sql:
-            logger.warning("Could not extract SQL from model output")
-            return AgentResponse.error_response(f"Could not generate a valid SQL query for: '{query}'", "insight")
-
         tables = {table_name: df}
         auto_recovery = None
-        try:
-            result = await self.cpu(self.store.execute, sql, tables)
-        except UnsafeQueryError as exc:
-            return AgentResponse.error_response(
-                f"The generated query was rejected for safety reasons ({exc}). Try rephrasing the question.", "insight"
-            )
-        except QueryTimeoutError as exc:
-            return AgentResponse.error_response(f"{exc} Try a narrower question.", "insight")
-        except Exception as e:
-            intelligent_err = diagnose_sql_error(e, sql, df, file_record=record)
-            result = None
-            if intelligent_err.get("code") == "COLUMN_NOT_FOUND":
-                bad_col = intelligent_err.get("affected_column") or ""
-                close = difflib.get_close_matches(bad_col, [str(c) for c in df.columns], n=1, cutoff=0.6)
-                if close:
-                    suggested = close[0]
-                    fixed_sql = re.sub(r'"?\b' + re.escape(bad_col) + r'\b"?', f'"{suggested}"', sql, flags=re.IGNORECASE)
-                    try:
-                        result = await self.cpu(self.store.execute, fixed_sql, tables)
-                        auto_recovery = f"Column '{bad_col}' was not found; '{suggested}' was used instead."
-                        sql = fixed_sql
-                    except Exception:
-                        result = None
-            if result is None:
-                return AgentResponse.error_response(format_for_user(intelligent_err), "insight", intelligent_error=intelligent_err)
+        result = None
+        sql = explanation = ""
+
+        # 1. Tallis's own question engine: common questions need no AI call.
+        answered_by = "ai"
+        plan = plan_question(query, df, table_name)
+        if plan is not None:
+            sql, explanation, answered_by = plan.sql, plan.explanation, "engine"
+        else:
+            # 2. SQL that already answered this question for the same column layout.
+            hit = await asyncio.to_thread(sql_cache.lookup, self.workspace_id, df, query, table_name)
+            if hit:
+                sql, explanation = hit
+                answered_by = "cache"
+        if answered_by != "ai":
+            try:
+                result = await self.cpu(self.store.execute, sql, tables)
+            except Exception as exc:  # fall back to the AI rather than failing the question
+                logger.warning("Non-AI SQL (%s) failed, falling back to AI: %s", answered_by, type(exc).__name__)
+                if answered_by == "cache":
+                    await asyncio.to_thread(sql_cache.forget, self.workspace_id, df, query)
+                answered_by, result = "ai", None
+
+        # 3. The AI model writes the SQL.
+        if result is None:
+            columns_info = ", ".join(f'"{col}" ({dtype})' for col, dtype in zip(df.columns, df.dtypes))
+            sample = json.dumps(to_jsonable(df.head(2).to_dict(orient="records")))[:4000]
+            prompt = f"Table: {table_name}\nColumns: {columns_info}\nSample values: {sample}\nQuestion: {query}"
+
+            raw = await self.llm.generate(prompt, system=SQL_SYSTEM, json_mode=True)
+            sql, explanation = _extract_sql(raw)
+            if not sql:
+                logger.warning("Could not extract SQL from model output")
+                return AgentResponse.error_response(f"Could not generate a valid SQL query for: '{query}'", "insight")
+
+            try:
+                result = await self.cpu(self.store.execute, sql, tables)
+            except UnsafeQueryError as exc:
+                return AgentResponse.error_response(
+                    f"The generated query was rejected for safety reasons ({exc}). Try rephrasing the question.", "insight"
+                )
+            except QueryTimeoutError as exc:
+                return AgentResponse.error_response(f"{exc} Try a narrower question.", "insight")
+            except Exception as e:
+                intelligent_err = diagnose_sql_error(e, sql, df, file_record=record)
+                result = None
+                if intelligent_err.get("code") == "COLUMN_NOT_FOUND":
+                    bad_col = intelligent_err.get("affected_column") or ""
+                    close = difflib.get_close_matches(bad_col, [str(c) for c in df.columns], n=1, cutoff=0.6)
+                    if close:
+                        suggested = close[0]
+                        fixed_sql = re.sub(r'"?\b' + re.escape(bad_col) + r'\b"?', f'"{suggested}"', sql, flags=re.IGNORECASE)
+                        try:
+                            result = await self.cpu(self.store.execute, fixed_sql, tables)
+                            auto_recovery = f"Column '{bad_col}' was not found; '{suggested}' was used instead."
+                            sql = fixed_sql
+                        except Exception:
+                            result = None
+                if result is None:
+                    return AgentResponse.error_response(format_for_user(intelligent_err), "insight", intelligent_error=intelligent_err)
+            if result.rows:
+                await asyncio.to_thread(sql_cache.store, self.workspace_id, df, query, table_name, sql, explanation)
 
         row_count = len(result.rows)
         if row_count == 0:
@@ -263,8 +294,13 @@ class InsightAgent(BaseAgent):
             "table_name": table_name,
             "dataset_version": record.version,
             "cached": False,
+            "answered_by": answered_by,
             "explain": explain,
         }
+        if answered_by == "engine":
+            explain["verification"] = "Built by Tallis's question engine (no AI) and computed on your data"
+        elif answered_by == "cache":
+            explain["verification"] = "Reused a query that answered this question before, computed on your current data"
         if auto_recovery:
             metadata["auto_recovered"] = True
             metadata["recovery_message"] = auto_recovery

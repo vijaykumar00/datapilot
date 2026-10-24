@@ -1,5 +1,5 @@
 """
-test_rc1_regression.py — Comprehensive regression and acceptance test suite for DataPilot RC-1.
+test_rc1_regression.py — Comprehensive regression and acceptance test suite for Tallis RC-1.
 """
 
 import os
@@ -111,7 +111,7 @@ class TestRC1Regression(unittest.TestCase):
         limits = get_plan_limits("pro", self.db)
         # Ensure we loaded upload_limit/query_limit without AttributeError
         self.assertEqual(limits["upload_count"], -1)
-        self.assertEqual(limits["query_count"], -1)
+        self.assertEqual(limits["query_count"], 1000)  # Pro: 1,000 AI questions a month
         self.assertEqual(limits["storage_bytes"], 10 * 1024 * 1024 * 1024)
 
     # ─────────────────────────────────────────────────────────────

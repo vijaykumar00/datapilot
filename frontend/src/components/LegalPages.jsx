@@ -8,10 +8,10 @@ const legalPages = {
   '/legal/privacy': {
     title: 'Privacy Policy',
     sections: [
-      ['Data storage and processing', 'DataPilot processes calculations in workspace context and stores files inside the configured backend workspace storage.'],
+      ['Data storage and processing', 'Tallis processes calculations in workspace context and stores files inside the configured backend workspace storage.'],
       ['Guest data expiration', 'Guest sessions and associated uploads are designed for temporary evaluation workflows.'],
       ['Third-party AI integrations', 'When external AI providers are configured, prompts may be sent to the selected provider endpoint. Stored provider keys are encrypted by the application layer.'],
-      ['Cookies and local storage', 'DataPilot uses functional session storage and browser preferences. Advertising trackers are not part of the current product foundation.'],
+      ['Cookies and local storage', 'Tallis uses functional session storage and browser preferences. Advertising trackers are not part of the current product foundation.'],
     ],
   },
   '/legal/terms': {
@@ -25,7 +25,7 @@ const legalPages = {
   '/legal/cookie-policy': {
     title: 'Cookie Policy',
     sections: [
-      ['Functional storage', 'DataPilot uses functional cookies and browser storage for authentication state, preferences, and workspace continuity.'],
+      ['Functional storage', 'Tallis uses functional cookies and browser storage for authentication state, preferences, and workspace continuity.'],
       ['Tracking posture', 'The current product foundation does not include behavioral advertising networks.'],
     ],
   },

@@ -5,7 +5,7 @@
 Status:
 
 - Size: 1200 x 630.
-- Branding: DataPilot logo mark, charcoal background, indigo/cyan data grid.
+- Branding: Tallis tally-mark logo, navy background, faint grid.
 - Message: factual product positioning only.
 - Exclusions: no fake metrics, customer names, testimonials, or compliance claims.
 

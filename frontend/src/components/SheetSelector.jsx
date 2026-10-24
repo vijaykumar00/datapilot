@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { useDataPilot } from '../hooks/useDataPilot'
 
-export default function SheetSelector({ file }) {
+// PDF and Word uploads list the tables found in the document instead of sheets.
+const MAX_CHIPS = 6
+
+export default function SheetSelector({ file, variant = 'chips' }) {
   const { switchSheet } = useDataPilot()
   const sheets = file?.metadata?.sheet_names || []
   const activeSheet = file?.metadata?.active_sheet
@@ -25,10 +28,42 @@ export default function SheetSelector({ file }) {
   }
 
   const labelId = `sheet-selector-label-${file.file_id}`
+  const noun = file?.metadata?.document_type ? 'Table' : 'Sheet'
+  const errorText = error && (
+    <p role="alert" className="field-error mt-1 flex items-start gap-1 text-xs">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+      <span>Couldn't switch {noun.toLowerCase()}s: {error}</span>
+    </p>
+  )
+
+  if (variant === 'select' || sheets.length > MAX_CHIPS) {
+    const selectId = `sheet-select-${file.file_id}`
+    return (
+      <div className={variant === 'select' ? 'flex w-full min-w-0 items-center gap-2 sm:w-auto' : 'mt-1 min-w-0 px-1'}>
+        <label htmlFor={selectId} className={variant === 'select' ? 'text-sm text-muted' : 'mb-1 block text-xs text-subtle'}>
+          {noun} <span className="text-subtle">({sheets.length})</span>
+        </label>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <select
+            id={selectId}
+            className="input h-9 min-w-0 flex-1 sm:w-64 sm:flex-none"
+            value={pendingSheet || activeSheet || ''}
+            disabled={loading}
+            aria-busy={loading || undefined}
+            onChange={(e) => handleSwitch(e.target.value)}
+          >
+            {sheets.map((sheet) => <option key={sheet} value={sheet}>{sheet}</option>)}
+          </select>
+          {loading && <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-primary-text" aria-label="Loading" />}
+        </div>
+        {errorText}
+      </div>
+    )
+  }
 
   return (
     <div className="mt-1 min-w-0 px-1">
-      <p id={labelId} className="mb-1 text-xs text-subtle">Sheet</p>
+      <p id={labelId} className="mb-1 text-xs text-subtle">{noun}</p>
       <div role="group" aria-labelledby={labelId} className="flex min-w-0 flex-wrap gap-1">
         {sheets.map(sheet => {
           const active = sheet === activeSheet
@@ -54,12 +89,7 @@ export default function SheetSelector({ file }) {
           )
         })}
       </div>
-      {error && (
-        <p role="alert" className="field-error mt-1 flex items-start gap-1 text-xs">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-          <span>Couldn't switch sheets: {error}</span>
-        </p>
-      )}
+      {errorText}
     </div>
   )
 }

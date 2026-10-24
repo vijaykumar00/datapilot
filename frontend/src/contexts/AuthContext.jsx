@@ -11,6 +11,9 @@
  *   - logout() → void
  *   - initGuestSession() → boolean
  *   - convertGuest(email, password, ...) → void
+ *   - endGuestSession() → deletes all guest data on the server, then clears local state
+ *   - Signing in (password or Google) from a guest workspace moves the guest work
+ *     into the account automatically (POST /guest/claim).
  *   - refreshToken() → string | null
  *   - apiHeaders() → Headers object with correct auth
  */
@@ -35,6 +38,8 @@ const AuthContext = createContext(null);
 // them in HttpOnly, SameSite=Strict cookies and lib/authSession.js refreshes
 // through them.  Only the non-secret profile is kept in localStorage.
 const STORAGE_KEYS = AUTH_KEYS;
+// Set once a guest has picked "continue as guest" (or loaded sample data) for this session.
+export const GUEST_CHOICE_KEY = 'tallis_guest_choice';
 
 // ─────────────────────────────────────────────────────────────
 // Provider
@@ -200,6 +205,44 @@ export function AuthProvider({ children }) {
     setGuestUsage(prev => ({ ...prev, [`${action}_count`]: (prev[`${action}_count`] || 0) + 1 }));
   }, []);
 
+  // ── Guest end / claim ───────────────────────────────────────
+  const endGuestSession = useCallback(async () => {
+    const token = sessionStorage.getItem(STORAGE_KEYS.GUEST_TOKEN);
+    if (token) {
+      const res = await fetch(apiUrl('/guest/session'), { method: 'DELETE', headers: { 'X-Guest-Token': token } });
+      if (!res.ok) throw new Error(await readApiError(res, "Couldn't end the guest session. Try again."));
+    }
+    sessionStorage.removeItem(STORAGE_KEYS.GUEST_TOKEN);
+    sessionStorage.removeItem(STORAGE_KEYS.GUEST_SESSION_ID);
+    sessionStorage.removeItem(GUEST_CHOICE_KEY);
+    try { localStorage.removeItem('datapilot_session_id'); } catch { /* storage blocked */ }
+    setGuestToken(null);
+    setGuestSessionId(null);
+  }, []);
+
+  // After a sign-in that started in a guest workspace, keep the guest's work.
+  const claimGuestWork = async (token, workspace) => {
+    if (!token) return null;
+    try {
+      const res = await fetch(apiUrl('/guest/claim'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: sessionHeaders('POST', {
+          'Content-Type': 'application/json', ...SESSION_MODE_HEADERS, 'X-Guest-Token': token,
+          ...(workspace ? { 'X-Workspace-ID': workspace } : {}),
+        }),
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const moved = Object.values(data.transferred || {}).some((n) => n > 0);
+      if (moved) addToast('Your guest work was saved to your account.', 'success', 8000);
+      return data;
+    } catch {
+      return null; // the sign-in itself succeeded; guest data simply stays temporary
+    }
+  };
+
   // ── Auth Flows ──────────────────────────────────────────────
   const _storeAuthData = (data) => {
     // The refresh token in `data` is ignored on purpose: the HttpOnly cookie set
@@ -224,8 +267,10 @@ export function AuthProvider({ children }) {
     });
     if (!res.ok) throw new Error(await readApiError(res, 'Login failed'));
     const data = await res.json();
+    const pendingGuest = sessionStorage.getItem(STORAGE_KEYS.GUEST_TOKEN);
     _storeAuthData(data);
     addToast(`Welcome back, ${email}!`, 'success');
+    await claimGuestWork(pendingGuest, data.workspace_id);
     return data;
   }, [addToast]);
 
@@ -264,8 +309,10 @@ export function AuthProvider({ children }) {
     });
     if (!res.ok) throw new Error(await readApiError(res, `${provider} sign-in failed`));
     const data = await res.json();
+    const pendingGuest = sessionStorage.getItem(STORAGE_KEYS.GUEST_TOKEN);
     _storeAuthData(data);
     addToast(`Signed in with ${provider}.`, 'success');
+    await claimGuestWork(pendingGuest, data.workspace_id);
     return data;
   }, [addToast]);
 
@@ -391,6 +438,7 @@ export function AuthProvider({ children }) {
     requestPhoneOtp,
     verifyPhoneOtp,
     initGuestSession,
+    endGuestSession,
     updateGuestUsage,
     forgotPassword,
     resetPassword,

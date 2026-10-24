@@ -69,7 +69,7 @@ export default function OnboardingFlow() {
         <div className="w-full max-w-2xl">
           {step === 1 ? (
             <fieldset>
-              <legend className="text-2xl font-semibold text-fg">Welcome to DataPilot{user?.full_name ? `, ${user.full_name.split(' ')[0]}` : ''}</legend>
+              <legend className="text-2xl font-semibold text-fg">Welcome to Tallis{user?.full_name ? `, ${user.full_name.split(' ')[0]}` : ''}</legend>
               <p className="mt-1 text-base text-muted">What kind of spreadsheets do you work with? We'll suggest questions that fit.</p>
               <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Spreadsheet type">
                 {useCases.map((item) => {

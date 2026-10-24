@@ -499,7 +499,7 @@ def _send_phone_otp(phone_number: str, code: str) -> str:
                 webhook_url,
                 json={
                     "to": phone_number,
-                    "message": f"Your DataPilot sign-in code is {code}. It expires in {OTP_TTL_MINUTES} minutes.",
+                    "message": f"Your Tallis sign-in code is {code}. It expires in {OTP_TTL_MINUTES} minutes.",
                     "code": code,
                     "ttl_minutes": OTP_TTL_MINUTES,
                 },

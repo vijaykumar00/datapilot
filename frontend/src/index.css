@@ -1,4 +1,4 @@
-/* DataPilot styles.  Order: fonts → tokens → Tailwind base → base → Tailwind components →
+/* Tallis styles.  Order: fonts → tokens → Tailwind base → base → Tailwind components →
    shared components → Tailwind utilities → page CSS.  All @imports must stay at the top. */
 @import '@fontsource/ibm-plex-sans/latin-400.css';
 @import '@fontsource/ibm-plex-sans/latin-500.css';

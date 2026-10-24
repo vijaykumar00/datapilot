@@ -13,7 +13,7 @@ export default function UploadDialog({ open, onClose }) {
       open={open}
       onClose={onClose}
       title="Upload data"
-      description="CSV, XLSX or XLS. Large files keep processing in the background — you can close this window."
+      description="CSV, Excel, or tables from PDF and Word files. Large files keep processing in the background — you can close this window."
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Close</Button>

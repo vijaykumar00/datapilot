@@ -1,5 +1,5 @@
 """
-analysis_store.py — SQLite-backed CRUD module for saved analyses in DataPilot.
+analysis_store.py — SQLite-backed CRUD module for saved analyses in Tallis.
 
 A "saved analysis" is a checkpoint: the original user query, the full AI
 response, and any associated chart/table data — persisted for replay or restore.

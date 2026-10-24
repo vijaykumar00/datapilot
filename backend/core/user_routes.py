@@ -8,7 +8,7 @@ import logging
 import uuid
 import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Header
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -45,6 +45,11 @@ class UpdateSettingsRequest(BaseModel):
     notification_email: Optional[bool] = None
     timezone: Optional[str] = None
     language: Optional[str] = None
+
+
+class DeleteAccountRequest(BaseModel):
+    confirm_email: str
+    password: Optional[str] = None
 
 
 class AddAPIKeyRequest(BaseModel):
@@ -370,3 +375,72 @@ def track_event(
     ))
     db.commit()
     return {"success": True}
+
+
+# ─────────────────────────────────────────────────────────────
+# Account deletion
+# ─────────────────────────────────────────────────────────────
+
+@router.delete("/account")
+def delete_account(
+    payload: DeleteAccountRequest,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Permanently delete the account, the workspaces it owns alone and all their data.
+
+    Refused (409) while the user owns a workspace that other people use, or while a
+    paid subscription would keep renewing: those need a decision first.
+    """
+    from core.models import OAuthIdentity, WorkspaceSubscription
+
+    if payload.confirm_email.strip().lower() != (user.email or "").lower():
+        raise HTTPException(status_code=400, detail="Type your account email exactly to confirm.")
+    has_social = db.query(OAuthIdentity).filter(OAuthIdentity.user_id == user.user_id).first() is not None
+    if payload.password:
+        if not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Password is incorrect.")
+    elif not has_social:
+        raise HTTPException(status_code=400, detail="Enter your password to confirm.")
+
+    owned = db.query(Workspace).filter(Workspace.owner_id == user.user_id).all()
+    for ws in owned:
+        others = db.query(WorkspaceMember).filter(
+            WorkspaceMember.workspace_id == ws.workspace_id, WorkspaceMember.user_id != user.user_id,
+        ).count()
+        if others:
+            raise HTTPException(status_code=409, detail=(
+                f"You own the workspace '{ws.name}', which other people use. Remove its members or delete "
+                "that workspace first."))
+        sub = db.query(WorkspaceSubscription).filter(WorkspaceSubscription.workspace_id == ws.workspace_id).first()
+        if (sub and sub.plan_id not in ("free", None) and sub.status in ("active", "past_due")
+                and not sub.cancel_at_period_end):
+            raise HTTPException(status_code=409, detail=(
+                "Cancel your paid plan in Plan & billing first, so you are not charged again."))
+
+    owned_ids = [ws.workspace_id for ws in owned]
+    user_id = user.user_id
+    for ws in owned:
+        db.delete(ws)
+    db.add(AuditLog(id=str(uuid.uuid4()), user_id=None, workspace_id=None, event_type="ACCOUNT_DELETED",
+                    description=f"Account {user_id} deleted by its owner; {len(owned_ids)} workspace(s) removed."))
+    db.delete(user)
+    db.commit()
+
+    # Data removal runs as durable jobs (retried if storage is briefly unavailable).
+    from core import jobs
+    from core.data_purge import purge_user_chats
+
+    purge_user_chats(user_id)
+    for ws_id in owned_ids:
+        job_id = jobs.enqueue("workspace_cleanup", {"workspace_id": ws_id}, workspace_id=ws_id,
+                              user_id=None, max_attempts=5)
+        if jobs.execution_mode() == "inline":
+            jobs.run_inline(job_id)
+
+    from core.auth_routes import clear_refresh_cookie
+
+    clear_refresh_cookie(response)
+    logger.info("Account %s deleted (%d workspaces).", user_id, len(owned_ids))
+    return {"success": True, "message": "Your account and its data have been deleted."}

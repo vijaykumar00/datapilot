@@ -1,5 +1,5 @@
 /*
- * DataPilot design tokens.
+ * Tallis design tokens.
  * Colors are "R G B" triplets so Tailwind can apply opacity: bg-primary/10.
  * Light is the default; dark applies via .dark on <html> (set before first paint
  * from the saved preference, or from prefers-color-scheme when none is saved).

@@ -1,4 +1,4 @@
-# DataPilot Phase 4.2 Stripe Billing Adapter
+# Tallis Phase 4.2 Stripe Billing Adapter
 
 ## Architecture
 

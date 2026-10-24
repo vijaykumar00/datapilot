@@ -4,19 +4,25 @@ import { AlertCircle, AlertTriangle, ArrowUpRight, Check, CheckCircle2, Info, Re
 import { useAuth } from '../contexts/AuthContext'
 import {
   BillingApiError,
-  centsToPrice,
   createBillingClient,
+  createPaymentsClient,
   daysUntil,
+  defaultCurrency,
   formatBytes,
   formatLimit,
+  formatPlanPrice,
   friendlyBillingStatus,
   isSafeBillingRedirect,
+  planHighlights,
+  rememberCurrency,
 } from '../lib/billingClient'
+import { startUpgrade } from '../lib/checkout'
+import Dialog from './ui/Dialog'
 import { Badge, Button, Skeleton, cx } from './ui'
 
+// AI questions are the only metered questions: instant answers never count.
 const METRICS = [
-  ['ai_prompt_count', 'AI prompts'],
-  ['query_count', 'Analytics queries'],
+  ['query_count', 'AI questions'],
   ['upload_count', 'Uploads'],
   ['dataset_count', 'Datasets'],
   ['report_count', 'Reports'],
@@ -24,7 +30,6 @@ const METRICS = [
   ['storage_bytes', 'Storage', 'bytes'],
   ['chart_count', 'Charts'],
   ['member_count', 'Workspace members'],
-  ['api_usage_count', 'API usage'],
 ]
 
 function formatDate(value) {
@@ -34,10 +39,6 @@ function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
-function planPrice(plan, interval) {
-  if (plan?.plan_id === 'enterprise') return 'Contact sales'
-  return centsToPrice(interval === 'annual' ? plan?.annual_price_cents : plan?.monthly_price_cents, interval)
-}
 
 function normalizeError(error) {
   if (error instanceof BillingApiError) {
@@ -165,6 +166,11 @@ export default function BillingPortal() {
   const [state, setState] = useState({ current: null, plans: [], loading: true, refreshing: false })
   const [error, setError] = useState(null)
   const [interval, setInterval] = useState('monthly')
+  const [currency, setCurrencyState] = useState(defaultCurrency)
+  const setCurrency = (value) => { setCurrencyState(value); rememberCurrency(value) }
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [notice, setNotice] = useState(null)
   const [checkoutPlan, setCheckoutPlan] = useState(null)
   const [portalLoading, setPortalLoading] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
@@ -208,6 +214,8 @@ export default function BillingPortal() {
 
   const currentPlanId = state.current?.subscription?.plan_id || (isGuest ? 'guest' : 'free')
   const portalAvailable = Boolean(state.current?.billing?.portal_available)
+  const canCancelInApp = Boolean(state.current?.billing?.can_cancel_in_app)
+  const paidWithRazorpay = state.current?.billing?.payment_provider === 'razorpay'
   const paymentStatus = state.current?.billing?.payment_status || state.current?.subscription?.status
   const trialDays = daysUntil(state.current?.trial?.ends_at)
   const visiblePlans = state.plans.filter((plan) => plan.is_public !== false && plan.is_active !== false)
@@ -234,20 +242,39 @@ export default function BillingPortal() {
     }
     setCheckoutPlan(planId)
     setError(null)
+    setNotice(null)
     try {
-      const returnUrl = `${window.location.origin}/app/settings/billing?checkout=success`
-      const cancelUrl = `${window.location.origin}/app/settings/billing?checkout=cancelled`
-      const data = await client.createCheckout({ plan_id: planId, interval, success_url: returnUrl, cancel_url: cancelUrl })
-      const checkoutUrl = data.checkout_url || data.url
-      if (!checkoutUrl || !isSafeBillingRedirect(checkoutUrl)) {
-        setError('Checkout could not be opened safely. Please contact support.')
-        return
+      const result = await startUpgrade({
+        billingClient: client,
+        planId,
+        interval,
+        currency,
+        successUrl: `${window.location.origin}/app/settings/billing?checkout=success`,
+        cancelUrl: `${window.location.origin}/app/settings/billing?checkout=cancelled`,
+      })
+      if (result.status === 'activated') {
+        setNotice('Payment received. Your new plan is active.')
+        await loadBilling({ refreshing: true })
       }
-      window.location.assign(checkoutUrl)
+    } catch (err) {
+      if (!err?.cancelled) setError(err instanceof BillingApiError ? normalizeError(err) : err.message)
+    } finally {
+      setCheckoutPlan(null)
+    }
+  }
+
+  const cancelInApp = async () => {
+    setCancelling(true)
+    setError(null)
+    try {
+      await createPaymentsClient().cancelRazorpay({ at_cycle_end: true })
+      setCancelOpen(false)
+      setNotice('Your plan will end at the close of the current billing period. You keep full access until then.')
+      await loadBilling({ refreshing: true })
     } catch (err) {
       setError(normalizeError(err))
     } finally {
-      setCheckoutPlan(null)
+      setCancelling(false)
     }
   }
 
@@ -326,6 +353,10 @@ export default function BillingPortal() {
         </Alert>
       )}
 
+      {notice && (
+        <Alert tone="info" role="status" aria-live="polite" title={notice} />
+      )}
+
       {error && (
         <Alert tone="error" role="alert" title="Billing action needs attention">
           {error}
@@ -345,7 +376,7 @@ export default function BillingPortal() {
             <Detail term="Renewal date">{formatDate(state.current?.subscription?.renews_at || state.current?.subscription?.current_period_end)}</Detail>
             <Detail term="Billing period">{formatDate(state.current?.subscription?.current_period_start)} – {formatDate(state.current?.subscription?.current_period_end)}</Detail>
             <Detail term="Payment status">{friendlyBillingStatus(paymentStatus)}</Detail>
-            <Detail term="Billing portal">{portalAvailable ? 'Available' : 'Not available yet'}</Detail>
+            <Detail term="Paid with">{paidWithRazorpay ? 'Razorpay (UPI / card, ₹)' : state.current?.billing?.payment_provider === 'stripe' ? 'Card via Stripe ($)' : 'Not paid yet'}</Detail>
             <Detail term="Cancellation">{state.current?.subscription?.cancel_at_period_end ? 'Cancels at period end' : state.current?.subscription?.canceled_at ? 'Cancelled' : 'Not scheduled'}</Detail>
             <Detail term="Trial">{state.current?.trial?.active ? `${trialDays ?? 0} days left` : state.current?.trial?.expired ? 'Expired' : 'Not active'}</Detail>
           </dl>
@@ -354,9 +385,13 @@ export default function BillingPortal() {
               {checkoutPlan ? 'Starting checkout...' : isFreeTier ? 'Upgrade' : 'Change plan'}
               {!checkoutPlan && <ArrowUpRight className="h-4 w-4" aria-hidden="true" />}
             </button>
-            <button type="button" className="btn-secondary" onClick={openPortal} disabled={!portalAvailable || portalLoading}>
-              {portalLoading ? 'Opening portal...' : 'Manage billing'}
-            </button>
+            {canCancelInApp ? (
+              <button type="button" className="btn-secondary" onClick={() => setCancelOpen(true)}>Cancel plan</button>
+            ) : portalAvailable ? (
+              <button type="button" className="btn-secondary" onClick={openPortal} disabled={portalLoading}>
+                {portalLoading ? 'Opening portal...' : 'Manage billing'}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -372,12 +407,14 @@ export default function BillingPortal() {
             {state.current?.trial?.active
               ? `Your trial ends ${formatDate(state.current.trial.ends_at)}. Upgrade any time before then to keep your paid features.`
               : needsPaymentAttention
-                ? 'Payment needs attention. Open the billing portal to update your payment details or retry the charge.'
+                ? paidWithRazorpay
+                  ? "A renewal payment didn't go through. Razorpay retries automatically; check your UPI app or card, or approve the payment request from Razorpay."
+                  : 'Payment needs attention. Open the billing portal to update your payment details or retry the charge.'
                 : state.current?.subscription?.cancel_at_period_end
                   ? `Access continues until ${formatDate(state.current.subscription.current_period_end)}.`
                   : 'Your billing is in good standing.'}
           </p>
-          {(needsPaymentAttention || state.current?.subscription?.cancel_at_period_end) && (
+          {(needsPaymentAttention || state.current?.subscription?.cancel_at_period_end) && portalAvailable && (
             <button type="button" className="btn-secondary mt-auto self-start" onClick={openPortal} disabled={!portalAvailable || portalLoading}>
               Resolve in portal
             </button>
@@ -389,7 +426,7 @@ export default function BillingPortal() {
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <SubHeadingTag className="text-lg font-semibold text-fg">Workspace limits</SubHeadingTag>
-            <p className="mt-0.5 text-sm text-muted">How much of your plan you've used this billing period.</p>
+            <p className="mt-0.5 text-sm text-muted">How much of your plan you've used this billing period. Instant answers never count — only questions that need AI do.</p>
           </div>
           <p className="text-sm text-subtle">Resets {formatDate(state.current?.subscription?.current_period_end)}</p>
         </div>
@@ -414,6 +451,23 @@ export default function BillingPortal() {
             <SubHeadingTag className="text-lg font-semibold text-fg">Compare available plans</SubHeadingTag>
             <p className="mt-0.5 text-sm text-muted">Prices shown per {interval === 'annual' ? 'year' : 'month'}.</p>
           </div>
+          <div className="flex flex-wrap gap-2">
+          <div className="inline-flex rounded-md border border-line bg-surface-muted p-0.5" role="group" aria-label="Currency">
+            {[['INR', '₹ INR'], ['USD', '$ USD']].map(([value, text]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={currency === value}
+                onClick={() => setCurrency(value)}
+                className={cx(
+                  'h-8 rounded px-3 text-sm font-medium transition-colors duration-fast focus-ring',
+                  currency === value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg',
+                )}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
           <div className="inline-flex rounded-md border border-line bg-surface-muted p-0.5" role="group" aria-label="Billing interval">
             {[['monthly', 'Monthly'], ['annual', 'Annual']].map(([value, text]) => (
               <button
@@ -429,6 +483,7 @@ export default function BillingPortal() {
                 {text}
               </button>
             ))}
+          </div>
           </div>
         </div>
 
@@ -450,15 +505,10 @@ export default function BillingPortal() {
                     {!isCurrent && isRecommended && <Badge tone="info">Recommended</Badge>}
                   </div>
                   {plan.description && <p className="mt-1 text-sm text-muted">{plan.description}</p>}
-                  <p className="mt-3 text-2xl font-semibold text-fg tabular">{planPrice(plan, interval)}</p>
+                  <p className="mt-3 text-2xl font-semibold text-fg tabular">{formatPlanPrice(plan, currency, interval)}</p>
                 </div>
                 <ul className="flex flex-col gap-2 text-sm text-fg">
-                  {[
-                    `${formatLimit(plan.limits?.ai_prompt_count ?? plan.limits?.query_count)} AI prompts`,
-                    `${formatLimit(plan.limits?.upload_count)} uploads`,
-                    `${formatLimit(plan.limits?.storage_bytes, 'bytes')} storage`,
-                    `${formatLimit(plan.limits?.member_count)} members`,
-                  ].map((line) => (
+                  {planHighlights(plan).map((line) => (
                     <li key={line} className="flex items-start gap-2">
                       <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" aria-hidden="true" />
                       <span>{line}</span>
@@ -468,8 +518,14 @@ export default function BillingPortal() {
                 <div className="mt-auto">
                   {isCurrent ? (
                     <button type="button" className="btn-secondary w-full" disabled>Current plan</button>
+                  ) : plan.plan_id === 'free' ? (
+                    <p className="text-sm text-muted">{isFreeTier ? 'Included' : 'Cancel your plan to return to Free.'}</p>
                   ) : isEnterprise ? (
                     <button type="button" className="btn-secondary w-full" onClick={() => navigate('/contact')}>Contact sales</button>
+                  ) : !isFreeTier && paidWithRazorpay && !state.current?.subscription?.cancel_at_period_end ? (
+                    <p className="text-sm text-muted">To switch, cancel your current plan first. It stays active until the period ends.</p>
+                  ) : !isFreeTier && portalAvailable ? (
+                    <button type="button" className="btn-secondary w-full" onClick={openPortal} disabled={portalLoading}>Change in billing portal</button>
                   ) : (
                     <button type="button" className="btn-primary w-full" onClick={() => createCheckout(plan.plan_id)} disabled={checkoutPlan !== null}>
                       {checkoutPlan === plan.plan_id ? 'Starting checkout...' : isFreeTier ? `Upgrade to ${plan.name}` : `Change to ${plan.name}`}
@@ -487,6 +543,28 @@ export default function BillingPortal() {
           </p>
         )}
       </section>
+
+      <p className="text-sm text-muted">
+        {currency === 'INR'
+          ? 'Paid in ₹ through Razorpay: UPI Autopay (Google Pay, PhonePe, Paytm and others), cards or bank mandate. Renews automatically; cancel any time.'
+          : 'Paid in $ by card through Stripe. Renews automatically; cancel any time.'}
+      </p>
+
+      <Dialog
+        open={cancelOpen}
+        onClose={() => { if (!cancelling) setCancelOpen(false) }}
+        size="sm"
+        title="Cancel your plan?"
+        description="You won't be charged again. Your plan stays active until the end of the period you've paid for, then the workspace moves to Free."
+        footer={(
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setCancelOpen(false)} disabled={cancelling}>Keep plan</button>
+            <Button variant="danger" onClick={cancelInApp} loading={cancelling}>Cancel plan</Button>
+          </>
+        )}
+      >
+        <p className="text-sm text-muted">Your files and chats stay saved. If they're over the Free limits, you can still view and download them; new uploads need space.</p>
+      </Dialog>
 
       <UpgradeNotice
         title="Reached a limit?"

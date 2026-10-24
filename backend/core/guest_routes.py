@@ -12,6 +12,11 @@ Guest-to-user conversion:
   - Guest signs up → new User + Workspace created
   - Guest datasets/sessions optionally transferred to new workspace
   - Guest session marked as converted
+  - Signing in to an existing account (password or Google) can claim the guest
+    work into that account's workspace (POST /guest/claim)
+
+Ending a guest session (DELETE /guest/session) deletes all of its data at once;
+sessions that are never ended are purged by the worker after they expire.
 """
 import datetime
 import hashlib
@@ -33,12 +38,22 @@ from core.auth import hash_password, hash_token, generate_random_token, create_a
 from core.models import RefreshToken
 from core.usage import PLAN_LIMITS, get_usage_summary
 from core.email_service import send_verification_email
+from core.request_identity import CallerContext, get_caller
 import os
 
 logger = logging.getLogger("datapilot.guest")
 router = APIRouter(prefix="/guest", tags=["guest"])
 
 GUEST_SESSION_TTL_HOURS = int(os.getenv("GUEST_SESSION_TTL_HOURS", "24"))
+
+
+def guest_data_deleted_after_hours() -> int:
+    """Upper bound shown to guests: session lifetime + optional retention after expiry (+1h worker sweep)."""
+    try:
+        retention = max(0, int(os.getenv("GUEST_DATA_RETENTION_HOURS", "0")))
+    except ValueError:
+        retention = 0
+    return GUEST_SESSION_TTL_HOURS + retention
 
 
 # ─────────────────────────────────────────────────────────────
@@ -128,7 +143,9 @@ def create_guest_session(request: Request, db: Session = Depends(get_db)):
             "report_count": limits["report_count"],
             "export_count": limits["export_count"],
             "max_file_size_bytes": limits["max_file_size_bytes"],
+            "max_pdf_pages": limits.get("max_pdf_pages"),
             "ttl_hours": GUEST_SESSION_TTL_HOURS,
+            "data_deleted_after_hours": guest_data_deleted_after_hours(),
         },
         usage=usage,
     )
@@ -163,9 +180,64 @@ def get_guest_session_info(
             "report_count": limits["report_count"],
             "export_count": limits["export_count"],
             "max_file_size_bytes": limits["max_file_size_bytes"],
+            "max_pdf_pages": limits.get("max_pdf_pages"),
+            "ttl_hours": GUEST_SESSION_TTL_HOURS,
+            "data_deleted_after_hours": guest_data_deleted_after_hours(),
         },
         "is_expired": False,
     }
+
+
+@router.delete("/session")
+def end_guest_session(
+    x_guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
+    db: Session = Depends(get_db),
+):
+    """End a guest session now: every file, chat and report it created is deleted."""
+    if not x_guest_token:
+        raise HTTPException(status_code=400, detail="X-Guest-Token header required.")
+    guest = _get_guest_from_token(x_guest_token, db)
+    if not guest:
+        # Already ended, expired (the worker purges it) or converted: nothing to do.
+        return {"ended": True, "deleted": None}
+    guest_id = guest.guest_session_id
+    db.close()
+    deleted = purge_guest_namespace(guest_id)
+    logger.info("Guest session %s ended by the user; data deleted.", guest_id)
+    return {"ended": True, "deleted": deleted}
+
+
+@router.post("/claim")
+def claim_guest_work(
+    caller: CallerContext = Depends(get_caller),
+    x_guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
+    db: Session = Depends(get_db),
+):
+    """Move the work of this browser's guest session into the signed-in account.
+
+    Used after signing in with a password or Google from a guest workspace, so the
+    "create an account to keep your work" promise holds for every sign-in path.
+    """
+    if not caller.is_authenticated:
+        raise HTTPException(status_code=401, detail="Sign in to save guest work to your account.")
+    caller.require_role("Member")
+    if not x_guest_token:
+        raise HTTPException(status_code=400, detail="X-Guest-Token header required.")
+    guest = _get_guest_from_token(x_guest_token, db)
+    if not guest:
+        raise HTTPException(status_code=404, detail="Guest session not found, expired or already saved.")
+    transferred = transfer_guest_namespace(guest.guest_session_id, caller.user_id, caller.workspace_id, db)
+    guest.converted_to_user_id = caller.user_id
+    guest.converted_at = datetime.datetime.utcnow()
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        user_id=caller.user_id,
+        workspace_id=caller.workspace_id,
+        event_type="GUEST_CLAIMED",
+        description=f"Guest session {guest.guest_session_id} work moved into the workspace after sign-in.",
+    ))
+    db.commit()
+    return {"success": True, "transferred": transferred}
 
 
 @router.post("/convert", status_code=status.HTTP_201_CREATED)
@@ -327,4 +399,19 @@ def transfer_guest_namespace(guest_id: str, user_id: str, workspace_id: str, db:
                {"ws": workspace_id, "gid": guest_id})
     for table in ("sessions", "messages", "saved_analyses", "reports", "dataset_registry"):
         db.execute(_text(f"UPDATE {table} SET guest_session_id = NULL WHERE workspace_id = :ws"), {"ws": workspace_id})
+    return counts
+
+
+def purge_guest_namespace(guest_id: str) -> dict:
+    """Delete everything a guest session created (files, chats, reports, cached queries)."""
+    from core.data_purge import purge_namespace
+    from core.db import SessionLocal
+
+    counts = purge_namespace(guest_id)
+    db = SessionLocal()
+    try:
+        db.query(GuestSession).filter(GuestSession.guest_session_id == guest_id).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
     return counts

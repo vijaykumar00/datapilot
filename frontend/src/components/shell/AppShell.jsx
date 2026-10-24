@@ -18,6 +18,8 @@ import UserMenu from '../UserMenu'
 import GuestBanner from '../GuestBanner'
 import CommandPalette from '../CommandPalette'
 import AuthModal from '../AuthModal'
+import GuestChoiceDialog, { guestChoiceMade } from '../GuestChoiceDialog'
+import { SAMPLE_QUESTIONS } from '../../lib/sampleData'
 import ToastContainer from '../ToastContainer'
 import UploadDialog from './UploadDialog'
 import SEO from '../marketing/SEO'
@@ -58,7 +60,7 @@ function SidebarContent({ compact, onNavigate, onUpload, onToggleCompact, isDraw
   return (
     <div className="flex h-full flex-col">
       <div className={cx('flex h-14 flex-shrink-0 items-center border-b border-line', compact ? 'justify-center px-2' : 'justify-between px-3')}>
-        <Link to="/app" onClick={onNavigate} className="flex items-center gap-2.5 rounded-md focus-ring" aria-label="DataPilot home">
+        <Link to="/app" onClick={onNavigate} className="flex items-center gap-2.5 rounded-md focus-ring" aria-label="Tallis home">
           <LogoMark size={28} />
           {!compact && <Wordmark />}
         </Link>
@@ -124,6 +126,9 @@ export default function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [authModal, setAuthModal] = useState({ open: false, tab: 'login' })
+  // Guests choose once per session between a free account and a temporary guest workspace.
+  const [choiceMade, setChoiceMade] = useState(guestChoiceMade)
+  const showGuestChoice = isGuest && !isAuthenticated && !choiceMade && !authModal.open
   const drawerRef = useRef(null)
   const menuButtonRef = useRef(null)
 
@@ -172,7 +177,7 @@ export default function AppShell() {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-bg text-fg">
-      <SEO title="Workspace" description="Private DataPilot analytics workspace." canonicalPath="/app" noindex />
+      <SEO title="Workspace" description="Private Tallis analytics workspace." canonicalPath="/app" noindex />
       <a href="#main-content" className="skip-link">Skip to content</a>
 
       {/* Desktop sidebar */}
@@ -221,7 +226,7 @@ export default function AppShell() {
               onClick={() => setDrawerOpen(true)}
               aria-expanded={drawerOpen}
             />
-            <Link to="/app" className="flex items-center rounded-md focus-ring lg:hidden" aria-label="DataPilot home">
+            <Link to="/app" className="flex items-center rounded-md focus-ring lg:hidden" aria-label="Tallis home">
               <LogoMark size={26} />
             </Link>
             <h1 className="min-w-0 truncate pl-1 text-md font-semibold text-fg lg:pl-0">{title}</h1>
@@ -259,6 +264,13 @@ export default function AppShell() {
 
       <CommandPalette isOpen={paletteOpen} onClose={() => setPaletteOpen(false)} onUpload={() => setUploadOpen(true)} />
       <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} />
+      <GuestChoiceDialog
+        open={showGuestChoice}
+        onClose={() => setChoiceMade(true)}
+        onSignUp={() => setAuthModal({ open: true, tab: 'signup' })}
+        onSignIn={() => setAuthModal({ open: true, tab: 'login' })}
+        onSampleLoaded={() => navigate('/app/analyze', { state: { suggestedPrompt: SAMPLE_QUESTIONS[0] } })}
+      />
       <AuthModal open={authModal.open} onClose={() => setAuthModal((s) => ({ ...s, open: false }))} defaultTab={authModal.tab} />
       <ToastContainer />
     </div>

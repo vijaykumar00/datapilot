@@ -138,3 +138,64 @@ export function daysUntil(dateString) {
   if (Number.isNaN(target)) return null
   return Math.max(0, Math.ceil((target - Date.now()) / 86_400_000))
 }
+
+// ── Currencies and plan copy ────────────────────────────────────────────────
+
+const CURRENCY_KEY = 'tallis_currency'
+
+/** INR for visitors in India (by time zone), USD elsewhere; a manual choice is remembered. */
+export function defaultCurrency() {
+  try {
+    const saved = localStorage.getItem(CURRENCY_KEY)
+    if (saved === 'INR' || saved === 'USD') return saved
+  } catch { /* storage blocked */ }
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  return tz === 'Asia/Kolkata' || tz === 'Asia/Calcutta' ? 'INR' : 'USD'
+}
+
+export function rememberCurrency(currency) {
+  try { localStorage.setItem(CURRENCY_KEY, currency) } catch { /* storage blocked */ }
+}
+
+/** Price label from a plan's minor units (paise / cents). */
+export function formatPlanPrice(plan, currency = 'USD', interval = 'monthly') {
+  if (plan?.plan_id === 'enterprise') return 'Contact sales'
+  const minor = plan?.prices?.[currency]?.[interval === 'annual' ? 'annual' : 'monthly']
+    ?? (currency === 'USD' ? (interval === 'annual' ? plan?.annual_price_cents : plan?.monthly_price_cents) : null)
+  if (minor === null || minor === undefined) return 'Contact sales'
+  const symbol = currency === 'INR' ? '₹' : '$'
+  if (minor === 0) return `${symbol}0`
+  const amount = Math.round(minor / 100).toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US')
+  return `${symbol}${amount}${interval === 'annual' ? '/yr' : '/mo'}`
+}
+
+const FEATURE_LINES = [
+  ['can_export_pdf', 'Reports as PDF and Word'],
+  ['can_forecast', 'Forecasts'],
+  ['can_use_multiple_datasets', 'Questions across several files'],
+  ['can_invite_members', 'Team roles and shared workspace'],
+  ['can_access_priority_support', 'Priority support'],
+]
+
+/** What a plan includes, in the words customers use. */
+export function planHighlights(plan) {
+  const l = plan?.limits || {}
+  const lines = ['Unlimited instant answers']
+  const ai = l.query_count ?? l.ai_prompt_count
+  lines.push(ai === null || ai === undefined || ai === -1 ? 'Unlimited AI questions' : `${Number(ai).toLocaleString()} AI questions a month`)
+  lines.push(`${formatLimit(l.storage_bytes, 'bytes')} storage`)
+  if (l.max_file_size_bytes) lines.push(`Files up to ${formatBytes(l.max_file_size_bytes)}`)
+  if (l.max_pdf_pages) lines.push(`PDFs up to ${Number(l.max_pdf_pages).toLocaleString()} pages`)
+  if (l.member_count && l.member_count !== 1) lines.push(`${formatLimit(l.member_count)} team members`)
+  for (const [key, text] of FEATURE_LINES) if (plan?.features?.[key]) lines.push(text)
+  return lines
+}
+
+export function createPaymentsClient() {
+  return {
+    getProviders: () => request('/billing/providers'),
+    createRazorpaySubscription: (payload) => request('/billing/razorpay/subscription', { method: 'POST', body: payload }),
+    verifyRazorpay: (payload) => request('/billing/razorpay/verify', { method: 'POST', body: payload }),
+    cancelRazorpay: (payload = { at_cycle_end: true }) => request('/billing/razorpay/cancel', { method: 'POST', body: payload }),
+  }
+}

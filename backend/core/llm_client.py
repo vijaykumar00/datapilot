@@ -600,8 +600,8 @@ def resolve_settings_for_user(user_id: str | None, db) -> LLMSettings:
     settings = settings_for(provider)
     if not settings.configured:
         raise LLMConfigError(
-            f"No API key is configured for '{provider}'. Add your own key in Settings → API keys "
-            "or switch to the default provider.",
+            "The AI service isn't set up on this server yet. Please try again later "
+            "or contact the workspace administrator.",
             provider=provider,
         )
     return settings

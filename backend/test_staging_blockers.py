@@ -815,7 +815,7 @@ def test_agent_timeout_does_not_consume_query_quota(monkeypatch):
     before = _query_count(owner["workspace_id"])
     with patch.object(main, "build_client", lambda settings, cb=None: SlowLLM()):
         resp = client.post("/chat/stream", headers=owner["headers"],
-                           json={"message": "total revenue by region", "file_ids": [up["file_id"]]})
+                           json={"message": "explain total revenue by region", "file_ids": [up["file_id"]]})
     finals = [e for e in _sse_events(resp.text) if e.get("is_final")]
     assert len(finals) == 1 and finals[0]["type"] == "error", finals
     assert "no_result" not in finals[0]["metadata"]
@@ -825,7 +825,7 @@ def test_agent_timeout_does_not_consume_query_quota(monkeypatch):
     with patch.object(main, "build_client", lambda settings, cb=None: FakeLLM()):
         monkeypatch.setattr(BaseAgent, "timeout_seconds", 30)
         ok = client.post("/chat/stream", headers=owner["headers"],
-                         json={"message": "total revenue by region", "file_ids": [up["file_id"]]})
+                         json={"message": "explain total revenue by region", "file_ids": [up["file_id"]]})
     final = [e for e in _sse_events(ok.text) if e.get("is_final")][0]
     assert final["type"] != "error", final
     assert _query_count(owner["workspace_id"]) == before + 1
@@ -977,7 +977,7 @@ def test_async_routes_never_hand_an_open_transaction_back_to_the_event_loop(monk
     up = _upload(client, owner["headers"], b"region,revenue\nN,10\nS,20\n")
     with patch.object(main, "build_client", lambda settings, cb=None: FakeLLM()):
         chat = client.post("/chat/stream", headers=owner["headers"],
-                           json={"message": "total revenue by region", "file_ids": [up["file_id"]]})
+                           json={"message": "explain total revenue by region", "file_ids": [up["file_id"]]})
         assert chat.status_code == 200
         import core.transform_engine as te
 

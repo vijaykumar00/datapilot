@@ -1,4 +1,4 @@
-# DataPilot 🧭
+# Tallis
 
 > **Local-first AI data analysis assistant** — Upload CSV/Excel, ask questions, get insights, export results.
 

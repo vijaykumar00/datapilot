@@ -1,4 +1,4 @@
-"""Shared rate limiter for DataPilot.
+"""Shared rate limiter for Tallis.
 
 Algorithm: sliding-window *counter* (current + weighted previous fixed window).
 Each check is ONE Redis round trip of three cheap commands (INCR, EXPIRE, GET)
@@ -290,6 +290,7 @@ PATH_LIMITS = (
     ("/chat/stream", "chat", "RATE_LIMIT_CHAT_MAX_REQUESTS", 30, "RATE_LIMIT_CHAT_WINDOW_SECONDS", 60, False, None),
     ("/report/", "reports", "RATE_LIMIT_REPORT_MAX_REQUESTS", 30, "RATE_LIMIT_REPORT_WINDOW_SECONDS", 3600, False, ("POST",)),
     ("/export", "exports", "RATE_LIMIT_EXPORT_MAX_REQUESTS", 60, "RATE_LIMIT_EXPORT_WINDOW_SECONDS", 3600, False, None),
+    ("/billing/razorpay/webhook", "razorpay_webhook", "RATE_LIMIT_WEBHOOK_MAX_REQUESTS", 1000, "RATE_LIMIT_WEBHOOK_WINDOW_SECONDS", 60, True, None),
     ("/billing/webhook", "stripe_webhook", "RATE_LIMIT_WEBHOOK_MAX_REQUESTS", 1000, "RATE_LIMIT_WEBHOOK_WINDOW_SECONDS", 60, True, None),
     ("/billing", "billing", "RATE_LIMIT_BILLING_MAX_REQUESTS", 60, "RATE_LIMIT_BILLING_WINDOW_SECONDS", 60, False, None),
     ("/user/api-keys", "api_keys", "RATE_LIMIT_API_KEY_MAX_REQUESTS", 30, "RATE_LIMIT_API_KEY_WINDOW_SECONDS", 300, False, None),

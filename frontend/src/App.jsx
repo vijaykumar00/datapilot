@@ -39,6 +39,7 @@ const ProfileSettings = named(() => import('./components/SettingsLayout'), 'Prof
 const WorkspaceSettings = named(() => import('./components/SettingsLayout'), 'WorkspaceSettings')
 const TeamMembersSettings = named(() => import('./components/SettingsLayout'), 'TeamMembersSettings')
 const SecuritySessionsSettings = named(() => import('./components/SettingsLayout'), 'SecuritySessionsSettings')
+const PrivacySettings = named(() => import('./components/SettingsLayout'), 'PrivacySettings')
 
 function ViewFallback() {
   return (
@@ -67,7 +68,7 @@ function AuthRouteWrapper({ tab }) {
     <div className="h-[100dvh] overflow-y-auto bg-bg">
       <SEO
         title={tab === 'signup' ? 'Create Account' : tab === 'forgot' ? 'Reset Password' : 'Sign In'}
-        description="Secure DataPilot authentication screen."
+        description="Secure Tallis authentication screen."
         canonicalPath={tab === 'signup' ? '/signup' : tab === 'forgot' ? '/forgot-password' : '/login'}
         noindex
       />
@@ -103,7 +104,7 @@ function GuestModeTrigger({ message = 'Starting your free workspace' }) {
       <StatusScreen
         state="error"
         title="We couldn't start a guest workspace"
-        message="The DataPilot service didn't respond. Check your connection and try again, or create a free account to keep your work."
+        message="The Tallis service didn't respond. Check your connection and try again, or create a free account to keep your work."
         actions={(
           <>
             <button type="button" className="btn-primary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
@@ -235,6 +236,7 @@ export default function App() {
               <Route path="members" element={<TeamMembersSettings />} />
               <Route path="providers" element={<Navigate to="/app/settings/profile" replace />} />
               <Route path="security" element={<SecuritySessionsSettings />} />
+              <Route path="privacy" element={<PrivacySettings />} />
               <Route path="billing" element={<BillingPortal />} />
               <Route index element={<Navigate to="profile" replace />} />
             </Route>

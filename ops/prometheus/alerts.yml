@@ -1,4 +1,4 @@
-# Prometheus alerting rules for DataPilot.
+# Prometheus alerting rules for Tallis.
 # Scrape targets: API /metrics (bearer METRICS_TOKEN) and each worker on WORKER_METRICS_PORT.
 # Thresholds are starting points; tune after observing real traffic.
 groups:
@@ -9,7 +9,7 @@ groups:
         for: 2m
         labels: {severity: critical}
         annotations:
-          summary: "DataPilot API target {{ $labels.instance }} is down"
+          summary: "Tallis API target {{ $labels.instance }} is down"
 
       - alert: DataPilotHigh5xxRate
         expr: |
@@ -49,7 +49,7 @@ groups:
         for: 2m
         labels: {severity: critical}
         annotations:
-          summary: "No DataPilot worker is up: uploads, exports and reports will not complete"
+          summary: "No Tallis worker is up: uploads, exports and reports will not complete"
 
       - alert: DataPilotJobFailureRate
         expr: |
