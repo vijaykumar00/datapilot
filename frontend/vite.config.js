@@ -35,6 +35,8 @@ export default defineConfig(() => {
     server: {
       port: 5173,
       proxy,
+      // Allow the public link from share.bat (Cloudflare quick tunnel).
+      allowedHosts: ['.trycloudflare.com'],
     },
     optimizeDeps: {
       include: ['plotly.js-cartesian-dist-min'],

@@ -1,21 +1,21 @@
-# DataPilot test deployment for a Hugging Face Docker Space (free CPU tier).
+# DataPilot single-container test build.
 #
 # One container runs everything: nginx serves the built frontend on :7860 and
 # proxies /api to uvicorn on 127.0.0.1:8000. SQLite, local file storage,
 # in-memory rate limiting and inline background jobs replace Postgres, S3,
-# Redis and the worker. Data is wiped whenever the Space restarts or redeploys,
-# so this is for testing only, not production.
+# Redis and the worker. Meant for a small test group, not production.
 #
-# The deploy workflow (.github/workflows/deploy-huggingface.yml) copies this
-# file to the Space root and replaces __SPACE_URL__ with the Space's public URL.
+# Build from the repo root:
+#   docker build -f deploy/single-container/Dockerfile --build-arg PUBLIC_URL=https://... .
+# Mount a volume at /app/uploads to keep the database and uploaded files.
 
 FROM node:20-alpine AS web
 WORKDIR /web
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-ARG VITE_PUBLIC_SITE_URL=__SPACE_URL__
-ENV VITE_PUBLIC_SITE_URL=$VITE_PUBLIC_SITE_URL \
+ARG PUBLIC_URL=http://localhost:7860
+ENV VITE_PUBLIC_SITE_URL=$PUBLIC_URL \
     VITE_API_URL=/api
 RUN npm run build
 
@@ -29,7 +29,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nginx curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Hugging Face runs Spaces as uid 1000.
 RUN useradd -m -u 1000 user
 
 WORKDIR /app
@@ -38,8 +37,8 @@ RUN pip install -r requirements.txt
 
 COPY --chown=user backend/ /app/
 COPY --chown=user --from=web /web/dist /app/web
-COPY --chown=user deploy/huggingface/nginx.conf /app/nginx.conf
-COPY --chown=user deploy/huggingface/start.sh /app/start.sh
+COPY --chown=user deploy/single-container/nginx.conf /app/nginx.conf
+COPY --chown=user deploy/single-container/start.sh /app/start.sh
 
 RUN rm -f /app/.env \
     && mkdir -p /app/uploads /app/logs /tmp/nginx \
@@ -48,11 +47,12 @@ RUN rm -f /app/.env \
 
 USER user
 
+ARG PUBLIC_URL=http://localhost:7860
 ENV APP_ENV=staging \
     DEBUG=false \
-    APP_URL=__SPACE_URL__ \
-    FRONTEND_URL=__SPACE_URL__ \
-    ALLOWED_ORIGINS=__SPACE_URL__ \
+    APP_URL=${PUBLIC_URL} \
+    FRONTEND_URL=${PUBLIC_URL} \
+    ALLOWED_ORIGINS=${PUBLIC_URL} \
     COOKIE_SECURE=true \
     STORAGE_PROVIDER=local \
     RATE_LIMITER_BACKEND=memory \

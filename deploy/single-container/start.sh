@@ -1,15 +1,14 @@
 #!/bin/sh
 # Starts the API (uvicorn) and nginx in one container; exits if either stops,
-# so Hugging Face restarts the Space.
+# so Docker restarts the container.
 set -eu
 cd /app
 
 if [ -z "${GEMINI_API_KEY:-}" ]; then
-  echo "WARNING: GEMINI_API_KEY is not set. Add it as a secret in the Space settings; AI features will fail until then." >&2
+  echo "WARNING: GEMINI_API_KEY is not set. Set it in the deployment .env file; AI features will fail until then." >&2
 fi
 
-# Sessions only need to survive until the next restart (the SQLite database is
-# wiped then too), so a per-boot secret is fine when none is configured.
+# Without a configured secret, everyone is logged out on each restart.
 if [ -z "${JWT_SECRET:-}" ]; then
   JWT_SECRET="$(python -c 'import secrets; print(secrets.token_hex(64))')"
   export JWT_SECRET
